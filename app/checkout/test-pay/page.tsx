@@ -9,6 +9,7 @@ import {
   type PaymentOutcome,
 } from "@/lib/orders";
 import { signTestCallback, testAdapter } from "@/lib/payments/test-adapter";
+import { updateSupabaseOrderStatus } from "@/lib/orders-server";
 
 // Server action: runs the test adapter's verifyCallback logic and redirects
 // to the order page with the outcome in the query string. No real card
@@ -45,7 +46,11 @@ async function testPayAction(formData: FormData) {
   if (!verified) {
     redirect(`/orders/${orderId}?payment=failed`);
   }
-  updateOrderRecordStatus(orderId, applyPaymentOutcome(outcome));
+  const patch = applyPaymentOutcome(outcome);
+  updateOrderRecordStatus(orderId, patch);
+  // Keep the live Supabase order in sync too (best effort: no-op when
+  // Supabase is not configured or this was a local fallback order).
+  await updateSupabaseOrderStatus(orderId, patch);
   redirect(`/orders/${orderId}?payment=${outcome}`);
 }
 

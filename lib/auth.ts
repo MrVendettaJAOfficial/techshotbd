@@ -1,31 +1,31 @@
-// Demo authentication for TechShot.
+// Supabase Auth for TechShot.
 //
-// PRODUCTION NOTE: this is a local demo store, not the real auth system.
-// Production auth is Supabase Auth (see lib/supabase/*, written by a
-// parallel workstream). When Supabase is configured, this file is replaced
-// by Supabase Auth calls and this demo store is deleted; no demo account
-// or demo password must ever be treated as a real credential.
+// The demo localStorage auth store is gone: sign-up, sign-in and sign-out
+// all go through Supabase Auth (lib/supabase/client, browser client), and
+// the user's display name / role come from the `profiles` table. When
+// Supabase is not configured (no NEXT_PUBLIC_SUPABASE_URL /
+// NEXT_PUBLIC_SUPABASE_ANON_KEY in the environment), auth calls fail with
+// a generic message and nothing is stored locally — there is no demo
+// account, no demo admin, and no local password hash anywhere.
 //
-// Demo store design:
-// - Accounts and sessions live in localStorage only, per browser.
-// - Passwords are never stored in plain text. Each password is stored as
-//   a salted SHA-256 hash (WebCrypto): hash = SHA-256(salt + ":" +
-//   password), with a fresh random 16-byte salt per account. SHA-256 is
-//   used here only because it is what WebCrypto offers in the browser;
-//   production Supabase Auth uses proper password hashing server-side.
-// - The `admin` role can NEVER be assigned at sign-up. Sign-up only
-//   offers `customer` or `seller`. Admin access is granted manually —
-//   in production, in the database — and in this demo through the
-//   clearly labelled "Sign in as demo admin" button on /admin, which
-//   creates a local-only admin session. There is no demo admin password.
-// - Seller accounts need admin approval before they can publish
-//   products. Signing up as a seller creates a pending approval record
-//   (see lib/demo-store); the seller dashboard enforces it.
+// Roles: sign-up only offers `customer` or `seller`. The `admin` role can
+// never be assigned here (or by the profile server action in
+// lib/auth-server.ts); admins are granted manually in the database.
+// Seller accounts need admin approval before they can publish products
+// (see lib/demo-store); signing up as a seller still records that
+// pending approval.
+//
+// The useAuth() return shape and the AppUser type are unchanged from the
+// demo version, so Header / account / seller / admin / checkout pages
+// keep working without changes.
 
 "use client";
 
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { createClient } from "./supabase/client";
+import { ensureProfile } from "./auth-server";
 import { addSellerApproval } from "./demo-store";
 
 export type UserRole = "customer" | "seller" | "admin";
@@ -42,9 +42,6 @@ export interface AuthSession {
   createdAt: string;
 }
 
-const SESSION_KEY = "techshot-auth-v1";
-const USERS_KEY = "techshot-auth-users-v1";
-
 const signUpSchema = z.object({
   displayName: z.string().trim().min(2, "Please enter your name (at least 2 characters)."),
   email: z.string().trim().toLowerCase().email("Please enter a valid email address."),
@@ -57,71 +54,89 @@ const signInSchema = z.object({
   password: z.string().min(1, "Please enter your password."),
 });
 
-interface StoredUser {
-  id: string;
-  email: string;
-  displayName: string;
-  role: Exclude<UserRole, "admin">;
-  salt: string;
-  passwordHash: string;
-  createdAt: string;
+function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
 }
 
-function readJSON<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+/**
+ * The Supabase Database generic resolves query results to `never`
+ * with the installed supabase-js version (see lib/auth-server.ts and
+ * lib/products/queries.ts), so this file talks to the untyped client
+ * and casts profile rows to the local shape below. Runtime behaviour
+ * is unchanged.
+ */
+function untyped(client: unknown): SupabaseClient {
+  return client as unknown as SupabaseClient;
+}
+
+function notConfiguredError(): Error {
+  return new Error("Sign-in is not available right now. Please try again later.");
+}
+
+function isValidRole(value: unknown): value is UserRole {
+  return value === "customer" || value === "seller" || value === "admin";
+}
+
+/** Build the AppUser the rest of the app sees: profile row first,
+ *  user_metadata as a fallback when no profile row exists yet. */
+async function toAppUser(
+  supabase: SupabaseClient,
+  authUser: User,
+): Promise<AppUser> {
+  let displayName = "";
+  let role: UserRole = "customer";
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    const { data } = (await supabase
+      .from("profiles")
+      .select("display_name, role")
+      .eq("id", authUser.id)
+      .maybeSingle()) as {
+      data: { display_name: string | null; role: unknown } | null;
+    };
+    if (data) {
+      if (typeof data.display_name === "string" && data.display_name) {
+        displayName = data.display_name;
+      }
+      if (isValidRole(data.role)) role = data.role;
+    }
   } catch {
-    return fallback;
+    // Profile read failed — fall back to user_metadata below.
+  }
+  const metadata = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+  if (!displayName && typeof metadata.display_name === "string" && metadata.display_name) {
+    displayName = metadata.display_name;
+  }
+  if (!displayName) displayName = authUser.email?.split("@")[0] ?? "TechShot customer";
+  if (role === "customer" && metadata.role === "seller") role = "seller";
+  return { id: authUser.id, email: authUser.email ?? "", displayName, role };
+}
+
+async function loadSession(): Promise<AuthSession | null> {
+  if (!isSupabaseConfigured()) return null;
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    return null;
+  }
+  try {
+    const { data } = await supabase.auth.getSession();
+    const authUser = data.session?.user;
+    if (!authUser) return null;
+    const user = await toAppUser(supabase, authUser);
+    return { user, createdAt: new Date().toISOString() };
+  } catch {
+    return null;
   }
 }
 
-function writeJSON(key: string, value: unknown): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
-}
-
-function randomHex(bytes: number): string {
-  const arr = new Uint8Array(bytes);
-  window.crypto.getRandomValues(arr);
-  return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function hashPassword(salt: string, password: string): Promise<string> {
-  const data = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await window.crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function newId(): string {
-  if (typeof window !== "undefined" && "randomUUID" in window.crypto) {
-    return window.crypto.randomUUID();
-  }
-  return `user-${Date.now()}-${randomHex(8)}`;
-}
-
-function readUsers(): StoredUser[] {
-  return readJSON<StoredUser[]>(USERS_KEY, []);
-}
-
-function readSession(): AuthSession | null {
-  return readJSON<AuthSession | null>(SESSION_KEY, null);
-}
-
-function writeSession(session: AuthSession | null): void {
-  if (typeof window === "undefined") return;
-  if (session) {
-    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  } else {
-    window.localStorage.removeItem(SESSION_KEY);
-  }
-}
-
-/** Synchronous session read for client components. Returns null on the
- *  server (no localStorage there) and when nobody is signed in. */
-export function getSession(): AuthSession | null {
-  return readSession();
+/** Current session, or null when nobody is signed in (or Supabase is not
+ *  configured). Async: the session lives in Supabase cookies, not in
+ *  localStorage, so it cannot be read synchronously. */
+export async function getSession(): Promise<AuthSession | null> {
+  return loadSession();
 }
 
 export async function signUp(input: {
@@ -134,40 +149,63 @@ export async function signUp(input: {
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
   }
+  if (!isSupabaseConfigured()) throw notConfiguredError();
   const { displayName, email, password, role } = parsed.data;
-  const users = readUsers();
-  if (users.some((u) => u.email === email)) {
-    throw new Error("An account with this email already exists. Please sign in instead.");
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    throw notConfiguredError();
   }
-  const salt = randomHex(16);
-  const passwordHash = await hashPassword(salt, password);
-  const user: StoredUser = {
-    id: newId(),
+  const { data, error } = await supabase.auth.signUp({
     email,
-    displayName,
-    role,
-    salt,
-    passwordHash,
-    createdAt: new Date().toISOString(),
-  };
-  writeJSON(USERS_KEY, [...users, user]);
-  const session: AuthSession = {
-    user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role },
-    createdAt: new Date().toISOString(),
-  };
-  writeSession(session);
+    password,
+    options: {
+      data: { display_name: displayName, role },
+      emailRedirectTo:
+        typeof window !== "undefined"
+          ? `${window.location.origin}/auth/callback`
+          : undefined,
+    },
+  });
+  if (error) {
+    if (/already registered|already exists/i.test(error.message)) {
+      throw new Error("An account with this email already exists. Please sign in instead.");
+    }
+    throw new Error("Could not create your account. Please try again.");
+  }
+  const authUser = data.user;
+  if (!authUser) {
+    throw new Error("Could not create your account. Please try again.");
+  }
+  // Create / ensure the profiles row (id = auth user id). The server
+  // action validates the role and can never create an admin.
+  try {
+    await ensureProfile(authUser.id, displayName, role);
+  } catch {
+    // Profile creation is retried on next sign-in via the metadata
+    // fallback; sign-up itself still succeeded.
+  }
   if (role === "seller") {
     // A seller signup is a pending approval until an admin approves it.
     addSellerApproval({
-      id: `approval-${user.id}`,
+      id: `approval-${authUser.id}`,
       displayName,
       email,
       status: "pending",
-      createdAt: user.createdAt,
+      createdAt: new Date().toISOString(),
       decidedAt: null,
     });
   }
-  return session;
+  if (!data.session) {
+    // Email confirmation is on: there is no session yet. The account
+    // exists, but the user must confirm first.
+    throw new Error(
+      "Please check your email to confirm your account, then sign in.",
+    );
+  }
+  const user = await toAppUser(supabase, authUser);
+  return { user, createdAt: new Date().toISOString() };
 }
 
 export async function signIn(input: { email: string; password: string }): Promise<AuthSession> {
@@ -175,58 +213,37 @@ export async function signIn(input: { email: string; password: string }): Promis
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
   }
+  if (!isSupabaseConfigured()) throw notConfiguredError();
   const { email, password } = parsed.data;
-  const user = readUsers().find((u) => u.email === email);
-  if (!user) {
-    throw new Error("No account was found for this email. Please sign up first.");
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    throw notConfiguredError();
   }
-  const attempt = await hashPassword(user.salt, password);
-  if (attempt !== user.passwordHash) {
-    throw new Error("The password is incorrect. Please try again.");
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.session || !data.user) {
+    const message = error?.message ?? "";
+    if (/invalid login credentials/i.test(message)) {
+      throw new Error("The email or password is incorrect. Please try again.");
+    }
+    if (/email not confirmed/i.test(message)) {
+      throw new Error("Please confirm your email first, then sign in.");
+    }
+    throw new Error("Sign-in failed. Please try again.");
   }
-  const session: AuthSession = {
-    user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role },
-    createdAt: new Date().toISOString(),
-  };
-  writeSession(session);
-  return session;
+  const user = await toAppUser(supabase, data.user);
+  return { user, createdAt: new Date().toISOString() };
 }
 
-/**
- * Demo admin sign-in. Local only, no password: it creates an admin
- * session in this browser so the admin dashboard can be tried before
- * Supabase is connected. In production this function is deleted and
- * admin accounts are created in the database by an existing admin.
- */
-export function signInAsDemoAdmin(): AuthSession {
-  const session: AuthSession = {
-    user: {
-      id: "demo-admin",
-      email: "demo-admin@techshot.local",
-      displayName: "Demo Admin",
-      role: "admin",
-    },
-    createdAt: new Date().toISOString(),
-  };
-  writeSession(session);
-  return session;
-}
-
-export function signOut(): void {
-  writeSession(null);
-}
-
-/** Registered demo users, without password hashes or salts. For the
- *  admin dashboard's user list. Demo admin sessions are not registered
- *  users and are not listed here. */
-export function listDemoUsers(): Array<Pick<StoredUser, "id" | "email" | "displayName" | "role" | "createdAt">> {
-  return readUsers().map(({ id, email, displayName, role, createdAt }) => ({
-    id,
-    email,
-    displayName,
-    role,
-    createdAt,
-  }));
+export async function signOut(): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const supabase = untyped(createClient());
+    await supabase.auth.signOut();
+  } catch {
+    // Already signed out / unconfigured — nothing to do.
+  }
 }
 
 interface AuthContextValue {
@@ -249,16 +266,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refresh = () => setSession(readSession());
+  const refresh = () => {
+    void loadSession().then(setSession);
+  };
 
   useEffect(() => {
-    refresh();
-    setLoading(false);
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === SESSION_KEY) refresh();
+    let cancelled = false;
+    void loadSession().then((next) => {
+      if (!cancelled) {
+        setSession(next);
+        setLoading(false);
+      }
+    });
+    let unsubscribe: (() => void) | undefined;
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = untyped(createClient());
+        const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          if (cancelled) return;
+          if (!nextSession?.user) {
+            setSession(null);
+            return;
+          }
+          void toAppUser(supabase, nextSession.user).then((user) =>
+            setSession({
+              user,
+              createdAt: new Date().toISOString(),
+            }),
+          );
+        });
+        unsubscribe = () => data.subscription.unsubscribe();
+      }
+    } catch {
+      // Supabase not configured — stay signed out.
+    }
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -268,8 +313,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       refresh,
       signOutUser: () => {
-        signOut();
         setSession(null);
+        void signOut();
       },
     }),
     [session, loading],

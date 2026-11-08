@@ -10,6 +10,7 @@ import {
   type PlaceOrderResult,
 } from "@/lib/orders";
 import { testAdapter } from "@/lib/payments/test-adapter";
+import { createSupabaseOrder } from "@/lib/orders-server";
 import CheckoutForm from "./CheckoutForm";
 
 export default function CheckoutPage() {
@@ -17,9 +18,10 @@ export default function CheckoutPage() {
   // module exports only the component itself): validates the address
   // server-side with zod, recomputes totals from the catalog (never
   // trusting browser totals), validates stock, creates the order
-  // (in-memory record in this preview; production must do this in a
-  // Supabase transaction) and tells the client where to go next:
-  // online payments go to the TEST payment page, COD goes to the order page.
+  // (in Supabase via lib/orders-server.ts for signed-in users when
+  // configured, otherwise the in-memory record in lib/orders.ts) and
+  // tells the client where to go next: online payments go to the TEST
+  // payment page, COD goes to the order page.
   async function placeOrderAction(input: PlaceOrderInput): Promise<PlaceOrderResult> {
     "use server";
     const parsedAddress = addressSchema.safeParse(input.address);
@@ -39,6 +41,35 @@ export default function CheckoutPage() {
     }
     if (!["standard", "express"].includes(input.delivery)) {
       return { ok: false, errors: {}, message: "Choose a delivery option." };
+    }
+
+    // Try the live Supabase order path first for signed-in users: it
+    // re-prices from live DB prices, checks stock, writes the order +
+    // items and decrements stock (lib/orders-server.ts). It returns
+    // useLocalFallback when Supabase is not configured or the shopper
+    // is a guest — then the local path below runs unchanged. A
+    // validation failure from Supabase (bad coupon, out of stock) is
+    // shown instead of falling back, so the shopper sees the real
+    // reason instead of being charged a stale local price.
+    const supabaseResult = await createSupabaseOrder(input);
+    if (supabaseResult.ok) {
+      // Register the same order in the in-memory store so the
+      // test-payment page, confirmation page and payment callback
+      // (which read it via getOrderRecord) keep working.
+      const order = createOrderRecord(supabaseResult.order);
+      const isOnline = input.paymentMethod !== "cod";
+      if (!isOnline) {
+        return { ok: true, order, redirectTo: `/orders/${order.id}` };
+      }
+      const payment = await testAdapter.createPayment({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        total_poisha: order.total_poisha,
+      });
+      return { ok: true, order, redirectTo: payment.redirectUrl };
+    }
+    if (!supabaseResult.useLocalFallback) {
+      return { ok: false, errors: {}, message: supabaseResult.message };
     }
 
     // Recompute everything server-side from catalog prices.

@@ -31,12 +31,14 @@ Then open http://localhost:3000.
 
 ### Supabase
 
+The live project **TechshotBD** already exists and its database is already set up (schema, RLS policies and seed data applied). If you are setting up from scratch:
+
 1. Create a Supabase project you own (https://supabase.com/dashboard). Do not use anyone else's project or keys.
 2. In the Supabase **SQL editor**, apply the files in order:
    1. `supabase/migrations/0001_initial_schema.sql`
    2. `supabase/policies.sql`
    3. `supabase/seed.sql`
-3. Set in `.env.local`:
+3. Set in `.env.local` (from your project's Settings, API Keys — use the publishable and secret keys):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY` (server-only — never import it in browser code)
@@ -69,25 +71,32 @@ Checkout uses a **test payment adapter only** (`lib/payments/test-adapter.ts`, b
 
 To plug in a real gateway later (bKash, Nagad, or a card gateway), implement the same `PaymentAdapter` interface and wire it in where `testAdapter` is used today. Checkout code does not change — only the adapter.
 
-## Demo auth (before Supabase Auth is wired in)
+## Automatic sync — add a product, it appears on the site
 
-Until Supabase Auth is connected, sign-in/sign-up use a **local demo store** (`lib/auth.ts`):
+The storefront reads its catalogue **live from Supabase** on every page load (`lib/supabase/catalog.ts`; homepage, `/shop` and `/product/[slug]` are dynamic server components). There is no build step between a product change and the public site:
 
-- Accounts live in the browser's localStorage only. Passwords are stored as salted SHA-256 hashes (WebCrypto), never in plain text.
-- Sign-up offers **customer** or **seller** only. The `admin` role is never assignable from sign-up.
-- Seller accounts need **admin approval** before they can publish products. Sign-up as a seller creates a pending approval, decided on `/admin`.
-- Admin access is granted manually. In the demo, `/admin` offers a clearly labelled **"Sign in as demo admin"** button that creates a local-only admin session (no password). It is deleted when Supabase Auth lands.
-- Demo seller/admin data (added products, pauses, approvals, coupons, order-status changes) lives in localStorage via `lib/demo-store.ts`. Seller-added products appear on the shop page in a "New from sellers" section (`components/SellerProductsSection.tsx`). Pauses/edits/removals of base-catalogue products apply in the seller and admin dashboards only; they will apply to the public shop once products come from Supabase instead of the local catalogue.
+- **Add** a product in `/seller` (your own products) or `/admin` (any product) and it appears on the homepage, `/shop` and search on the next page load.
+- **Edit** a product (price, stock, description, image) and the new values show on the next load.
+- **Pause** a product and it disappears from the public site immediately; **activate** it and it comes back.
+- **Delete** a product and its detail page returns 404.
 
-When Supabase is configured, `lib/auth.ts` is replaced by Supabase Auth and the demo store is deleted. The auth callback page (`app/auth/callback/page.tsx`) is a placeholder until then.
+How it works: product writes go through server actions (`lib/products/actions.ts`) that validate on the server, write to the `products` table, and call `revalidatePath` for `/`, `/shop` and `/product/<slug>`. Public reads filter `status = 'active'` in the query and again in code (`lib/catalog-rules.ts`), so draft/paused products never leak to visitors. A seller can only touch their own products; an admin can touch all of them (enforced in the server actions, since the service-role client bypasses RLS).
+
+If Supabase is **not configured** (no env vars), the site falls back to the local seed catalogue (`lib/data/catalog.ts`) and localStorage cart/orders/auth so it can still be previewed — but product changes made in the dashboards will not persist or appear publicly until Supabase is connected. Set `.env.local` (below) to switch the live path on.
+
+## Supabase Auth
+
+Sign-in and sign-up use **Supabase Auth** (`lib/auth.ts`): email/password, http-only cookie session, profile row created on sign-up with role `customer` or `seller` (never `admin` — admin is granted manually in the database). Seller accounts need admin approval before they can publish products. Middleware (`middleware.ts`) refreshes the session from cookies and redirects unsigned users away from `/seller` and `/admin`, and non-admins away from `/admin`. There is no demo admin account and no demo sign-in button.
+
+Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_items`) for signed-in users when Supabase is configured; totals are always recomputed server-side from live database prices and stock is decremented on order creation (with rollback on failure). Guests and unconfigured installs keep the previous localStorage behaviour. Reviews can only be written for products in a delivered order the reviewer owns.
 
 ## What is NOT yet live
 
-- **No real Supabase project is connected.** The storefront runs on the local seed catalogue (`lib/data/catalog.ts`) and browser localStorage (cart, checkout, orders, demo auth). To go live: create your own Supabase project, apply the SQL files above, set `.env.local`, and replace the local stores with Supabase queries.
-- **Product photos are not in this repo.** The Figma product photos (JPEGs) could not be pushed as binary files, so `public/images/products/` ships empty. After cloning, copy the product photos into `public/images/products/` (filenames in `lib/data/catalog.ts`) or upload them to Supabase Storage and update the catalogue image paths. Until then every product card shows a solid-colour card with the product's initial letter (`components/ProductImage.tsx`) — the storefront works either way.
+- **Live verification against the TechshotBD project has not been done yet.** The live code path (Supabase catalogue, Auth, cart/orders) is tested with unit tests and a mocked client only, because no Supabase keys were available to the build. To verify: set `.env.local` from your Supabase project (Settings, API Keys — use the publishable and secret keys), run `npm run dev`, add a test product in `/admin` and check it appears on `/shop`, then delete it and check it disappears.
+- **Product photos are not in this repo.** The Figma product photos (JPEGs) could not be pushed as binary files, so `public/images/products/` ships empty. After cloning, copy the product photos into `public/images/products/` (filenames in `lib/data/catalog.ts`) or upload them to Supabase Storage and update the catalogue image paths. Until then every product card shows a solid-colour card with the product's initial letter (`components/ProductImage.tsx`) — the storefront works either way. The product form also accepts an image URL or Storage path per product.
 - **No Vercel deploy.** To deploy: import this repo into Vercel, set the same environment variables there, and deploy. No deploy URL exists yet.
 - **No real payment gateway.** Only the test adapter described above. A real gateway needs its own adapter, merchant credentials, and webhook verification — none of that is configured.
-- **No real order fulfilment.** Orders are stored locally; there is no warehouse, courier, or email/SMS notification integration yet.
+- **No real order fulfilment.** Orders are stored in Supabase (or locally when unconfigured); there is no warehouse, courier, or email/SMS notification integration yet.
 
 ## Security notes
 
@@ -97,7 +106,7 @@ When Supabase is configured, `lib/auth.ts` is replaced by Supabase Auth and the 
 - **Totals are computed server-side from database prices** (`lib/pricing.ts`); a total sent by the browser is never trusted.
 - **Error pages are generic.** `app/error.tsx` shows "Something went wrong." with a random reference code — no stack trace, SQL, or table names.
 - **Security headers** (including a Content Security Policy) are set in `next.config.mjs`.
-- **Middleware is a pass-through** (`middleware.ts`) because demo auth lives in localStorage, which middleware cannot read. Seller/admin pages enforce access in the browser with `useAuth`. When Supabase Auth is connected, middleware must be replaced with a real cookie-session check.
+- **Middleware enforces auth** (`middleware.ts`): it refreshes the Supabase session from cookies and redirects unsigned users away from `/seller` and `/admin`, and non-admins away from `/admin`. When Supabase is not configured it passes requests through (the site still previews on the local fallback catalogue).
 
 ## Project structure
 
@@ -120,18 +129,24 @@ components/
   ui.tsx              Shared primitives: Button, Card, Badge, Input, Select, Field, EmptyState, SectionHeading
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
-  SellerProductsSection.tsx  Seller-added products on the shop page (demo store)
+  ProductManager.tsx  Seller/admin product form + list (server actions)
   Header.tsx / Footer.tsx
 lib/
   theme.ts            Design tokens, formatBDT, pricing constants
-  data/catalog.ts     Local seed catalogue (replaced by Supabase queries when live)
-  cart-store.ts       Cart state (localStorage)
-  checkout-store.ts   Cart/checkout/orders/account state (localStorage): listOrders, updateOrderStatus
+  data/catalog.ts     Local seed catalogue (fallback when Supabase is not configured)
+  catalog-rules.ts    Pure catalogue visibility/mapping rules (public = active only)
+  supabase/catalog.ts Live catalogue reads from Supabase
+  products/           Product server actions, validation, server reads
+  cart-store.ts       Cart state (Supabase when signed in, localStorage fallback)
+  checkout-store.ts   Cart/checkout/orders/account state: listOrders, updateOrderStatus
+  cart-server.ts      Server cart sync (Supabase carts/cart_items)
+  orders-server.ts    Server order creation from live DB prices, order status, reviews
+  auth-server.ts      Server auth helpers (profile, listUsers, code exchange)
   pricing.ts          Delivery + coupon + totals (pure functions, poisha)
   payments/           PaymentAdapter interface + test adapter
   supabase/           Supabase browser/server clients and types
-  auth.ts             DEMO auth store (localStorage; replaced by Supabase Auth)
-  demo-store.ts       DEMO seller/admin stores (localStorage)
+  auth.ts             Supabase Auth (email/password, cookie session)
+  demo-store.ts       Legacy local demo data (seller approvals, admin coupons) — being retired
 supabase/
   migrations/0001_initial_schema.sql
   policies.sql        Row Level Security policies
@@ -139,7 +154,9 @@ supabase/
 tests/
   pricing.test.mjs    Pricing rule-table tests (node:test)
   payments.test.mjs   Test-payment adapter contract tests (node:test)
-middleware.ts         Pass-through (see Security notes)
+  catalog.test.mjs    Live-catalogue visibility rules (add/delete/pause, DB prices)
+  products-actions.test.mjs  Product slug/validation helpers
+middleware.ts         Supabase session + role check for /seller and /admin
 ```
 
 ## Contributing

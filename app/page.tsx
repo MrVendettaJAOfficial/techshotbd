@@ -13,13 +13,8 @@ import {
   Truck,
   Zap,
 } from "lucide-react";
-import {
-  CATEGORIES,
-  FLASH_DEAL_ENDS_AT,
-  PRODUCTS,
-  SUBSCRIPTIONS,
-  getProduct,
-} from "../lib/data/catalog";
+import { PRODUCTS } from "../lib/data/catalog";
+import { getCatalog } from "../lib/supabase/catalog";
 import { formatBDT } from "../lib/theme";
 import ProductCard, { TrendingRow } from "../components/ProductCard";
 import ProductImage from "../components/ProductImage";
@@ -37,11 +32,21 @@ const CATEGORY_ICONS: Record<string, typeof Smartphone> = {
   "smart-home": ShieldCheck,
 };
 
-export default function HomePage() {
-  const heroProduct = getProduct("apple-iphone-16-pro") ?? PRODUCTS[0];
-  const trending = PRODUCTS.slice(0, 4);
-  const flashProducts = PRODUCTS.filter((p) => p.flash).slice(0, 3);
-  const categoryTiles = CATEGORIES.slice(0, 8);
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const { products, categories, subscriptions, flashEndsAt } = await getCatalog();
+  // Hero: the iPhone if it is in the live catalogue, else the first
+  // active product. PRODUCTS[0] is only a last resort for an empty
+  // catalogue, so the hero never renders without a product.
+  const heroProduct =
+    products.find((p) => p.slug === "apple-iphone-16-pro") ??
+    products.find((p) => p.slug.startsWith("apple-iphone")) ??
+    products[0] ??
+    PRODUCTS[0];
+  const trending = products.slice(0, 4);
+  const flashProducts = products.filter((p) => p.flash).slice(0, 3);
+  const categoryTiles = categories.slice(0, 8);
   const brands = ["Apple", "Samsung", "Sony", "Google", "Bose", "Logitech"];
 
   return (
@@ -190,7 +195,7 @@ export default function HomePage() {
                 Big savings, while stock lasts.
               </p>
             </div>
-            <FlashCountdown endsAt={FLASH_DEAL_ENDS_AT.getTime()} />
+            <FlashCountdown endsAt={flashEndsAt.getTime()} />
           </div>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {flashProducts.map((product) => (
@@ -280,7 +285,7 @@ export default function HomePage() {
           Premium plans, delivered to your email within minutes.
         </p>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          {SUBSCRIPTIONS.map((plan) => (
+          {subscriptions.map((plan) => (
             <div
               key={plan.slug}
               className="flex flex-col rounded-2xl border border-border bg-panel p-6"

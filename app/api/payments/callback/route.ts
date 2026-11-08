@@ -7,6 +7,7 @@ import {
   updateOrderRecordStatus,
 } from "@/lib/orders";
 import { testAdapter } from "@/lib/payments/test-adapter";
+import { updateSupabaseOrderFromCallback } from "@/lib/orders-server";
 
 // POST /api/payments/callback — test-gateway callback endpoint.
 // Body: { orderId, status, signature }. "status" is "paid" (the adapter's
@@ -55,6 +56,10 @@ export async function POST(request: Request) {
   }
 
   const outcome = adapterStatusToOutcome(adapterStatus);
-  updateOrderRecordStatus(orderId, applyPaymentOutcome(outcome));
+  const patch = applyPaymentOutcome(outcome);
+  updateOrderRecordStatus(orderId, patch);
+  // Keep the live Supabase order in sync too. This runs only after the
+  // callback signature was verified above, which is the trust boundary.
+  await updateSupabaseOrderFromCallback(orderId, patch);
   return NextResponse.json({ ok: true, status: adapterStatus });
 }

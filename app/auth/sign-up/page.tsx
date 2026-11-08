@@ -1,6 +1,8 @@
 // Sign-up page. Roles offered here are customer and seller only — the
 // admin role is never assignable from sign-up (see lib/auth). Seller
 // accounts need admin approval before they can publish products.
+// Sign-up goes through Supabase Auth; if email confirmation is on,
+// the account is created but the user must confirm by email first.
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -26,11 +28,13 @@ function SignUpForm() {
   const [role, setRole] = useState<"customer" | "seller">("customer");
   const [errors, setErrors] = useState<{ displayName?: string; email?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
+    setNotice(null);
     const parsed = formSchema.safeParse({ displayName, email, password, role });
     if (!parsed.success) {
       const next: typeof errors = {};
@@ -49,7 +53,13 @@ function SignUpForm() {
       router.push("/account");
       router.refresh();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Sign-up failed. Please try again.");
+      const message = error instanceof Error ? error.message : "Sign-up failed. Please try again.";
+      // Email confirmation: the account was created, this is not a failure.
+      if (message.startsWith("Please check your email")) {
+        setNotice(message);
+      } else {
+        setFormError(message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -143,6 +153,11 @@ function SignUpForm() {
               Seller accounts need admin approval before publishing products. You can sign in and
               set up your shop right away, but your products stay hidden from shoppers until an
               admin approves your account.
+            </p>
+          ) : null}
+          {notice ? (
+            <p role="status" className="rounded-lg border border-[#5bd4a0]/40 bg-[#5bd4a0]/15 px-3 py-2 text-sm text-[#5bd4a0]">
+              {notice}
             </p>
           ) : null}
           {formError ? (

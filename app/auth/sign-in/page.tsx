@@ -1,5 +1,5 @@
-// Sign-in page. Uses the demo auth store (lib/auth); when Supabase Auth
-// is configured this page switches to Supabase sign-in instead.
+// Sign-in page. Uses Supabase Auth (lib/auth); when Supabase is not
+// configured, sign-in reports that it is unavailable.
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -100,11 +100,7 @@ function SignInForm() {
             </Link>
           </p>
           <p className="text-xs text-muted">
-            Admin access is granted manually. The demo admin sign-in is on the{" "}
-            <Link href="/admin" className="text-brand hover:underline">
-              admin page
-            </Link>
-            .
+            Admin access is granted manually in the database.
           </p>
         </div>
       </Card>

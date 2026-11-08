@@ -1,28 +1,89 @@
-// Next.js middleware.
+// Next.js middleware — Supabase Auth guard for /seller and /admin.
 //
-// LIMITATION, BY DESIGN: this middleware is a pass-through. It does not
-// enforce authentication on /seller or /admin, because the demo auth
-// session lives in localStorage (lib/auth, key techshot-auth-v1), which
-// middleware cannot read — middleware only sees cookies. A fake auth
-// check here (for example, redirecting when no cookie exists) would
-// lock every demo user out of the seller and admin pages, since the
-// demo never sets an auth cookie.
+// Reads the Supabase session from the request cookies (via
+// @supabase/ssr) and refreshes it, then:
+//   - no session on /seller/* or /admin/*  -> redirect to /auth/sign-in
+//   - signed in but not an admin on /admin/* -> redirect to /
+// The admin role check reads the caller's `profiles` row with the
+// request-scoped client (RLS allows a user to read their own row).
+// Page-level checks in the seller / admin pages still apply; this is
+// the server-side gate, and Row Level Security is the real boundary
+// for data.
 //
-// The seller and admin pages therefore enforce access themselves, in the
-// browser, with useAuth: unsigned users are redirected to /auth/sign-in,
-// and the admin page refuses non-admin users. That is correct for the
-// demo, and it is not a security boundary — demo data is local to the
-// browser. When Supabase Auth is connected, this file must be replaced
-// with a real check: read the Supabase session from the request cookies
-// (via @supabase/ssr) and redirect /seller and /admin to /auth/sign-in
-// when there is no session, with role checks enforced by Row Level
-// Security in the database.
+// UNCONFIGURED MODE: when the Supabase env vars are missing, this
+// middleware falls back to NextResponse.next() and locks nobody out —
+// the site keeps working in its local/fallback mode. Do not "fix" that
+// by redirecting here; the fallback is deliberate.
 //
 // Security headers live in next.config.mjs, not here.
-import { NextResponse } from "next/server";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
-export function middleware() {
-  return NextResponse.next();
+export async function middleware(request: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Not configured: pass through (see header note).
+  if (!url || !anonKey) {
+    return NextResponse.next();
+  }
+
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options),
+        );
+      },
+    },
+  });
+
+  // Refreshes the session (and validates it) — getUser() revalidates
+  // the token against Supabase Auth instead of trusting the cookie.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+
+  if (!user) {
+    const signInUrl = request.nextUrl.clone();
+    signInUrl.pathname = "/auth/sign-in";
+    signInUrl.searchParams.set("next", pathname);
+    const redirect = NextResponse.redirect(signInUrl);
+    // Carry any refreshed session cookies onto the redirect response.
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      redirect.cookies.set(cookie.name, cookie.value);
+    });
+    return redirect;
+  }
+
+  if (pathname.startsWith("/admin")) {
+    const { data: profile } = (await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle()) as { data: { role: string } | null };
+    if (profile?.role !== "admin") {
+      const homeUrl = request.nextUrl.clone();
+      homeUrl.pathname = "/";
+      homeUrl.search = "";
+      const redirect = NextResponse.redirect(homeUrl);
+      supabaseResponse.cookies.getAll().forEach((cookie) => {
+        redirect.cookies.set(cookie.name, cookie.value);
+      });
+      return redirect;
+    }
+  }
+
+  return supabaseResponse;
 }
 
 export const config = {

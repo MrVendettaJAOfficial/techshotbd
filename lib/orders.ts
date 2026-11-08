@@ -11,9 +11,14 @@
 // adapter uses node:crypto.
 //
 // Persistence note: orders are kept in a module-level in-memory Map in
-// this preview. In production this module must read/write the Supabase
-// `orders` and `cart_items` tables inside a database transaction, and the
-// in-memory store below must be removed.
+// this preview. Signed-in users with Supabase configured get real
+// orders instead: lib/orders-server.ts createSupabaseOrder() writes to
+// the Supabase `orders` / `order_items` tables (re-pricing from live
+// DB prices, checking stock, decrementing it, rolling back on failure)
+// and returns the same StoredOrder shape; the checkout page registers
+// that order here too, so the test-pay / confirmation pages — which
+// read this store — keep working. The in-memory store is the fallback
+// for guests and for unconfigured Supabase.
 
 import { z } from "zod";
 import {

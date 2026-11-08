@@ -9,11 +9,16 @@
 //
 // Persistence note (gap, stated plainly): orders, addresses, wishlist
 // and profile are stored in the browser's localStorage in this preview.
-// They are NOT yet persisted to Supabase. The server-side in-memory order
-// record created at checkout lives in lib/orders.ts and is a separate,
-// per-server-instance store; the two are reconciled by order id (checkout
-// saves the same order object to both). Production must replace both with
-// Supabase orders / cart_items / addresses tables.
+// They are NOT yet persisted to Supabase, except for orders placed by a
+// signed-in user when Supabase is configured: those are created in the
+// Supabase `orders` / `order_items` tables by lib/orders-server.ts
+// createSupabaseOrder() (called from the checkout page) and the same
+// order is also saved here so the Orders / Account pages can list it.
+// The server-side in-memory order record created at checkout lives in
+// lib/orders.ts and is a separate, per-server-instance store; the two
+// are reconciled by order id (checkout saves the same order object to
+// both). Production must replace both with Supabase orders / cart_items
+// / addresses tables.
 
 export type DeliveryOption = "standard" | "express";
 export type PaymentMethod = "card" | "bkash" | "nagad" | "cod" | "emi";

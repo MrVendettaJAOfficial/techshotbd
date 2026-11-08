@@ -5,9 +5,8 @@
 
 import Link from "next/link";
 import { SearchX } from "lucide-react";
-import { CATEGORIES, PRODUCTS, categoryName } from "../../lib/data/catalog";
+import { getCatalog } from "../../lib/supabase/catalog";
 import ProductCard from "../../components/ProductCard";
-import SellerProductsSection from "../../components/SellerProductsSection";
 
 const PAGE_SIZE = 9;
 
@@ -49,7 +48,12 @@ function buildHref(
   return query ? `/shop?${query}` : "/shop";
 }
 
-export default function ShopPage({ searchParams }: { searchParams: SearchParams }) {
+export const dynamic = "force-dynamic";
+
+export default async function ShopPage({ searchParams }: { searchParams: SearchParams }) {
+  const { products, categories } = await getCatalog();
+  const categoryName = (slug: string): string =>
+    categories.find((c) => c.slug === slug)?.name ?? slug;
   const q = (first(searchParams.q) ?? "").trim();
   const category = first(searchParams.category) ?? "";
   const flash = first(searchParams.flash) === "1";
@@ -64,12 +68,12 @@ export default function ShopPage({ searchParams }: { searchParams: SearchParams 
 
   // Brand counts across the full catalog.
   const brandCounts = new Map<string, number>();
-  for (const p of PRODUCTS) {
+  for (const p of products) {
     brandCounts.set(p.brand, (brandCounts.get(p.brand) ?? 0) + 1);
   }
   const brands = [...brandCounts.keys()].sort();
 
-  let results = PRODUCTS.filter((p) => {
+  let results = products.filter((p) => {
     if (flash && !p.flash) return false;
     if (category && p.category !== category) return false;
     if (q) {
@@ -121,7 +125,7 @@ export default function ShopPage({ searchParams }: { searchParams: SearchParams 
         >
           All
         </Link>
-        {CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <Link
             key={c.slug}
             href={buildHref(searchParams, { category: c.slug, page: undefined, flash: undefined })}
@@ -358,7 +362,6 @@ export default function ShopPage({ searchParams }: { searchParams: SearchParams 
               </div>
             </>
           )}
-          <SellerProductsSection />
         </div>
       </div>
     </div>
