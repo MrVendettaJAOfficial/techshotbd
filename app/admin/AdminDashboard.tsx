@@ -3,12 +3,20 @@
 // Product management lives in components/ProductManager.tsx and is
 // backed by Supabase through lib/products/actions.ts — the shop
 // reflects every change there. The users list is also live now
-// (profiles rows, passed in as props from the server page).
+// (profiles rows, passed in as props from the server page), and so
+// is the orders list: when Supabase is configured, orders come from
+// the live database (lib/orders-server.ts listAdminOrders) and the
+// Advance / Cancel / Refund buttons call the admin-only server
+// actions in lib/orders/actions.ts, which validate the transition,
+// write an audit_log row and revalidate the order pages — the
+// customer order page moves as soon as the admin advances it. When
+// Supabase is not configured, the orders section falls back to the
+// local demo store (lib/checkout-store), exactly like the storefront
+// catalogue fallback.
 //
-// The sections below are unchanged from the demo dashboard and are
-// NOT yet wired to Supabase: orders (lib/checkout-store) and coupons
-// (lib/demo-store). There is no seller-approval section any more:
-// TechShot is single-seller, so nobody can sign up as a seller.
+// Coupons are still stored locally in the demo (lib/demo-store).
+// There is no seller-approval section any more: TechShot is
+// single-seller, so nobody can sign up as a seller.
 //
 // NOTE on the demo admin button: the auth workstream has removed the
 // demo auth store (lib/auth.ts no longer exports signInAsDemoAdmin
@@ -33,6 +41,7 @@ import {
 } from "@/lib/demo-store";
 import { formatBDT } from "@/lib/theme";
 import { listOrders, updateOrderStatus, type StoredOrder } from "@/lib/checkout-store";
+import { advanceOrderStatus, setOrderStatus } from "@/lib/orders/actions";
 import { Badge, Button, Card, EmptyState, Field, Input, SectionHeading } from "@/components/ui";
 import ProductManager from "@/components/ProductManager";
 
@@ -43,6 +52,8 @@ interface ListedOrder {
   id: string;
   orderNumber: string;
   status: string;
+  /** Latest payment status ("paid" gates the Refund button). */
+  paymentStatus?: string;
   totalPoisha: number;
   createdAt?: string;
   items: Array<{ title?: string; quantity?: number; pricePoisha?: number }>;
@@ -55,6 +66,7 @@ function fromStoredOrder(order: StoredOrder): ListedOrder {
     id: order.id,
     orderNumber: order.orderNumber,
     status: order.status,
+    paymentStatus: order.paymentStatus,
     totalPoisha: order.total_poisha,
     createdAt: order.createdAt,
     items: order.items.map((item) => ({
@@ -82,13 +94,16 @@ interface AdminDashboardProps {
   configured: boolean;
   /** Live profiles rows (admin users list). Empty when Supabase is not configured. */
   users: AdminUserItem[];
+  /** Live Supabase orders for the admin list. Empty when Supabase is not configured. */
+  initialOrders: ListedOrder[];
 }
 
-export default function AdminDashboard({ products, categories, configured, users }: AdminDashboardProps) {
+export default function AdminDashboard({ products, categories, configured, users, initialOrders }: AdminDashboardProps) {
   const router = useRouter();
   const { user, loading, signOutUser } = useAuth();
-  const [orders, setOrders] = useState<ListedOrder[]>([]);
+  const [orders, setOrders] = useState<ListedOrder[]>(initialOrders);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [orderError, setOrderError] = useState<string | null>(null);
 
   const [couponCode, setCouponCode] = useState("");
   const [couponValue, setCouponValue] = useState("");
@@ -102,8 +117,14 @@ export default function AdminDashboard({ products, categories, configured, users
 
   useEffect(() => {
     refreshAll();
-    setOrders(listOrders().map(fromStoredOrder));
-  }, [refreshAll]);
+    // Live orders when Supabase is configured; the local demo store
+    // is only the fallback for an unconfigured install.
+    if (configured) {
+      setOrders(initialOrders);
+    } else {
+      setOrders(listOrders().map(fromStoredOrder));
+    }
+  }, [refreshAll, configured, initialOrders]);
 
   if (loading) {
     return (
@@ -137,12 +158,44 @@ export default function AdminDashboard({ products, categories, configured, users
   const ordersWithStatus = orders;
   const totalRevenue = ordersWithStatus.reduce((sum, o) => sum + o.totalPoisha, 0);
 
-  function handleAdvanceOrder(order: ListedOrder) {
+  /** Advance one order via the live server action (or the local demo
+   *  store when Supabase is not configured). The server validates the
+   *  transition, writes the audit row and revalidates the order pages,
+   *  so the customer order page moves too. */
+  async function handleAdvanceOrder(order: ListedOrder) {
+    setOrderError(null);
+    if (configured) {
+      const result = await advanceOrderStatus(order.id);
+      if (!result.ok) {
+        setOrderError(result.error);
+        return;
+      }
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
+      );
+      router.refresh();
+      return;
+    }
     const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
     const index = flow.indexOf(order.status);
     const next = index >= 0 && index < flow.length - 1 ? flow[index + 1] : "delivered";
     updateOrderStatus(order.id, { status: next as StoredOrder["status"] });
     setOrders(listOrders().map(fromStoredOrder));
+  }
+
+  /** Cancel / refund via the live server action (configured only —
+   *  the demo store has no cancel or refund path). */
+  async function handleSetOrderStatus(order: ListedOrder, target: "cancelled" | "refunded") {
+    setOrderError(null);
+    const result = await setOrderStatus(order.id, target);
+    if (!result.ok) {
+      setOrderError(result.error);
+      return;
+    }
+    setOrders((prev) =>
+      prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
+    );
+    router.refresh();
   }
 
   function handleAddCoupon(event: FormEvent) {
@@ -221,10 +274,17 @@ export default function AdminDashboard({ products, categories, configured, users
 
       <div className="mt-10">
         <SectionHeading title="Orders" description="Advance an order through pending payment, confirmed, processing, shipped, delivered." />
+        {orderError ? (
+          <p role="alert" className="mb-4 text-sm text-[#f87171]">{orderError}</p>
+        ) : null}
         {ordersWithStatus.length === 0 ? (
           <EmptyState
             title="No orders yet"
-            description="Orders appear here once checkout stores them (lib/checkout-store)."
+            description={
+              configured
+                ? "Orders placed on the shop appear here."
+                : "Orders appear here once checkout stores them locally."
+            }
             className="mb-10"
           />
         ) : (
@@ -246,11 +306,27 @@ export default function AdminDashboard({ products, categories, configured, users
                       ))}
                     </ul>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="brand">{order.status}</Badge>
-                    {order.status !== "delivered" ? (
+                    {order.status !== "delivered" &&
+                    order.status !== "cancelled" &&
+                    order.status !== "refunded" ? (
                       <Button variant="outline" size="sm" onClick={() => handleAdvanceOrder(order)}>
                         Advance status
+                      </Button>
+                    ) : null}
+                    {(order.status === "pending_payment" || order.status === "confirmed") &&
+                    configured ? (
+                      <Button variant="danger" size="sm" onClick={() => handleSetOrderStatus(order, "cancelled")}>
+                        Cancel
+                      </Button>
+                    ) : null}
+                    {order.paymentStatus === "paid" &&
+                    order.status !== "cancelled" &&
+                    order.status !== "refunded" &&
+                    configured ? (
+                      <Button variant="outline" size="sm" onClick={() => handleSetOrderStatus(order, "refunded")}>
+                        Refund
                       </Button>
                     ) : null}
                   </div>

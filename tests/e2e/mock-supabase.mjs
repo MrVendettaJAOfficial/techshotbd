@@ -12,6 +12,12 @@
 // real RLS policies are verified by reading supabase/policies.sql, not by
 // this mock.
 // Port: 3101 by default (MOCK_SUPABASE_PORT overrides).
+//
+// Admin mode: MOCK_ADMIN=1 seeds user-1's profile with role "admin",
+// so the /admin orders flow (list + Advance / Cancel / Refund server
+// actions) can be exercised end to end. The app never overwrites an
+// existing profiles row on sign-in, so the seeded admin role survives
+// sign-in (see lib/auth-server.ts ensureProfile).
 import http from "node:http";
 
 const PORT = Number(process.env.MOCK_SUPABASE_PORT ?? 3101);
@@ -64,12 +70,24 @@ const PRODUCTS = [
   updated_at: new Date().toISOString(),
 }));
 
+const ADMIN_MODE = process.env.MOCK_ADMIN === "1";
+
 const db = {
   categories: CATS,
   products: PRODUCTS,
   product_images: [],
   product_variants: [],
-  profiles: [],
+  profiles: ADMIN_MODE
+    ? [
+        {
+          id: "user-1",
+          role: "admin",
+          display_name: "Test Admin",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ]
+    : [],
   addresses: [],
   wishlists: [],
   carts: [],
@@ -81,6 +99,7 @@ const db = {
   ],
   payments: [],
   reviews: [],
+  audit_log: [],
 };
 
 const USER = {
@@ -318,7 +337,32 @@ async function handle(req, res) {
       const body = await readBody(req);
       const items = Array.isArray(body) ? body : [body];
       const now = new Date().toISOString();
+      // Real PostgREST honours on_conflict: with
+      // Prefer: resolution=ignore-duplicates (how the app upserts
+      // profiles rows — see lib/auth-server.ts ensureProfile) a row
+      // whose conflict columns already exist is skipped, never
+      // overwritten, so a seeded admin role can never be downgraded
+      // to customer. Without ignore-duplicates the existing row is
+      // updated instead. Either way no duplicate row is ever created:
+      // .maybeSingle() callers (middleware's admin check, the admin
+      // orders list) would otherwise get a 406 for two rows.
+      const onConflict = url.searchParams.get("on_conflict");
+      const ignoreDuplicates = (req.headers.prefer || "").includes(
+        "resolution=ignore-duplicates",
+      );
       const inserted = items.map((it) => {
+        if (onConflict) {
+          const cols = onConflict.split(",");
+          const existing = rows.find((r) =>
+            cols.every((c) => String(r[c] ?? "") === String(it[c] ?? "")),
+          );
+          if (existing) {
+            if (!ignoreDuplicates) {
+              Object.assign(existing, it, { updated_at: now });
+            }
+            return existing;
+          }
+        }
         const row = { ...it, id: it.id || nid(table.slice(0, 4)), created_at: it.created_at || now, updated_at: now };
         rows.push(row);
         return row;

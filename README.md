@@ -87,6 +87,8 @@ BASE_URL=http://127.0.0.1:3100 node tests/e2e/smoke.mjs
 
 The script signs in, checks the "Signed in successfully" banner and the name / email / role / sign-out button on `/account`, adds a live-slug product to the cart, checks the badge/cart/totals, checks out with the test card, pays successfully and confirms the order is paid and listed in `/account` order history, then repeats with a failed payment (order stays unpaid, retry works) and with COD (no payment step). Run it with `TEST_PAYMENT_SIGNING_SECRET` set as well to also exercise the signed `/api/payments/callback` path. Without any env vars the same script covers the localStorage fallback path (and checks the signed-out `/account` prompt).
 
+To exercise the admin orders flow against the mock instead, start the mock with `MOCK_ADMIN=1` (it seeds the signed-in user as admin), sign in, place a COD order, then open `/admin`: the order is listed from the live database and Advance moves it confirmed → processing → shipped → delivered, with the customer order page moving too.
+
 ## Test payment instructions (TEST MODE)
 
 Checkout uses a **test payment adapter only** (`lib/payments/test-adapter.ts`, behind the `PaymentAdapter` interface in `lib/payments/index.ts`). No real money moves, and the adapter never collects or stores real card or bank details.
@@ -171,7 +173,7 @@ Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_it
 - **Product photos are not in this repo.** The Figma product photos (JPEGs) could not be pushed as binary files, so `public/images/products/` ships empty. After cloning, copy the product photos into `public/images/products/` (filenames in `lib/data/catalog.ts`) or upload them to Supabase Storage and update the catalogue image paths. Until then every product card shows a solid-colour card with the product's initial letter (`components/ProductImage.tsx`) — the storefront works either way. The product form also accepts an image URL or Storage path per product.
 - **No Vercel deploy.** To deploy: import this repo into Vercel, set the same environment variables there, and deploy. No deploy URL exists yet.
 - **No real payment gateway.** Only the test adapter described above. A real gateway needs its own adapter, merchant credentials, and webhook verification — none of that is configured.
-- **No real order fulfilment.** Orders are stored in Supabase (or locally when unconfigured); there is no warehouse, courier, or email/SMS notification integration yet.
+- **No real order fulfilment.** Orders are stored in Supabase (or locally when unconfigured); there is no warehouse, courier, or email/SMS notification integration yet. Admin order status changes ARE live, though: in `/admin`, Advance / Cancel / Refund call admin-only server actions (`lib/orders/actions.ts`) that validate the transition (pending_payment → confirmed → processing → shipped → delivered; cancel only from pending_payment / confirmed; refund only from a paid order), write an `audit_log` row and revalidate the customer order pages — so a status change in `/admin` moves the order on the customer's order page too. Admin coupons are still stored locally in the demo store, not in Supabase.
 
 ## Security notes
 
