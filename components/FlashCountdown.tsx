@@ -3,6 +3,16 @@
 // Live flash-deal countdown. Updates every second and shows hours,
 // minutes and seconds in solid boxes. Accepts the deal end time as a
 // millisecond timestamp or an ISO string.
+//
+// Hydration safety: the remaining time depends on Date.now(), so it
+// can never be rendered during the first (server) render — the server
+// renders one second value and the client hydrates a second later
+// with a different one, which throws minified React errors #425/#422
+// on the home page. The component therefore renders a static
+// placeholder (00:00:00, identical server-side and client-side) until
+// it has mounted, and only then starts the live countdown in an
+// effect. The placeholder uses the exact same markup and boxes as the
+// live countdown, so there is no layout shift on mount.
 
 import { useEffect, useState } from "react";
 
@@ -20,6 +30,10 @@ function remainingParts(endsAtMs: number) {
   };
 }
 
+// Static placeholder shown before mount: deterministic, so the HTML
+// the server sends and the HTML React hydrates are byte-identical.
+const PLACEHOLDER = { hours: 0, minutes: 0, seconds: 0 };
+
 export default function FlashCountdown({
   endsAt,
 }: {
@@ -27,9 +41,14 @@ export default function FlashCountdown({
 }) {
   const endsAtMs =
     typeof endsAt === "string" ? new Date(endsAt).getTime() : endsAt;
-  const [now, setNow] = useState(() => remainingParts(endsAtMs));
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState(PLACEHOLDER);
 
   useEffect(() => {
+    setMounted(true);
+    // Tick immediately on mount (the interval alone would leave the
+    // placeholder showing for a full second) and then every second.
+    setNow(remainingParts(endsAtMs));
     const timer = window.setInterval(
       () => setNow(remainingParts(endsAtMs)),
       1000,
@@ -37,10 +56,14 @@ export default function FlashCountdown({
     return () => window.clearInterval(timer);
   }, [endsAtMs]);
 
+  // Before mount, render the placeholder; after mount, the live time.
+  // `mounted` is false on both the server render and the first client
+  // render, so hydration always matches.
+  const parts = mounted ? now : PLACEHOLDER;
   const boxes = [
-    { value: pad(now.hours), label: "Hours" },
-    { value: pad(now.minutes), label: "Minutes" },
-    { value: pad(now.seconds), label: "Seconds" },
+    { value: pad(parts.hours), label: "Hours" },
+    { value: pad(parts.minutes), label: "Minutes" },
+    { value: pad(parts.seconds), label: "Seconds" },
   ];
 
   return (
