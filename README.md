@@ -38,6 +38,11 @@ The live project **TechshotBD** already exists and its database is already set u
    1. `supabase/migrations/0001_initial_schema.sql`
    2. `supabase/policies.sql`
    3. `supabase/seed.sql`
+   4. `supabase/migrations/0002_profile_trigger.sql` — creates the
+      `profiles` row automatically when a user signs up (see "Supabase
+      Auth" below). **If your project was set up before this file
+      existed, run it now too** — it also backfills profiles rows for
+      users who signed up earlier and whose `profiles` table is empty.
 3. Set in `.env.local` (from your project's Settings, API Keys — use the publishable and secret keys):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -54,7 +59,7 @@ The live project **TechshotBD** already exists and its database is already set u
 | `npm run start`   | Serve the production build                    |
 | `npm run lint`    | Lint                                          |
 | `npm run typecheck` | `tsc --noEmit`                              |
-| `npm test`        | `node --test tests/*.test.mjs` (pricing + test-payment contract tests) |
+| `npm test`        | `node --test tests/*.test.mjs` (pricing, payments, catalogue, product actions, profile creation) |
 
 ## Test payment instructions (TEST MODE)
 
@@ -87,6 +92,29 @@ If Supabase is **not configured** (no env vars), the site falls back to the loca
 ## Supabase Auth
 
 Sign-in and sign-up use **Supabase Auth** (`lib/auth.ts`): email/password, http-only cookie session, profile row created on sign-up with role `customer` or `seller` (never `admin` — admin is granted manually in the database). Seller accounts need admin approval before they can publish products. Middleware (`middleware.ts`) refreshes the session from cookies and redirects unsigned users away from `/seller` and `/admin`, and non-admins away from `/admin`. There is no demo admin account and no demo sign-in button.
+
+**How the profiles row is created** (fixed 2026-11-08 — a profile used to be lost when email confirmation was on, because sign-up then returns no session): the row is now created in three independent ways, all using the same rules in `lib/profile-rules.ts` (role is `customer` or `seller` only, never `admin`; an existing row is never overwritten, so an admin can never be downgraded):
+1. a database trigger (`supabase/migrations/0002_profile_trigger.sql`) creates the row the moment the `auth.users` row is inserted, and backfills rows for users who signed up before the trigger existed;
+2. `ensureCurrentUserProfile()` in `lib/auth-server.ts` creates a missing row on every password sign-in and on session load, from the signed-in user's own metadata;
+3. sign-up still tries `ensureProfile()` immediately when a session exists (email confirmation off).
+
+**Making yourself admin:** sign up and sign in once (that creates your profile row), then in the Supabase SQL Editor run, with your own email:
+
+```sql
+update public.profiles set role = 'admin'
+where id = (select id from auth.users where email = 'you@example.com');
+```
+
+If your profile row is still missing entirely (you signed up before migration 0002 was applied), create it as admin in one step instead:
+
+```sql
+insert into public.profiles (id, display_name, role)
+values ((select id from auth.users where email = 'you@example.com'),
+        'Your Name', 'admin')
+on conflict (id) do update set role = 'admin';
+```
+
+Then sign out and sign in again and open `/admin`.
 
 Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_items`) for signed-in users when Supabase is configured; totals are always recomputed server-side from live database prices and stock is decremented on order creation (with rollback on failure). Guests and unconfigured installs keep the previous localStorage behaviour. Reviews can only be written for products in a delivered order the reviewer owns.
 
@@ -142,6 +170,7 @@ lib/
   cart-server.ts      Server cart sync (Supabase carts/cart_items)
   orders-server.ts    Server order creation from live DB prices, order status, reviews
   auth-server.ts      Server auth helpers (profile, listUsers, code exchange)
+  profile-rules.ts    Pure profile creation rules (role never admin, never overwrite)
   pricing.ts          Delivery + coupon + totals (pure functions, poisha)
   payments/           PaymentAdapter interface + test adapter
   supabase/           Supabase browser/server clients and types
@@ -149,6 +178,7 @@ lib/
   demo-store.ts       Legacy local demo data (seller approvals, admin coupons) — being retired
 supabase/
   migrations/0001_initial_schema.sql
+  migrations/0002_profile_trigger.sql  Creates profiles rows on sign-up + backfills missing ones
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/
@@ -156,6 +186,7 @@ tests/
   payments.test.mjs   Test-payment adapter contract tests (node:test)
   catalog.test.mjs    Live-catalogue visibility rules (add/delete/pause, DB prices)
   products-actions.test.mjs  Product slug/validation helpers
+  profile.test.mjs    Profile creation rules (sign-in creates a missing profile, never admin, never overwrite)
 middleware.ts         Supabase session + role check for /seller and /admin
 ```
 

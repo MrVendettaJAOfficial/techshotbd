@@ -25,7 +25,7 @@ import { createContext, createElement, useContext, useEffect, useMemo, useState,
 import { z } from "zod";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/client";
-import { ensureProfile } from "./auth-server";
+import { ensureCurrentUserProfile, ensureProfile } from "./auth-server";
 import { addSellerApproval } from "./demo-store";
 
 export type UserRole = "customer" | "seller" | "admin";
@@ -125,6 +125,15 @@ async function loadSession(): Promise<AuthSession | null> {
     const { data } = await supabase.auth.getSession();
     const authUser = data.session?.user;
     if (!authUser) return null;
+    // A user whose profiles row was never created at sign-up (email
+    // confirmation on: no session then) gets it now, on session load.
+    // Existing rows are never overwritten; failures are ignored here
+    // because the database trigger is the other safety net.
+    try {
+      await ensureCurrentUserProfile();
+    } catch {
+      // Profile creation is retried on the next sign-in.
+    }
     const user = await toAppUser(supabase, authUser);
     return { user, createdAt: new Date().toISOString() };
   } catch {
@@ -179,12 +188,16 @@ export async function signUp(input: {
     throw new Error("Could not create your account. Please try again.");
   }
   // Create / ensure the profiles row (id = auth user id). The server
-  // action validates the role and can never create an admin.
+  // action validates the role and can never create an admin. With
+  // email confirmation on, signUp returns no session, so this throws
+  // here — that is expected, not a failure: the row is then created
+  // by the database trigger (supabase/migrations/0002_profile_trigger.sql)
+  // and again on the first sign-in (ensureCurrentUserProfile).
   try {
     await ensureProfile(authUser.id, displayName, role);
   } catch {
-    // Profile creation is retried on next sign-in via the metadata
-    // fallback; sign-up itself still succeeded.
+    // Profile creation is retried on the first sign-in (see signIn)
+    // and by the database trigger; sign-up itself still succeeded.
   }
   if (role === "seller") {
     // A seller signup is a pending approval until an admin approves it.
@@ -231,6 +244,16 @@ export async function signIn(input: { email: string; password: string }): Promis
       throw new Error("Please confirm your email first, then sign in.");
     }
     throw new Error("Sign-in failed. Please try again.");
+  }
+  // The user now has a session: create their profiles row if it was
+  // never created at sign-up (email confirmation on: no session then).
+  // Existing rows are never overwritten and "admin" can never be
+  // assigned here; a failure does not block sign-in because the
+  // database trigger is the other safety net.
+  try {
+    await ensureCurrentUserProfile();
+  } catch {
+    // Profile creation is retried on the next session load.
   }
   const user = await toAppUser(supabase, data.user);
   return { user, createdAt: new Date().toISOString() };

@@ -18,6 +18,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient, createClient } from "./supabase/server";
 
+import {
+  buildProfileRow,
+  deriveProfileFromMetadata,
+} from "./profile-rules";
+
 import type { AppUser, UserRole } from "./auth";
 
 /**
@@ -111,14 +116,13 @@ export async function exchangeAuthCode(code: string): Promise<{ ok: true }> {
     const supabase = untyped(createClient());
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error || !data.user) throw genericError;
-    const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>;
-    const role = metadata.role === "seller" ? "seller" : "customer";
-    const displayName =
-      typeof metadata.display_name === "string" && metadata.display_name
-        ? metadata.display_name
-        : (data.user.email?.split("@")[0] ?? "TechShot customer");
+    const row = deriveProfileFromMetadata(
+      data.user.id,
+      (data.user.user_metadata ?? {}) as Record<string, unknown>,
+      data.user.email ?? null,
+    );
     try {
-      await ensureProfile(data.user.id, displayName, role);
+      await ensureProfile(data.user.id, row.display_name, row.role);
     } catch {
       // The profile may already exist or creation failed; sign-in
       // still succeeded and the provider falls back to user_metadata.
@@ -132,11 +136,20 @@ export async function exchangeAuthCode(code: string): Promise<{ ok: true }> {
 
 /**
  * Create the profiles row for a newly signed-up user (called from
- * lib/auth.ts signUp). The row is created only when the signed-in
- * session belongs to the same user id, and only when no row exists
- * yet — an existing row is never overwritten, so an admin's role can
- * never be downgraded here. The "admin" role can never be assigned
- * here: only "customer" or "seller" are accepted.
+ * lib/auth.ts signUp and from exchangeAuthCode). The row is created
+ * only when the signed-in session belongs to the same user id, and
+ * only when no row exists yet — an existing row is never overwritten,
+ * so an admin's role can never be downgraded here. The "admin" role
+ * can never be assigned here: only "customer" or "seller" are
+ * accepted (see lib/profile-rules.ts).
+ *
+ * NOTE: with email confirmation on, signUp returns no session, so
+ * this call throws at sign-up time and the row is created later —
+ * by the database trigger in supabase/migrations/0002_profile_trigger.sql
+ * when the auth.users row is inserted, and by
+ * ensureCurrentUserProfile() on the first sign-in. Nothing is lost:
+ * the row is derived from the user's id, metadata and email, all of
+ * which survive sign-up without a session.
  */
 export async function ensureProfile(
   userId: string,
@@ -144,9 +157,12 @@ export async function ensureProfile(
   role: "customer" | "seller",
 ): Promise<{ ok: true }> {
   const genericError = new Error("Could not create your profile. Please try again.");
-  const cleanName = displayName.trim();
-  if (!userId || cleanName.length < 2) throw genericError;
-  if (role !== "customer" && role !== "seller") throw genericError;
+  let row: { id: string; display_name: string; role: "customer" | "seller" };
+  try {
+    row = buildProfileRow(userId, displayName, role);
+  } catch {
+    throw genericError;
+  }
 
   let admin: SupabaseClient;
   try {
@@ -161,9 +177,44 @@ export async function ensureProfile(
 
   const { error } = await admin
     .from("profiles")
-    .upsert({ id: userId, display_name: cleanName, role }, { onConflict: "id", ignoreDuplicates: true });
+    .upsert(row, { onConflict: "id", ignoreDuplicates: true });
   if (error) throw genericError;
   return { ok: true };
+}
+
+/**
+ * Create a missing profiles row for the currently signed-in user,
+ * derived from their own session metadata — no user id is accepted
+ * from the caller, so one user can never create a profile for
+ * another. Called after a successful password sign-in (lib/auth.ts
+ * signIn) and on session load, so a user whose row was never created
+ * at sign-up (email confirmation on: no session then) gets their row
+ * the first time they sign in. Existing rows are never overwritten
+ * (upsert with ignoreDuplicates), so an admin's role can never be
+ * downgraded here, and "admin" can never be assigned here.
+ * Returns { ok: false } instead of throwing when there is no signed-in
+ * user or creation fails — callers treat that as "try again later"
+ * and sign-in itself still succeeds.
+ */
+export async function ensureCurrentUserProfile(): Promise<{ ok: boolean }> {
+  try {
+    const supabase = untyped(createClient());
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) return { ok: false };
+    const row = deriveProfileFromMetadata(
+      data.user.id,
+      (data.user.user_metadata ?? {}) as Record<string, unknown>,
+      data.user.email ?? null,
+    );
+    const admin = untyped(createAdminClient());
+    const { error: upsertError } = await admin
+      .from("profiles")
+      .upsert(row, { onConflict: "id", ignoreDuplicates: true });
+    if (upsertError) return { ok: false };
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export interface ListedUser {
