@@ -25,6 +25,17 @@ const connectSrc = ["'self'", "https://*.supabase.co", "wss://*.supabase.co", su
   .filter(Boolean)
   .join(" ");
 
+// Development only: Next.js dev mode evaluates modules with eval
+// (webpack devtool), which the production CSP below blocks — with
+// 'unsafe-eval' missing, every page throws EvalError and client-side
+// JavaScript (including the sign-in form) silently stops working in
+// `npm run dev`. Production builds never use eval, so the production
+// header stays strict. Never enable this outside development.
+const scriptSrc =
+  process.env.NODE_ENV === "development"
+    ? "'self' 'unsafe-inline' 'unsafe-eval'"
+    : "'self' 'unsafe-inline'";
+
 const nextConfig = {
   images: {
     remotePatterns: [],
@@ -41,7 +52,7 @@ const nextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+              `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
           },
         ],
       },

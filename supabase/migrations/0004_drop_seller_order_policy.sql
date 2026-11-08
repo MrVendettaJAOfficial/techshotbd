@@ -1,0 +1,38 @@
+-- TechShot marketplace — drop the legacy seller order policy (migration 0004).
+--
+-- Background (live bug found 2026-11-08, first live Supabase test):
+-- any SELECT on public.orders as an authenticated customer failed with
+--   "infinite recursion detected in policy for relation orders"
+-- so /orders in a fresh browser showed "No orders yet" even though the
+-- orders existed, and /account showed no live orders either. (Orders
+-- placed and read through the service-role client were unaffected,
+-- which is why checkout, /admin and the first-browser order pages
+-- worked — they never hit this path.)
+--
+-- Root cause — a policy cycle between orders and order_items:
+--   orders_select_seller (on orders) reads public.order_items, and
+--   order_items_select_buyer (on order_items) reads public.orders.
+-- Evaluating either policy re-enters the other, forever. Postgres
+-- detects the loop and fails the query.
+--
+-- Fix: drop orders_select_seller. It is legacy from before the
+-- single-seller change (2026-11-08): sellers were removed, the store
+-- has one seller (the owner), and no seller account can read orders
+-- any more. With it gone the remaining orders policies reference no
+-- other table (orders_select_own is user_id = auth.uid();
+-- orders_admin_all uses the SECURITY DEFINER is_admin(), which reads
+-- profiles directly and cannot recurse), so order_items_select_buyer
+-- becomes a one-way reference and the cycle is gone. The buyer keeps
+-- reading their own orders (orders_select_own) and their own items
+-- (order_items_select_buyer); admins keep full access.
+--
+-- The same change is made in supabase/policies.sql (the canonical
+-- policy file for a fresh setup) — keep the two in sync.
+--
+-- Apply in the Supabase SQL Editor AFTER 0003. Safe to run: it only
+-- drops one policy; no data is changed and no other policy is
+-- touched. Verify after applying, as the signed-in test customer:
+--   select order_number from public.orders order by created_at desc;
+-- must return the customer's orders instead of the recursion error.
+
+drop policy if exists "orders_select_seller" on public.orders;

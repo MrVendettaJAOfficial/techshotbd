@@ -51,6 +51,16 @@ The live project **TechshotBD** already exists and its database is already set u
       Auth" below). **If your project was set up before this file
       existed, run it now too** — it also backfills profiles rows for
       users who signed up earlier and whose `profiles` table is empty.
+   5. `supabase/migrations/0003_order_items_variant.sql` — records
+      which variant row each order line decremented (cancel / refund
+      stock restore).
+   6. `supabase/migrations/0004_drop_seller_order_policy.sql` — drops
+      the legacy `orders_select_seller` policy. Without it, any
+      authenticated SELECT on `orders` fails with "infinite recursion
+      detected in policy for relation orders" (the policy read
+      `order_items` while `order_items_select_buyer` reads `orders`),
+      so a signed-in customer's `/orders` page showed "No orders yet"
+      in a fresh browser even though their orders existed.
 3. Set in `.env.local` (from your project's Settings, API Keys — use the publishable and secret keys):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -173,8 +183,8 @@ Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_it
 
 ## What is NOT yet live
 
-- **Apply migration 0003 on the live project.** `supabase/migrations/0003_order_items_variant.sql` adds `order_items.variant_id` so a cancel / refund restores stock on exactly the variant row checkout decremented. Run it in the Supabase SQL Editor after migration 0002. The app works without it (restores fall back to the product row, or skip a line it cannot attribute), but variant-product restores need it. Migration 0002 (profile trigger) still needs applying if it was never applied.
-- **Live verification against the TechshotBD project has not been done yet.** The live code path (Supabase catalogue, Auth, cart/orders) is tested with unit tests and a mocked Supabase (see "End-to-end checks" above), because no Supabase keys were available to the build. To verify: set `.env.local` from your Supabase project (Settings, API Keys — use the publishable and secret keys), run `npm run dev`, add a test product in `/admin` and check it appears on `/shop`, then delete it and check it disappears. After the 2026-11-08 review fixes, also verify live: admin Advance double-click moves one step only; cancelling a live order restores its stock, shows cancelled in `/admin`, and shows the stock-released confirmation on the order page; a paid order refunds only through Refund (test adapter, no real money); a failed test payment followed by a successful retry keeps the paid record (payment attempts are append-only).
+- **Apply migration 0004 on the live project.** `supabase/migrations/0004_drop_seller_order_policy.sql` drops the legacy `orders_select_seller` policy. Until it is applied, a signed-in customer's `/orders` page shows "No orders yet" in a fresh browser (and `/account` shows no live orders) because every authenticated SELECT on `orders` fails with "infinite recursion detected in policy for relation orders". Migrations 0002 and 0003 were applied live on 2026-11-08.
+- **Live verification against the TechshotBD project (first run 2026-11-08).** Verified live with a test account: live catalogue (12 seeded products), sign-in + success banner + `/account` dashboard, profile auto-created by the 0002 trigger, admin grant, admin add/pause/delete product round-trip (new products appear on `/shop` page 2 / category / search — page 1 holds 9), card order with FIRST2000 (−৳2,000) and free delivery (order confirmed, payment row paid, stock decremented), COD order, admin double-click Advance moving exactly one step with exactly one audit row, customer cancel restoring stock with the stock message, admin refund keeping the paid row and adding a refunded row, no hydration errors and no favicon errors. Still to verify after migration 0004 is applied: `/orders` in a fresh browser listing the customer's live orders. Product photos are still missing (see below), so product pages log `/_next/image` 400 errors for the absent JPEGs.
 - **Product photos are not in this repo.** The Figma product photos (JPEGs) could not be pushed as binary files, so `public/images/products/` ships empty. After cloning, copy the product photos into `public/images/products/` (filenames in `lib/data/catalog.ts`) or upload them to Supabase Storage and update the catalogue image paths. Until then every product card shows a solid-colour card with the product's initial letter (`components/ProductImage.tsx`) — the storefront works either way. The product form also accepts an image URL or Storage path per product.
 - **Favicon is an SVG, not an .ico.** `app/icon.svg` (navy square, orange bolt) is served as the favicon because the snapshot push is UTF-8 text only and cannot carry a binary `.ico` file.
 - **No Vercel deploy.** To deploy: import this repo into Vercel, set the same environment variables there, and deploy. No deploy URL exists yet.
@@ -184,11 +194,11 @@ Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_it
 ## Security notes
 
 - **No secrets in this repo.** `.env.local` is git-ignored; `.env.example` contains only empty placeholders. Never commit a real key.
-- **Row Level Security is default-deny.** `supabase/migrations/0001_initial_schema.sql` enables RLS on every table; with no policy, a row is invisible. `supabase/policies.sql` grants: visitors read active products/categories only; customers touch only their own data; admins get full access through `is_admin()`. The `admin` role can never be set from sign-up. `payments` and `audit_log` have no non-admin policy at all. Note: `supabase/policies.sql` still contains the old seller product/order policies from before the single-seller change — they are legacy, the app never relies on them (product writes are admin-only server actions), and they were not re-applied as part of that change.
+- **Row Level Security is default-deny.** `supabase/migrations/0001_initial_schema.sql` enables RLS on every table; with no policy, a row is invisible. `supabase/policies.sql` grants: visitors read active products/categories only; customers touch only their own data; admins get full access through `is_admin()`. The `admin` role can never be set from sign-up. `payments` and `audit_log` have no non-admin policy at all. The legacy `orders_select_seller` policy was removed in migration 0004 — it read `order_items` while `order_items_select_buyer` reads `orders`, which made every authenticated SELECT on `orders` fail with infinite recursion; never re-add a policy on `orders` that reads `order_items`. Other old seller product policies remain in the file as legacy; the app never relies on them (product writes are admin-only server actions).
 - **Service-role key is server-only.** It bypasses RLS and must never be imported in browser code, returned in an API response, or logged.
 - **Totals are computed server-side from database prices** (`lib/pricing.ts`); a total sent by the browser is never trusted.
 - **Error pages are generic.** `app/error.tsx` shows "Something went wrong." with a random reference code — no stack trace, SQL, or table names.
-- **Security headers** (including a Content Security Policy) are set in `next.config.mjs`. The CSP `connect-src` allows the hosted `*.supabase.co` origins plus exactly the Supabase origin the app is configured with (`NEXT_PUBLIC_SUPABASE_URL`) when it is not a `*.supabase.co` host — that is what lets the browser reach a local mock Supabase or a self-hosted instance; with a hosted URL the header is unchanged.
+- **Security headers** (including a Content Security Policy) are set in `next.config.mjs`. The CSP `connect-src` allows the hosted `*.supabase.co` origins plus exactly the Supabase origin the app is configured with (`NEXT_PUBLIC_SUPABASE_URL`) when it is not a `*.supabase.co` host — that is what lets the browser reach a local mock Supabase or a self-hosted instance; with a hosted URL the header is unchanged. `script-src` adds `'unsafe-eval'` in development only: Next.js dev mode evaluates modules with eval, and without it every page throws EvalError and client-side JavaScript (including sign-in) silently stops working in `npm run dev`; production builds never use eval, so the production header stays strict.
 - **Middleware enforces auth** (`middleware.ts`): it refreshes the Supabase session from cookies and redirects unsigned users away from `/admin`, and non-admins away from `/admin`. When Supabase is not configured it passes requests through (the site still previews on the local fallback catalogue).
 
 ## Project structure
@@ -236,6 +246,7 @@ supabase/
   migrations/0001_initial_schema.sql
   migrations/0002_profile_trigger.sql  Creates profiles rows on sign-up + backfills missing ones
   migrations/0003_order_items_variant.sql  Records which variant row each order line decremented (cancel / refund stock restore)
+  migrations/0004_drop_seller_order_policy.sql  Drops legacy orders_select_seller (broke authenticated orders reads with infinite RLS recursion)
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/

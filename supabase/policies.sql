@@ -288,16 +288,14 @@ create policy "orders_select_own" on public.orders
   for select to authenticated
   using (user_id = auth.uid());
 
-drop policy if exists "orders_select_seller" on public.orders;
-create policy "orders_select_seller" on public.orders
-  for select to authenticated
-  using (
-    exists (
-      select 1 from public.order_items
-      where order_items.order_id = orders.id
-        and order_items.seller_id = auth.uid()
-    )
-  );
+-- orders_select_seller was removed in migration 0004 (2026-11-08):
+-- it read public.order_items while order_items_select_buyer reads
+-- public.orders, which made any authenticated SELECT on orders fail
+-- with "infinite recursion detected in policy for relation orders".
+-- Sellers were removed when the store went single-seller, so the
+-- policy was legacy. Do NOT re-add a policy on orders that reads
+-- order_items (or any policy on order_items that reads orders while
+-- an orders policy reads order_items) — the cycle comes straight back.
 
 drop policy if exists "orders_insert_own" on public.orders;
 create policy "orders_insert_own" on public.orders
