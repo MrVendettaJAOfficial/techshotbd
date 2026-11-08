@@ -54,7 +54,7 @@ function SignInForm() {
     <main className="mx-auto w-full max-w-md px-4 py-12">
       <SectionHeading
         title="Sign in to TechShot"
-        description="Welcome back. Sign in to shop, sell, and track your orders."
+        description="Welcome back. Sign in to shop and track your orders."
       />
       <Card>
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
