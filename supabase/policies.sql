@@ -1,0 +1,430 @@
+-- TechShot marketplace — Row Level Security policies.
+-- Apply AFTER supabase/migrations/0001_initial_schema.sql. RLS is already
+-- enabled on every table there, so with no policy a row is invisible
+-- (default deny). This file is idempotent: every policy is dropped first.
+--
+-- Rules:
+--   * Visitors (anon) may read active products / categories only.
+--   * Customers may only touch their own profile, addresses, cart,
+--     wishlist, orders and reviews.
+--   * Sellers may only touch their own products, images, variants and
+--     order_items.
+--   * Admins get full access through is_admin(). The 'admin' role is
+--     granted manually in the database, never from signup (see the
+--     profiles policies: a non-admin can never set role = 'admin').
+--   * payments and audit_log have NO policy for non-admins at all, so
+--     they are invisible to everyone except admins (and the service
+--     role, which bypasses RLS).
+--   * Order / payment / stock changes that must be trusted are done
+--     server-side with the service-role client, never from the browser.
+
+-- ---------------------------------------------------------------------------
+-- Helper: is the current user an admin?
+-- SECURITY DEFINER so the check itself is not blocked by profiles RLS,
+-- and so it cannot recurse into policies that call it.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+-- ===========================================================================
+-- profiles
+-- ===========================================================================
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own" on public.profiles
+  for select to authenticated
+  using (id = auth.uid());
+
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own" on public.profiles
+  for insert to authenticated
+  -- A user may create only their own row, and may never grant
+  -- themselves the admin role.
+  with check (id = auth.uid() and role <> 'admin');
+
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own" on public.profiles
+  for update to authenticated
+  using (id = auth.uid())
+  -- Same guard on update: role escalation to admin is impossible here.
+  with check (id = auth.uid() and role <> 'admin');
+
+drop policy if exists "profiles_admin_all" on public.profiles;
+create policy "profiles_admin_all" on public.profiles
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- seller_profiles — verified shops are publicly readable (storefront);
+-- only the owner (or an admin) may write.
+-- ===========================================================================
+drop policy if exists "seller_profiles_select_verified" on public.seller_profiles;
+create policy "seller_profiles_select_verified" on public.seller_profiles
+  for select to anon, authenticated
+  using (is_verified = true);
+
+drop policy if exists "seller_profiles_select_own" on public.seller_profiles;
+create policy "seller_profiles_select_own" on public.seller_profiles
+  for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "seller_profiles_insert_own" on public.seller_profiles;
+create policy "seller_profiles_insert_own" on public.seller_profiles
+  for insert to authenticated
+  with check (user_id = auth.uid());
+
+drop policy if exists "seller_profiles_update_own" on public.seller_profiles;
+create policy "seller_profiles_update_own" on public.seller_profiles
+  for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "seller_profiles_admin_all" on public.seller_profiles;
+create policy "seller_profiles_admin_all" on public.seller_profiles
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- categories — visitors read active categories only.
+-- ===========================================================================
+drop policy if exists "categories_select_active" on public.categories;
+create policy "categories_select_active" on public.categories
+  for select to anon, authenticated
+  using (is_active = true);
+
+drop policy if exists "categories_admin_all" on public.categories;
+create policy "categories_admin_all" on public.categories
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- products — visitors read active products only; sellers manage their own.
+-- ===========================================================================
+drop policy if exists "products_select_active" on public.products;
+create policy "products_select_active" on public.products
+  for select to anon, authenticated
+  using (status = 'active');
+
+drop policy if exists "products_select_own" on public.products;
+create policy "products_select_own" on public.products
+  for select to authenticated
+  using (seller_id = auth.uid());
+
+drop policy if exists "products_insert_own" on public.products;
+create policy "products_insert_own" on public.products
+  for insert to authenticated
+  with check (seller_id = auth.uid());
+
+drop policy if exists "products_update_own" on public.products;
+create policy "products_update_own" on public.products
+  for update to authenticated
+  using (seller_id = auth.uid())
+  with check (seller_id = auth.uid());
+
+drop policy if exists "products_delete_own" on public.products;
+create policy "products_delete_own" on public.products
+  for delete to authenticated
+  using (seller_id = auth.uid());
+
+drop policy if exists "products_admin_all" on public.products;
+create policy "products_admin_all" on public.products
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- product_images — readable when the product is active; writable only by
+-- the product's seller (or an admin).
+-- ===========================================================================
+drop policy if exists "product_images_select_active_product" on public.product_images;
+create policy "product_images_select_active_product" on public.product_images
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.products
+      where products.id = product_images.product_id
+        and products.status = 'active'
+    )
+  );
+
+drop policy if exists "product_images_seller_all" on public.product_images;
+create policy "product_images_seller_all" on public.product_images
+  for all to authenticated
+  using (
+    exists (
+      select 1 from public.products
+      where products.id = product_images.product_id
+        and products.seller_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.products
+      where products.id = product_images.product_id
+        and products.seller_id = auth.uid()
+    )
+  );
+
+drop policy if exists "product_images_admin_all" on public.product_images;
+create policy "product_images_admin_all" on public.product_images
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- product_variants — same shape as product_images.
+-- ===========================================================================
+drop policy if exists "product_variants_select_active_product" on public.product_variants;
+create policy "product_variants_select_active_product" on public.product_variants
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.products
+      where products.id = product_variants.product_id
+        and products.status = 'active'
+    )
+  );
+
+drop policy if exists "product_variants_seller_all" on public.product_variants;
+create policy "product_variants_seller_all" on public.product_variants
+  for all to authenticated
+  using (
+    exists (
+      select 1 from public.products
+      where products.id = product_variants.product_id
+        and products.seller_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.products
+      where products.id = product_variants.product_id
+        and products.seller_id = auth.uid()
+    )
+  );
+
+drop policy if exists "product_variants_admin_all" on public.product_variants;
+create policy "product_variants_admin_all" on public.product_variants
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- addresses — the owner only.
+-- ===========================================================================
+drop policy if exists "addresses_owner_all" on public.addresses;
+create policy "addresses_owner_all" on public.addresses
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "addresses_admin_all" on public.addresses;
+create policy "addresses_admin_all" on public.addresses
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- carts — the owner only.
+-- ===========================================================================
+drop policy if exists "carts_owner_all" on public.carts;
+create policy "carts_owner_all" on public.carts
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "carts_admin_all" on public.carts;
+create policy "carts_admin_all" on public.carts
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- cart_items — the owner of the parent cart only.
+-- ===========================================================================
+drop policy if exists "cart_items_owner_all" on public.cart_items;
+create policy "cart_items_owner_all" on public.cart_items
+  for all to authenticated
+  using (
+    exists (
+      select 1 from public.carts
+      where carts.id = cart_items.cart_id
+        and carts.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.carts
+      where carts.id = cart_items.cart_id
+        and carts.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "cart_items_admin_all" on public.cart_items;
+create policy "cart_items_admin_all" on public.cart_items
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- orders — customers see / place only their own orders. Customers may
+-- NOT update an order (status changes are admin / server-side only).
+-- Sellers may read orders that contain their own items.
+-- ===========================================================================
+drop policy if exists "orders_select_own" on public.orders;
+create policy "orders_select_own" on public.orders
+  for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "orders_select_seller" on public.orders;
+create policy "orders_select_seller" on public.orders
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.order_items
+      where order_items.order_id = orders.id
+        and order_items.seller_id = auth.uid()
+    )
+  );
+
+drop policy if exists "orders_insert_own" on public.orders;
+create policy "orders_insert_own" on public.orders
+  for insert to authenticated
+  with check (user_id = auth.uid());
+
+drop policy if exists "orders_admin_all" on public.orders;
+create policy "orders_admin_all" on public.orders
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- order_items — the buyer (via their order), the seller of the item,
+-- or an admin. Insert is allowed for the buyer placing the order;
+-- status / price changes are server-side only.
+-- ===========================================================================
+drop policy if exists "order_items_select_buyer" on public.order_items;
+create policy "order_items_select_buyer" on public.order_items
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.orders
+      where orders.id = order_items.order_id
+        and orders.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "order_items_select_seller" on public.order_items;
+create policy "order_items_select_seller" on public.order_items
+  for select to authenticated
+  using (seller_id = auth.uid());
+
+drop policy if exists "order_items_insert_buyer" on public.order_items;
+create policy "order_items_insert_buyer" on public.order_items
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.orders
+      where orders.id = order_items.order_id
+        and orders.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "order_items_admin_all" on public.order_items;
+create policy "order_items_admin_all" on public.order_items
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- payments — ADMIN ONLY. No policy exists for anon / customers / sellers,
+-- so these rows are invisible to every non-admin. Payment rows are
+-- created and updated server-side with the service-role client.
+-- ===========================================================================
+drop policy if exists "payments_admin_all" on public.payments;
+create policy "payments_admin_all" on public.payments
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- reviews — anyone may read; only the author may write their own.
+-- ===========================================================================
+drop policy if exists "reviews_select_all" on public.reviews;
+create policy "reviews_select_all" on public.reviews
+  for select to anon, authenticated
+  using (true);
+
+drop policy if exists "reviews_insert_own" on public.reviews;
+create policy "reviews_insert_own" on public.reviews
+  for insert to authenticated
+  with check (user_id = auth.uid());
+
+drop policy if exists "reviews_update_own" on public.reviews;
+create policy "reviews_update_own" on public.reviews
+  for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "reviews_delete_own" on public.reviews;
+create policy "reviews_delete_own" on public.reviews
+  for delete to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "reviews_admin_all" on public.reviews;
+create policy "reviews_admin_all" on public.reviews
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- wishlists — the owner only.
+-- ===========================================================================
+drop policy if exists "wishlists_owner_all" on public.wishlists;
+create policy "wishlists_owner_all" on public.wishlists
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "wishlists_admin_all" on public.wishlists;
+create policy "wishlists_admin_all" on public.wishlists
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- coupons — signed-in users may read active coupons (to validate a code
+-- at checkout); only admins may create / change them.
+-- ===========================================================================
+drop policy if exists "coupons_select_active" on public.coupons;
+create policy "coupons_select_active" on public.coupons
+  for select to authenticated
+  using (is_active = true);
+
+drop policy if exists "coupons_admin_all" on public.coupons;
+create policy "coupons_admin_all" on public.coupons
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ===========================================================================
+-- audit_log — ADMIN ONLY. No policy exists for anyone else, so audit
+-- rows are invisible to every non-admin.
+-- ===========================================================================
+drop policy if exists "audit_log_admin_all" on public.audit_log;
+create policy "audit_log_admin_all" on public.audit_log
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());

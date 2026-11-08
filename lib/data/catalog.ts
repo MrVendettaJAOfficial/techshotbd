@@ -1,0 +1,444 @@
+// Local seed catalogue for the TechShot storefront.
+//
+// Seed data mirroring supabase/seed.sql. This is the single source of
+// product data for the storefront until Supabase is connected; it will be
+// replaced by Supabase queries (see lib/supabase/*, owned by another agent).
+// Prices are in poisha (1 BDT = 100 poisha). Currency is BDT throughout.
+// Bangladesh localisation only: Dhaka/Chattogram, Division/District,
+// bKash/Nagad, cash on delivery.
+
+export type Category = {
+  slug: string;
+  name: string;
+  tagline: string;
+};
+
+export type StorageOption = {
+  label: string;
+  priceDeltaPoisha: number;
+  stock: number;
+};
+
+export type Product = {
+  slug: string;
+  title: string;
+  variant: string;
+  price_poisha: number;
+  compare_at_poisha: number;
+  rating: number;
+  review_count: number;
+  stock: number;
+  category: string;
+  brand: string;
+  badge?: string;
+  flash?: boolean;
+  condition: "New" | "Refurbished";
+  image: string;
+  description: string;
+  specs: Record<string, string>;
+  colours?: string[];
+  storageOptions?: StorageOption[];
+};
+
+export type SubscriptionPlan = {
+  slug: string;
+  name: string;
+  price_poisha: number;
+  period: string;
+  tagline: string;
+  productSlug: string;
+};
+
+export const CATEGORIES: Category[] = [
+  { slug: "smartphones", name: "Mobile", tagline: "Flagships and everyday phones" },
+  { slug: "laptops", name: "Laptop", tagline: "Work, study and create" },
+  { slug: "audio", name: "Audio", tagline: "Headphones, earbuds and speakers" },
+  { slug: "wearables", name: "Wearables", tagline: "Watches and fitness bands" },
+  { slug: "camera", name: "Camera", tagline: "Cameras and creators' gear" },
+  { slug: "gaming", name: "Gaming", tagline: "Consoles, controllers and more" },
+  { slug: "accessories", name: "Accessories", tagline: "Chargers, cases and power" },
+  { slug: "smart-home", name: "Smart Home", tagline: "Connected home essentials" },
+  { slug: "subscriptions", name: "Subscriptions", tagline: "Streaming and premium plans" },
+];
+
+export const PRODUCTS: Product[] = [
+  {
+    slug: "apple-iphone-16-pro",
+    title: "Apple iPhone 16 Pro",
+    variant: "256 GB · Natural Titanium",
+    price_poisha: 11990000,
+    compare_at_poisha: 12990000,
+    rating: 4.9,
+    review_count: 1248,
+    stock: 12,
+    category: "smartphones",
+    brand: "Apple",
+    badge: "BESTSELLER",
+    flash: true,
+    condition: "New",
+    image: "/images/products/apple-iphone-16-pro.jpg",
+    description:
+      "The iPhone 16 Pro pairs the A18 Pro chip with a titanium design and a pro camera system. Built for photography, gaming and all-day work, with official Apple warranty in Bangladesh.",
+    specs: {
+      Display: '6.3" Super Retina XDR 120Hz',
+      Processor: "Apple A18 Pro",
+      Camera: "48MP Fusion + 48MP Ultra Wide + 12MP Telephoto",
+      Storage: "256GB",
+      Battery: "Up to 33 hours video playback",
+      Warranty: "1-year official Apple warranty",
+    },
+    colours: ["Natural Titanium", "Desert Titanium", "Black Titanium", "White Titanium"],
+    storageOptions: [
+      { label: "128 GB", priceDeltaPoisha: -1000000, stock: 8 },
+      { label: "256 GB", priceDeltaPoisha: 0, stock: 12 },
+      { label: "512 GB", priceDeltaPoisha: 2000000, stock: 6 },
+      { label: "1 TB", priceDeltaPoisha: 4000000, stock: 3 },
+    ],
+  },
+  {
+    slug: "sony-wh-1000xm5",
+    title: "Sony WH-1000XM5 Wireless Headphones",
+    variant: "Black · Over-ear · Noise Cancelling",
+    price_poisha: 2499000,
+    compare_at_poisha: 2999000,
+    rating: 4.8,
+    review_count: 862,
+    stock: 18,
+    category: "audio",
+    brand: "Sony",
+    badge: "FLASH DEAL",
+    flash: true,
+    condition: "New",
+    image: "/images/products/sony-wh-1000xm5.jpg",
+    description:
+      "Sony's flagship noise cancelling headphones with industry-leading ANC, 30-hour battery life and crystal-clear calls. The quietest way to hear everything.",
+    specs: {
+      Display: "Touch sensor controls",
+      Processor: "Sony V1 + QN1 processors",
+      Camera: "Not applicable",
+      Storage: "Not applicable",
+      Battery: "Up to 30 hours with ANC",
+      Warranty: "1-year official Sony warranty",
+    },
+    colours: ["Black", "Silver"],
+  },
+  {
+    slug: "macbook-air-13-m3",
+    title: "Apple MacBook Air 13-inch (M3)",
+    variant: "M3 · 8GB RAM · 256GB SSD · Midnight",
+    price_poisha: 9990000,
+    compare_at_poisha: 11490000,
+    rating: 4.9,
+    review_count: 476,
+    stock: 9,
+    category: "laptops",
+    brand: "Apple",
+    badge: "BESTSELLER",
+    condition: "New",
+    image: "/images/products/macbook-air-13-m3.jpg",
+    description:
+      "The MacBook Air with M3 is fast, silent and light enough to carry everywhere. A 13.6-inch Liquid Retina display, 18-hour battery and macOS built for work and study.",
+    specs: {
+      Display: '13.6" Liquid Retina 2560 x 1664',
+      Processor: "Apple M3 (8-core CPU, 10-core GPU)",
+      Camera: "1080p FaceTime HD camera",
+      Storage: "256GB SSD",
+      Battery: "Up to 18 hours",
+      Warranty: "1-year official Apple warranty",
+    },
+    colours: ["Midnight", "Starlight", "Silver", "Space Grey"],
+    storageOptions: [
+      { label: "256 GB", priceDeltaPoisha: 0, stock: 9 },
+      { label: "512 GB", priceDeltaPoisha: 1500000, stock: 5 },
+    ],
+  },
+  {
+    slug: "samsung-galaxy-watch7",
+    title: "Samsung Galaxy Watch7",
+    variant: "44mm · Bluetooth · Green",
+    price_poisha: 2699900,
+    compare_at_poisha: 3299900,
+    rating: 4.7,
+    review_count: 324,
+    stock: 21,
+    category: "wearables",
+    brand: "Samsung",
+    condition: "New",
+    image: "/images/products/samsung-galaxy-watch7.jpg",
+    description:
+      "Galaxy Watch7 tracks sleep, workouts and heart health with Galaxy AI, on a bright sapphire crystal display. Your everyday health companion, on your wrist.",
+    specs: {
+      Display: '1.5" Super AMOLED sapphire crystal',
+      Processor: "Exynos W1000",
+      Camera: "Not applicable",
+      Storage: "32GB",
+      Battery: "Up to 40 hours",
+      Warranty: "1-year official Samsung warranty",
+    },
+    colours: ["Green", "Silver", "Cream"],
+  },
+  {
+    slug: "samsung-galaxy-s24-ultra",
+    title: "Samsung Galaxy S24 Ultra",
+    variant: "256 GB · Titanium Violet",
+    price_poisha: 10999900,
+    compare_at_poisha: 12999900,
+    rating: 4.8,
+    review_count: 934,
+    stock: 14,
+    category: "smartphones",
+    brand: "Samsung",
+    badge: "BESTSELLER",
+    condition: "New",
+    image: "/images/products/samsung-galaxy-s24-ultra.jpg",
+    description:
+      "The Galaxy S24 Ultra brings Galaxy AI, a 200MP camera and the built-in S Pen to a titanium frame. A flagship that works as hard as you do.",
+    specs: {
+      Display: '6.8" Dynamic AMOLED 2X 120Hz',
+      Processor: "Snapdragon 8 Gen 3",
+      Camera: "200MP + 50MP + 12MP + 10MP",
+      Storage: "256GB",
+      Battery: "5,000 mAh",
+      Warranty: "1-year official Samsung warranty",
+    },
+    colours: ["Titanium Violet", "Titanium Black", "Titanium Grey", "Titanium Yellow"],
+    storageOptions: [
+      { label: "256 GB", priceDeltaPoisha: 0, stock: 14 },
+      { label: "512 GB", priceDeltaPoisha: 1500000, stock: 7 },
+    ],
+  },
+  {
+    slug: "sony-alpha-zv-e10-ii",
+    title: "Sony Alpha ZV-E10 II Camera",
+    variant: "Body + 16-50mm kit lens",
+    price_poisha: 9499000,
+    compare_at_poisha: 10499900,
+    rating: 4.8,
+    review_count: 186,
+    stock: 5,
+    category: "camera",
+    brand: "Sony",
+    condition: "New",
+    image: "/images/products/sony-alpha-zv-e10-ii.jpg",
+    description:
+      "A compact mirrorless camera built for creators: 26MP stills, 4K60 video and a vari-angle screen. Made for vlogs, reels and everyday storytelling.",
+    specs: {
+      Display: '3.0" vari-angle touchscreen',
+      Processor: "BIONZ XR image processor",
+      Camera: "26MP APS-C Exmor R sensor",
+      Storage: "SD card slot (card not included)",
+      Battery: "Up to 610 shots per charge",
+      Warranty: "1-year official Sony warranty",
+    },
+  },
+  {
+    slug: "playstation-dualsense",
+    title: "PlayStation DualSense Wireless Controller",
+    variant: "White · PS5",
+    price_poisha: 549000,
+    compare_at_poisha: 639000,
+    rating: 4.8,
+    review_count: 711,
+    stock: 26,
+    category: "gaming",
+    brand: "Sony",
+    badge: "FLASH DEAL",
+    flash: true,
+    condition: "New",
+    image: "/images/products/playstation-dualsense.jpg",
+    description:
+      "Feel every game with haptic feedback, adaptive triggers and a built-in microphone. The DualSense controller brings PS5 games to life in your hands.",
+    specs: {
+      Display: "Not applicable",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "Not applicable",
+      Battery: "Up to 12 hours",
+      Warranty: "1-year official Sony warranty",
+    },
+    colours: ["White", "Midnight Black", "Galactic Purple"],
+  },
+  {
+    slug: "jbl-flip-6",
+    title: "JBL Flip 6 Portable Speaker",
+    variant: "Black · Waterproof",
+    price_poisha: 899900,
+    compare_at_poisha: 1199900,
+    rating: 4.7,
+    review_count: 589,
+    stock: 31,
+    category: "audio",
+    brand: "JBL",
+    condition: "New",
+    image: "/images/products/jbl-flip-6.jpg",
+    description:
+      "Big JBL sound in a portable, waterproof package. 12 hours of playtime, PartyBoost pairing and a rugged design that goes wherever you do.",
+    specs: {
+      Display: "Not applicable",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "Not applicable",
+      Battery: "Up to 12 hours",
+      Warranty: "1-year official JBL warranty",
+    },
+    colours: ["Black", "Blue", "Red", "Squad"],
+  },
+  {
+    slug: "anker-737-power-bank",
+    title: "Anker 737 Power Bank (PowerCore 24K)",
+    variant: "24,000mAh · 140W · Black",
+    price_poisha: 1299900,
+    compare_at_poisha: 1699900,
+    rating: 4.6,
+    review_count: 203,
+    stock: 17,
+    category: "accessories",
+    brand: "Anker",
+    condition: "New",
+    image: "/images/products/anker-737-power-bank.jpg",
+    description:
+      "A 24,000mAh power bank with 140W fast charging — enough to charge a laptop, phone and earbuds at once. A smart display shows power, time and temperature.",
+    specs: {
+      Display: "Smart digital display",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "24,000mAh capacity",
+      Battery: "24,000mAh · 140W output",
+      Warranty: "18-month Anker warranty",
+    },
+    colours: ["Black"],
+  },
+  {
+    slug: "netflix-premium",
+    title: "Netflix Premium",
+    variant: "4K Ultra HD · 4 screens · 1 month",
+    price_poisha: 64900,
+    compare_at_poisha: 89900,
+    rating: 4.9,
+    review_count: 2140,
+    stock: 50,
+    category: "subscriptions",
+    brand: "Netflix",
+    condition: "New",
+    image: "/images/products/netflix-premium.jpg",
+    description:
+      "Unlimited movies, TV shows and more in 4K Ultra HD on up to four screens at once. Delivered to your email within minutes of ordering.",
+    specs: {
+      Display: "4K Ultra HD + HDR",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "Download on 6 devices",
+      Battery: "Not applicable",
+      Warranty: "Full month validity guaranteed",
+    },
+  },
+  {
+    slug: "amazon-prime",
+    title: "Amazon Prime",
+    variant: "Prime Video + benefits · 1 year",
+    price_poisha: 149900,
+    compare_at_poisha: 199900,
+    rating: 4.7,
+    review_count: 980,
+    stock: 50,
+    category: "subscriptions",
+    brand: "Amazon",
+    condition: "New",
+    image: "/images/products/amazon-prime.jpg",
+    description:
+      "A full year of Prime Video, Prime Music and exclusive deals. Stream award-winning movies and shows, ad-free music and more.",
+    specs: {
+      Display: "4K Ultra HD streaming",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "Download for offline viewing",
+      Battery: "Not applicable",
+      Warranty: "Full year validity guaranteed",
+    },
+  },
+  {
+    slug: "youtube-premium",
+    title: "YouTube Premium",
+    variant: "Ad-free · 1 month",
+    price_poisha: 14900,
+    compare_at_poisha: 22900,
+    rating: 4.8,
+    review_count: 1760,
+    stock: 50,
+    category: "subscriptions",
+    brand: "Google",
+    condition: "New",
+    image: "/images/products/youtube-premium.jpg",
+    description:
+      "Ad-free YouTube and YouTube Music, background play and offline downloads. Watch and listen without interruptions, anywhere.",
+    specs: {
+      Display: "Ad-free streaming",
+      Processor: "Not applicable",
+      Camera: "Not applicable",
+      Storage: "Offline downloads included",
+      Battery: "Not applicable",
+      Warranty: "Full month validity guaranteed",
+    },
+  },
+];
+
+export const SUBSCRIPTIONS: SubscriptionPlan[] = [
+  {
+    slug: "netflix-premium",
+    name: "Netflix Premium",
+    price_poisha: 64900,
+    period: "/month",
+    tagline: "Unlimited movies, TV shows and more in 4K HDR.",
+    productSlug: "netflix-premium",
+  },
+  {
+    slug: "amazon-prime",
+    name: "Amazon Prime",
+    price_poisha: 149900,
+    period: "/year",
+    tagline: "Movies, music and exclusive deals, for a full year.",
+    productSlug: "amazon-prime",
+  },
+  {
+    slug: "youtube-premium",
+    name: "YouTube Premium",
+    price_poisha: 14900,
+    period: "/month",
+    tagline: "Ad-free videos, background play and YouTube Music included.",
+    productSlug: "youtube-premium",
+  },
+];
+
+// Flash deals end 2 days from when this module is first evaluated.
+export const FLASH_DEAL_ENDS_AT: Date = new Date(
+  Date.now() + 2 * 24 * 60 * 60 * 1000,
+);
+
+export function getProduct(slug: string): Product | undefined {
+  return PRODUCTS.find((p) => p.slug === slug);
+}
+
+export function getRelated(product: Product, n: number): Product[] {
+  const sameCategory = PRODUCTS.filter(
+    (p) => p.slug !== product.slug && p.category === product.category,
+  );
+  const others = PRODUCTS.filter(
+    (p) => p.slug !== product.slug && p.category !== product.category,
+  );
+  return [...sameCategory, ...others].slice(0, n);
+}
+
+export function searchProducts(query: string): Product[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return PRODUCTS;
+  return PRODUCTS.filter((p) =>
+    [p.title, p.brand, p.variant, p.description, p.category]
+      .join(" ")
+      .toLowerCase()
+      .includes(q),
+  );
+}
+
+export function categoryName(slug: string): string {
+  return CATEGORIES.find((c) => c.slug === slug)?.name ?? slug;
+}
