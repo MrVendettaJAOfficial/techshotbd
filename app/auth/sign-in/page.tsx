@@ -41,7 +41,7 @@ function SignInForm() {
     try {
       await signIn(parsed.data);
       refresh();
-      router.push("/account");
+      router.push("/account?signed_in=1");
       router.refresh();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Sign-in failed. Please try again.");

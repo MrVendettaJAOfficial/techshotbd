@@ -1,54 +1,18 @@
-// Shared localStorage helpers for the seller and admin dashboards.
+// Shared localStorage helpers for the admin dashboard.
 //
-// These are DEMO stores only. They hold seller-added products, seller
-// approval decisions, admin coupons and admin order-status overrides in
-// the browser, so dashboard actions work end to end without a backend.
-// When Supabase is connected, these are replaced by Supabase tables
-// (products, seller_approvals, coupons, orders) behind Row Level Security;
-// the dashboard pages keep the same behaviour, backed by the database
-// instead of localStorage.
+// These are DEMO stores only. They hold admin coupons and admin
+// order-status overrides in the browser, so dashboard actions work
+// end to end without a backend. When Supabase is connected, these are
+// replaced by Supabase tables (coupons, orders) behind Row Level
+// Security.
 //
-// Catalogue override mechanism (how /shop sees seller products):
-//   - `added`   — products created in the seller dashboard. The shop
-//     listing merges the base catalogue (lib/data/catalog) with these.
-//   - `edited`  — field overrides for base-catalogue products, keyed by
-//     product id. The shop listing prefers the edited fields.
-//   - `pausedIds` / `removedIds` — base-catalogue products hidden from
-//     the shop listing (paused by the seller, removed by an admin).
-// The shop page is responsible for applying this merge; this file only
-// owns the stored state. Until the shop merge lands, added products are
-// visible in the seller dashboard itself.
-
-export interface DemoProduct {
-  id: string;
-  title: string;
-  pricePoisha: number; // price in poisha (100 poisha = ৳1)
-  stock: number;
-  category: string;
-  description: string;
-  sellerId: string;
-  sellerEmail: string;
-  paused: boolean;
-  createdAt: string; // ISO date string
-}
-
-export interface SellerProductsOverride {
-  added: DemoProduct[];
-  edited: Record<string, Partial<Pick<DemoProduct, "title" | "pricePoisha" | "stock" | "category" | "description">>>;
-  pausedIds: string[];
-  removedIds: string[];
-}
-
-export type ApprovalStatus = "pending" | "approved" | "rejected";
-
-export interface SellerApproval {
-  id: string;
-  displayName: string;
-  email: string;
-  status: ApprovalStatus;
-  createdAt: string;
-  decidedAt: string | null;
-}
+// Single-seller store (2026-11-08): the seller-product override
+// store and the seller-approval store were removed with the /seller
+// route. Products are managed only in /admin through the Supabase
+// server actions in lib/products/actions.ts, and the public shop
+// reads the live catalogue — there is no localStorage catalogue
+// override any more. Any stale "techshot-seller-*" keys left in a
+// browser's localStorage are simply never read.
 
 export interface AdminCoupon {
   code: string;
@@ -59,8 +23,6 @@ export interface AdminCoupon {
 }
 
 const KEYS = {
-  sellerProducts: "techshot-seller-products-v1",
-  sellerApprovals: "techshot-seller-approvals-v1",
   adminCoupons: "techshot-admin-coupons-v1",
   orderStatus: "techshot-admin-order-status-v1",
 } as const;
@@ -84,106 +46,6 @@ function writeJSON<T>(key: string, value: T): void {
     // Storage full or unavailable — the dashboard keeps working in memory
     // for this visit; the change simply will not survive a reload.
   }
-}
-
-export function emptySellerProductsOverride(): SellerProductsOverride {
-  return { added: [], edited: {}, pausedIds: [], removedIds: [] };
-}
-
-export function getSellerProductsOverride(): SellerProductsOverride {
-  const stored = readJSON<SellerProductsOverride | null>(KEYS.sellerProducts, null);
-  if (!stored) return emptySellerProductsOverride();
-  return {
-    added: Array.isArray(stored.added) ? stored.added : [],
-    edited: stored.edited && typeof stored.edited === "object" ? stored.edited : {},
-    pausedIds: Array.isArray(stored.pausedIds) ? stored.pausedIds : [],
-    removedIds: Array.isArray(stored.removedIds) ? stored.removedIds : [],
-  };
-}
-
-export function setSellerProductsOverride(value: SellerProductsOverride): void {
-  writeJSON(KEYS.sellerProducts, value);
-}
-
-export function addSellerProduct(product: DemoProduct): void {
-  const current = getSellerProductsOverride();
-  setSellerProductsOverride({ ...current, added: [product, ...current.added] });
-}
-
-export function updateSellerProduct(id: string, patch: Partial<DemoProduct>): void {
-  const current = getSellerProductsOverride();
-  const inAdded = current.added.some((p) => p.id === id);
-  if (inAdded) {
-    setSellerProductsOverride({
-      ...current,
-      added: current.added.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-    });
-    return;
-  }
-  // Base-catalogue product: store the edit as a field override.
-  const { title, pricePoisha, stock, category, description } = patch;
-  const fields: SellerProductsOverride["edited"][string] = {};
-  if (title !== undefined) fields.title = title;
-  if (pricePoisha !== undefined) fields.pricePoisha = pricePoisha;
-  if (stock !== undefined) fields.stock = stock;
-  if (category !== undefined) fields.category = category;
-  if (description !== undefined) fields.description = description;
-  setSellerProductsOverride({
-    ...current,
-    edited: { ...current.edited, [id]: { ...(current.edited[id] ?? {}), ...fields } },
-  });
-}
-
-export function togglePauseProduct(id: string): void {
-  const current = getSellerProductsOverride();
-  const inAdded = current.added.some((p) => p.id === id);
-  if (inAdded) {
-    setSellerProductsOverride({
-      ...current,
-      added: current.added.map((p) => (p.id === id ? { ...p, paused: !p.paused } : p)),
-    });
-    return;
-  }
-  const paused = current.pausedIds.includes(id);
-  setSellerProductsOverride({
-    ...current,
-    pausedIds: paused ? current.pausedIds.filter((x) => x !== id) : [...current.pausedIds, id],
-  });
-}
-
-export function removeProduct(id: string): void {
-  const current = getSellerProductsOverride();
-  if (current.added.some((p) => p.id === id)) {
-    setSellerProductsOverride({
-      ...current,
-      added: current.added.filter((p) => p.id !== id),
-    });
-    return;
-  }
-  if (current.removedIds.includes(id)) return;
-  setSellerProductsOverride({ ...current, removedIds: [...current.removedIds, id] });
-}
-
-export function getSellerApprovals(): SellerApproval[] {
-  return readJSON<SellerApproval[]>(KEYS.sellerApprovals, []);
-}
-
-export function setSellerApprovals(value: SellerApproval[]): void {
-  writeJSON(KEYS.sellerApprovals, value);
-}
-
-export function addSellerApproval(approval: SellerApproval): void {
-  const current = getSellerApprovals();
-  if (current.some((a) => a.email.toLowerCase() === approval.email.toLowerCase())) return;
-  setSellerApprovals([approval, ...current]);
-}
-
-export function decideSellerApproval(id: string, status: Exclude<ApprovalStatus, "pending">): void {
-  setSellerApprovals(
-    getSellerApprovals().map((a) =>
-      a.id === id ? { ...a, status, decidedAt: new Date().toISOString() } : a,
-    ),
-  );
 }
 
 export function getAdminCoupons(): AdminCoupon[] {
@@ -222,7 +84,7 @@ export function deleteCoupon(code: string): void {
 
 /** Admin order-status overrides, keyed by order id. Used when the
  *  checkout/order store does not expose its own status update; the
- *  admin and seller pages apply these on top of the stored orders. */
+ *  admin page applies these on top of the stored orders. */
 export function getOrderStatusOverrides(): Record<string, string> {
   return readJSON<Record<string, string>>(KEYS.orderStatus, {});
 }

@@ -1,14 +1,16 @@
-// Next.js middleware — Supabase Auth guard for /seller and /admin.
+// Next.js middleware — Supabase Auth guard for /admin.
 //
 // Reads the Supabase session from the request cookies (via
 // @supabase/ssr) and refreshes it, then:
-//   - no session on /seller/* or /admin/*  -> redirect to /auth/sign-in
+//   - no session on /admin/*  -> redirect to /auth/sign-in
 //   - signed in but not an admin on /admin/* -> redirect to /
 // The admin role check reads the caller's `profiles` row with the
 // request-scoped client (RLS allows a user to read their own row).
-// Page-level checks in the seller / admin pages still apply; this is
-// the server-side gate, and Row Level Security is the real boundary
-// for data.
+// Page-level checks in the admin page still apply; this is the
+// server-side gate, and Row Level Security is the real boundary
+// for data. There is no /seller route any more (single-seller store:
+// the owner manages products in /admin), so it is not guarded here
+// and requests to it fall through to the 404 page.
 //
 // UNCONFIGURED MODE: when the Supabase env vars are missing, this
 // middleware falls back to NextResponse.next() and locks nobody out —
@@ -87,5 +89,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/seller/:path*", "/admin/:path*"],
+  matcher: ["/admin/:path*"],
 };

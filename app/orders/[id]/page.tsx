@@ -6,6 +6,7 @@ import { Check } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { formatBDT } from "@/lib/theme";
 import { applyPaymentOutcome, paymentQueryToOutcome } from "@/lib/orders";
+import { getOrderStatusFromServer } from "@/lib/orders-server";
 import {
   ORDER_TIMELINE_STEPS,
   getOrder,
@@ -65,8 +66,38 @@ function OrderDetailInner() {
   const id = params.id;
 
   useEffect(() => {
-    setOrder(getOrder(id));
+    const browserOrder = getOrder(id);
+    setOrder(browserOrder);
     setLoaded(true);
+    // Reconcile with the server: a payment completed through the public
+    // callback route updates the server-side record, not this browser
+    // copy — without this, an order paid by callback would say "Pending
+    // payment" here forever. Only a copy that is still pending payment
+    // adopts the server status; a copy that is already confirmed,
+    // cancelled or further along is never downgraded from here (the
+    // shopper's own cancel, for example, lives in the browser copy
+    // only). A failed server payment is adopted too, so the retry
+    // button below appears.
+    if (browserOrder && browserOrder.status === "pending_payment") {
+      let cancelled = false;
+      void getOrderStatusFromServer(id).then((server) => {
+        if (cancelled || !server) return;
+        if (
+          server.status === "pending_payment" &&
+          server.paymentStatus === browserOrder.paymentStatus
+        ) {
+          return;
+        }
+        const updated = updateOrderStatus(id, {
+          status: server.status,
+          paymentStatus: server.paymentStatus,
+        });
+        if (updated) setOrder(updated);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
   }, [id]);
 
   // Apply the ?payment= outcome from the test-pay redirect to the
@@ -260,6 +291,21 @@ function OrderDetailInner() {
           {order.testMode && (
             <p className="mt-2 text-xs text-muted">Paid through the test gateway — no real money moved.</p>
           )}
+          {order.status === "pending_payment" &&
+            order.paymentMethod !== "cod" &&
+            (order.paymentStatus === "failed" || order.paymentStatus === "unpaid") && (
+              <div className="mt-4">
+                <p className="text-sm text-muted">
+                  This order is still unpaid. You can try the test payment again — nothing is charged twice.
+                </p>
+                <Link
+                  href={`/checkout/test-pay?order=${order.id}&ref=test-ref-${order.orderNumber}`}
+                  className="mt-3 inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 font-semibold text-white hover:bg-orange-600"
+                >
+                  Retry payment
+                </Link>
+              </div>
+            )}
         </section>
       </div>
 

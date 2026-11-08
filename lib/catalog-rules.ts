@@ -204,6 +204,35 @@ export function isColourName(name: string): boolean {
 }
 
 /**
+ * Normalise a variant / storage-option label for comparison: lowercase
+ * with all whitespace removed. The live database derives variant labels
+ * from product titles ("256GB Natural Titanium") while the seed
+ * catalogue writes storage options with a space ("256 GB"), so a plain
+ * startsWith() comparison misses the option and prices the line at the
+ * base price. Comparing normalised forms matches both spellings.
+ */
+export function normalizeVariantLabel(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/\s+/g, "");
+}
+
+/**
+ * True when a cart line's variant starts with a storage-option label,
+ * ignoring case and spacing: "256GB Natural Titanium" and
+ * "256 GB · Natural Titanium" both match the "256 GB" option, and
+ * "512GB Natural Titanium" matches "512 GB". A missing variant never
+ * matches — a line with no variant is priced at the base price.
+ */
+export function variantMatchesOption(
+  variant: string | null | undefined,
+  optionLabel: string,
+): boolean {
+  if (!variant) return false;
+  const normalised = normalizeVariantLabel(variant);
+  const label = normalizeVariantLabel(optionLabel);
+  return label.length > 0 && normalised.startsWith(label);
+}
+
+/**
  * Variant label for a product card. Built from the stored variants
  * (product_variants rows) when there are any, e.g. "256 GB · Black".
  * Otherwise derived from the title's trailing variant info: the part

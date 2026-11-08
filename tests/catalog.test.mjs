@@ -125,7 +125,7 @@ test("(a) a newly added active product appears in the public catalogue", () => {
     false,
   );
 
-  // The seller adds a product in the backend; it is status 'active'.
+  // The owner adds a product in the backend (via /admin); it is status 'active'.
   const added = row({
     id: "00000000-0000-0000-0000-000000000099",
     category_slug: "accessories",

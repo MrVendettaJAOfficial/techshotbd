@@ -1,13 +1,12 @@
-// TechShot marketplace — server-side product reads for the seller
-// and admin dashboards.
+// TechShot marketplace — server-side product reads for the admin
+// dashboard (single-seller store: the owner manages every product
+// in /admin; there is no seller dashboard any more).
 //
 // SERVER ONLY. The admin fetch uses the service-role client (it must
-// list draft / paused products too); the seller fetch uses the anon
-// client with the user's cookies, so RLS applies and a seller only
-// ever sees their own rows. Neither function throws: on any failure
-// (including Supabase not being configured) it returns empty lists
-// with configured: false, and the pages show a plain notice instead
-// of leaking configuration details.
+// list draft / paused products too). Neither function throws: on any
+// failure (including Supabase not being configured) it returns empty
+// lists with configured: false, and the page shows a plain notice
+// instead of leaking configuration details.
 //
 // NOTE: the Supabase Database generic resolves query results to
 // `never` with the installed supabase-js version (lib/supabase/
@@ -151,43 +150,7 @@ export async function fetchCategories(): Promise<{ categories: CategoryOption[];
   }
 }
 
-/**
- * A seller's own products (all statuses), via the anon client so RLS
- * applies. Returns an empty list when there is no signed-in seller.
- */
-export async function fetchSellerProducts(userId: string | null): Promise<ProductQueryResult> {
-  const empty: ProductQueryResult = { products: [], categories: [], configured: false };
-  try {
-    const categoriesResult = await fetchCategories();
-    if (!userId) {
-      return { products: [], categories: categoriesResult.categories, configured: categoriesResult.configured };
-    }
-    const supabase = untyped(createClient());
-    const { data: productsData, error: productsError } = await supabase
-      .from("products")
-      .select("id, seller_id, category_id, title, slug, description, price_poisha, compare_at_poisha, stock, status, created_at")
-      .eq("seller_id", userId)
-      .order("created_at", { ascending: false });
-    if (productsError || !productsData) return { ...empty, categories: categoriesResult.categories };
-
-    const admin = untyped(createAdminClient());
-    const { data: categoryRows } = await admin.from("categories").select("id, slug, name, is_active");
-    const categoriesById = new Map<string, CategoryRow>(
-      ((categoryRows ?? []) as CategoryRow[]).map((row) => [row.id, row]),
-    );
-    const productIds = (productsData as ProductRow[]).map((row) => row.id);
-    const { imagesByProduct, variantsByProduct } = await loadExtras(admin, productIds);
-    return {
-      products: toListItems(productsData as ProductRow[], categoriesById, imagesByProduct, variantsByProduct),
-      categories: categoriesResult.categories,
-      configured: true,
-    };
-  } catch {
-    return empty;
-  }
-}
-
-/** Every product (all sellers, all statuses), newest first. Admin only. */
+/** Every product (all statuses), newest first. Admin only. */
 export async function fetchAllProducts(): Promise<ProductQueryResult> {
   const empty: ProductQueryResult = { products: [], categories: [], configured: false };
   try {

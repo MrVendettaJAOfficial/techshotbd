@@ -3,7 +3,7 @@
 // These mirror supabase/migrations/0001_initial_schema.sql exactly; if the
 // schema changes, update this file in the same change.
 
-export type UserRole = "customer" | "seller" | "admin";
+export type UserRole = "customer" | "admin";
 
 export type ProductStatus = "draft" | "active" | "paused";
 
@@ -48,6 +48,13 @@ export interface Profile {
   updated_at: string;
 }
 
+/**
+ * Legacy only: the seller_profiles table still exists in the database
+ * (kept, with its RLS policies — it is never dropped), but nothing in
+ * the app reads or writes it any more. TechShot is single-seller: the
+ * owner sells, products are store-owned (seller_id null) and managed
+ * in /admin. Kept here so the Database type still mirrors the schema.
+ */
 export interface SellerProfile {
   id: string;
   user_id: string;

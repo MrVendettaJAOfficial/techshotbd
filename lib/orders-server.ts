@@ -33,11 +33,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "./supabase/server";
-import { getProduct } from "./data/catalog";
+import { getProductForCartSlug } from "./data/catalog";
+import { normalizeVariantLabel, variantMatchesOption } from "./catalog-rules";
 import { computeTotals as pricingComputeTotals } from "./pricing";
 import {
   addressSchema,
   createOrderNumber,
+  getOrderRecord,
   toAddressSnapshot,
   validateCoupon,
   type AddressInput,
@@ -195,12 +197,14 @@ export async function createSupabaseOrder(
       errors.push(`Product "${item.slug}" is no longer available.`);
       continue;
     }
-    const local = getProduct(item.slug);
+    const local = getProductForCartSlug(item.slug);
     // Storage-option delta from the server-side catalogue (never from
-    // the browser). The DB has no seeded variant rows, so a variant
-    // price override is applied when one exists.
+    // the browser). Variant labels are compared space- and
+    // case-insensitively, so a live label like "512GB Natural Titanium"
+    // matches the seed option "512 GB". The DB has no seeded variant
+    // rows, so a variant price override is applied when one exists.
     const option = local?.storageOptions?.find(
-      (o) => item.variant != null && item.variant.startsWith(o.label),
+      (o) => variantMatchesOption(item.variant, o.label),
     );
     let unitPrice = dbProduct.price_poisha + (option?.priceDeltaPoisha ?? 0);
     let stock = dbProduct.stock;
@@ -211,8 +215,11 @@ export async function createSupabaseOrder(
         .select("id, name, price_override_poisha, stock")
         .eq("product_id", dbProduct.id);
       const rows = (variants ?? []) as DbVariantRow[];
+      const wanted = normalizeVariantLabel(item.variant);
       const match = rows.find(
-        (v) => item.variant!.startsWith(v.name) || v.name.startsWith(item.variant!),
+        (v) =>
+          wanted.startsWith(normalizeVariantLabel(v.name)) ||
+          normalizeVariantLabel(v.name).startsWith(wanted),
       );
       if (match) {
         variantId = match.id;
@@ -646,10 +653,75 @@ export async function updateSupabaseOrderFromCallback(
 }
 
 /**
- * Write a review — only when the caller owns a DELIVERED order that
- * contains the product. The RLS policy (reviews_insert_own) enforces
- * authorship as well; this check enforces the delivered-order rule.
+ * The current status of an order, from the server side, for the order
+ * pages to reconcile against.
+ *
+ * The shopper's browser keeps its own copy of every order
+ * (localStorage, lib/checkout-store), and the test-pay page updates
+ * that copy through the ?payment= redirect — but a payment completed
+ * through the PUBLIC callback route (POST /api/payments/callback) has
+ * no browser redirect: the callback updates the server-side record
+ * (in-memory, plus Supabase) and the browser copy would otherwise say
+ * "Pending payment" forever, even though the order is paid. The order
+ * detail page calls this after loading the browser copy and adopts the
+ * server status when the browser copy is still pending payment.
+ *
+ * Order of sources: the in-memory record first (same server process —
+ * checkout, test-pay and the callback all register there), then the
+ * Supabase order owned by the caller (payment status from the latest
+ * payments row; no row means unpaid). Returns null when the order is
+ * not found anywhere the caller may see it. The caller must be the
+ * order's owner (or an admin) for the Supabase branch; the in-memory
+ * branch needs no session because the id itself is the lookup key and
+ * it only ever returns a status, never order contents.
  */
+export async function getOrderStatusFromServer(
+  orderId: string,
+): Promise<{
+  status: StoredOrder["status"];
+  paymentStatus: StoredOrder["paymentStatus"];
+} | null> {
+  const local = getOrderRecord(orderId);
+  if (local) {
+    return { status: local.status, paymentStatus: local.paymentStatus };
+  }
+  if (!isConfigured()) return null;
+  const userId = await getSignedInUserId();
+  if (!userId) return null;
+  let admin: SupabaseClient;
+  try {
+    admin = untyped(createAdminClient());
+  } catch {
+    return null;
+  }
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, user_id, status, payment_method")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) return null;
+  const { data: caller } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (order.user_id !== userId && caller?.role !== "admin") return null;
+  let paymentStatus: StoredOrder["paymentStatus"] = "unpaid";
+  const { data: payment } = await admin
+    .from("payments")
+    .select("status")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (payment?.status === "paid") paymentStatus = "paid";
+  else if (payment?.status === "failed") paymentStatus = "failed";
+  else if (payment?.status === "refunded") paymentStatus = "refunded";
+  return {
+    status: order.status as StoredOrder["status"],
+    paymentStatus,
+  };
+}
 export async function submitSupabaseReview(input: {
   productSlug: string;
   orderId: string;

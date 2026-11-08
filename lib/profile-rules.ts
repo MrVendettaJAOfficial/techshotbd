@@ -19,15 +19,22 @@
 //   3. sign-up still tries ensureProfile immediately when a session
 //      exists (confirmation off).
 //
-// The admin rule, in every layer: sign-up / sign-in can only create
-// "customer" or "seller". "admin" is never assigned here; it is only
-// granted manually in the database.
+// Single-seller store (2026-11-08): TechShot has one seller — the
+// owner, who manages products in /admin. Sign-up / sign-in can only
+// ever create role "customer". "admin" is never assigned here; it is
+// only granted manually in the database. The old "seller" role no
+// longer exists in the app: any "seller" value (e.g. a legacy
+// user_metadata role, or a legacy profiles row created before this
+// change) is sanitized to "customer" here, and the app never treats
+// it as a selling account. The seller_profiles table still exists
+// in the database as legacy/unused (see README) but nothing reads
+// or writes it any more.
 
-export type ProfileRole = "customer" | "seller";
+export type ProfileRole = "customer";
 
-/** Only "seller" survives; anything else — including "admin" — is "customer". */
-export function sanitizeProfileRole(value: unknown): ProfileRole {
-  return value === "seller" ? "seller" : "customer";
+/** Every value sanitizes to "customer": "seller" and "admin" included. */
+export function sanitizeProfileRole(_value: unknown): ProfileRole {
+  return "customer";
 }
 
 /**
@@ -57,7 +64,8 @@ export interface ProfileRow {
 /**
  * Build the profiles row for a user. Throws a generic error when the
  * user id is missing or no usable display name can be derived.
- * The role is sanitized: "admin" can never come out of here.
+ * The role is always "customer": "admin" and "seller" can never come
+ * out of here.
  */
 export function buildProfileRow(
   userId: string,

@@ -24,9 +24,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getProduct } from "./data/catalog";
+import { getProductForCartSlug } from "./data/catalog";
+import { resolveCartLines } from "./orders";
 import { createClient } from "./supabase/client";
-import { clearServerCart, getServerCart, syncCartItem } from "./cart-server";
+import {
+  clearServerCart,
+  getPricedCartLines,
+  getServerCart,
+  syncCartItem,
+} from "./cart-server";
+import type { OrderItem } from "./checkout-store";
 
 function isSupabaseConfigured(): boolean {
   return Boolean(
@@ -228,7 +235,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const value = useMemo<CartContextValue>(() => {
     const count = items.reduce((sum, it) => sum + it.quantity, 0);
     const subtotalPoisha = items.reduce((sum, it) => {
-      const product = getProduct(it.slug);
+      // Prefix-aware: a live slug (apple-iphone-16-pro-256gb-…) prices
+      // from its seed product, so the subtotal is right even before the
+      // live lines below arrive.
+      const product = getProductForCartSlug(it.slug);
       return sum + (product ? product.price_poisha * it.quantity : 0);
     }, 0);
     return { items, count, subtotalPoisha, add, remove, setQuantity, clear };
@@ -242,4 +252,55 @@ export function useCart(): CartContextValue {
   const ctx = useContext(CartContext);
   if (!ctx) throw new Error("useCart must be used inside CartProvider");
   return ctx;
+}
+
+/**
+ * Priced cart lines for the cart page and the checkout form.
+ *
+ * The lines are resolved from the seed catalogue synchronously first
+ * (so the page renders immediately, with correct prices for every
+ * seeded product — live slugs included, via the prefix rule in
+ * lib/orders.ts), and then, when Supabase is configured, re-resolved
+ * from the live database by getPricedCartLines (lib/cart-server.ts).
+ * The live lines win when they arrive: they carry the live title and
+ * price, and they cover products that exist only in the database
+ * (added in the admin, no seed counterpart). A failed live lookup
+ * keeps the local lines — the cart never breaks on a pricing failure.
+ * When Supabase is not configured there is no second step at all: the
+ * local lines are the whole answer.
+ *
+ * Must be called inside CartProvider.
+ */
+export function usePricedCartLines(): {
+  lines: OrderItem[];
+  unknownSlugs: string[];
+} {
+  const { items } = useCart();
+  const [live, setLive] = useState<{
+    lines: OrderItem[];
+    unknownSlugs: string[];
+  } | null>(null);
+  const local = useMemo(() => resolveCartLines(items), [items]);
+
+  useEffect(() => {
+    // A changed cart invalidates the previous live lines; the local
+    // lines render meanwhile.
+    setLive(null);
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    void getPricedCartLines(items)
+      .then((result) => {
+        if (!cancelled) {
+          setLive({ lines: result.lines, unknownSlugs: result.unknownSlugs });
+        }
+      })
+      .catch(() => {
+        // Keep the local lines — see the doc comment above.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  return live ?? local;
 }

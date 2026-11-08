@@ -1,7 +1,8 @@
 // TechShot marketplace — product manager (client component).
 //
-// Shared by the seller and admin dashboards: the Add / Edit form and
-// the product list with Pause / Activate and Delete. All writes go
+// Used by the admin dashboard only (single-seller store: the owner
+// manages every product in /admin). The Add / Edit form and the
+// product list with Pause / Activate and Delete. All writes go
 // through the server actions in lib/products/actions.ts, so changes
 // land in Supabase and the public shop reflects them immediately
 // (the actions revalidate "/", "/shop" and the product page).
@@ -46,15 +47,14 @@ function statusLabel(status: ProductStatus): string {
 interface ProductManagerProps {
   products: ProductListItem[];
   categories: CategoryOption[];
-  /** "seller" shows the seller wording; "admin" the moderation wording. */
-  mode: "seller" | "admin";
-  /** False for a seller waiting for approval: the form is disabled. */
+  /** Always true for the admin dashboard; kept so the form can be
+   *  disabled without changing the component. */
   canPublish: boolean;
   /** False when Supabase is not configured: the form is disabled. */
   configured: boolean;
 }
 
-export default function ProductManager({ products, categories, mode, canPublish, configured }: ProductManagerProps) {
+export default function ProductManager({ products, categories, canPublish, configured }: ProductManagerProps) {
   const router = useRouter();
 
   const [title, setTitle] = useState("");
@@ -175,21 +175,12 @@ export default function ProductManager({ products, categories, mode, canPublish,
   return (
     <div>
       <SectionHeading
-        title={mode === "admin" ? "Add a product" : "Add a product"}
-        description={
-          mode === "admin"
-            ? "Products added here are platform-owned and appear in the shop when their status is Live. Prices are in Bangladeshi Taka (৳)."
-            : "Prices are in Bangladeshi Taka (৳). Stock is the number of units you have available."
-        }
+        title="Add a product"
+        description="Products added here are store-owned and appear in the shop when their status is Live. Prices are in Bangladeshi Taka (৳)."
       />
       {!configured ? (
         <div className="mb-6 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-text" role="alert">
           Live product data is not configured yet, so products cannot be added or changed here. Ask an admin to connect Supabase.
-        </div>
-      ) : null}
-      {mode === "seller" && !canPublish && configured ? (
-        <div className="mb-6 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-text" role="alert">
-          Your seller account is waiting for admin approval. You can view your products below, but adding or publishing new products is disabled until an admin approves your account.
         </div>
       ) : null}
       <Card className="mb-10">
@@ -274,19 +265,15 @@ export default function ProductManager({ products, categories, mode, canPublish,
       </Card>
 
       <SectionHeading
-        title={mode === "admin" ? "Product moderation" : "Your products"}
-        description={
-          mode === "admin"
-            ? "Every product in the catalogue, including drafts and paused products. Pause hides a product from shoppers; Delete removes it."
-            : "Your products, live in the shop when their status is Live. Pause hides a product from shoppers; Edit changes it in the shop."
-        }
+        title="Product moderation"
+        description="Every product in the catalogue, including drafts and paused products. Pause hides a product from shoppers; Delete removes it."
       />
       {rowError ? (
         <p role="alert" className="mb-4 text-sm text-[#f87171]">{rowError}</p>
       ) : null}
       {products.length === 0 ? (
         <EmptyState
-          title={mode === "admin" ? "No products to moderate" : "No products yet"}
+          title="No products to moderate"
           description={
             configured
               ? "Add your first product with the form above."
@@ -300,14 +287,12 @@ export default function ProductManager({ products, categories, mode, canPublish,
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-text">
-                    {product.title} <Badge tone={statusTone(product.status)}>{statusLabel(product.status)}</Badge>{" "}
-                    {mode === "admin" && product.sellerId === null ? <Badge tone="brand">Platform</Badge> : null}
+                    {product.title} <Badge tone={statusTone(product.status)}>{statusLabel(product.status)}</Badge>
                   </p>
                   <p className="mt-1 text-sm text-muted">
                     {formatBDT(product.pricePoisha)}
                     {product.compareAtPoisha !== null ? ` (was ${formatBDT(product.compareAtPoisha)})` : ""} · Stock: {product.stock} ·{" "}
                     {product.categoryName}
-                    {mode === "admin" && product.sellerId !== null ? " · Seller product" : ""}
                   </p>
                   {product.description ? <p className="mt-1 text-sm text-muted">{product.description}</p> : null}
                   {product.variants.length > 0 ? (

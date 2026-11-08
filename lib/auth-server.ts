@@ -6,11 +6,12 @@
 //   way for browser code to reach this file: the service-role client
 //   below must never be bundled into the browser.
 // - Server components and other server actions import getCurrentUser
-//   / getSellerVerified directly.
+//   directly. (There is no seller verification any more: TechShot is
+//   single-seller, products are managed only in /admin.)
 //
 // When Supabase is not configured, or there is no signed-in user,
-// getCurrentUser / getSellerVerified return null instead of throwing
-// — callers treat null as "not signed in" / "unknown".
+// getCurrentUser returns null instead of throwing — callers treat
+// null as "not signed in".
 
 "use server";
 
@@ -37,7 +38,7 @@ function untyped(client: unknown): SupabaseClient {
 }
 
 function isValidRole(value: unknown): value is UserRole {
-  return value === "customer" || value === "seller" || value === "admin";
+  return value === "customer" || value === "admin";
 }
 
 /**
@@ -81,27 +82,6 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 }
 
 /**
- * Whether the seller's shop is verified (seller_profiles.is_verified).
- * Returns null when there is no seller_profiles row for the user, or
- * when Supabase is not configured. Callers treat null as "unknown" and
- * fall back to the existing approval mechanism on the page.
- */
-export async function getSellerVerified(userId: string): Promise<boolean | null> {
-  try {
-    const admin = untyped(createAdminClient());
-    const { data, error } = (await admin
-      .from("seller_profiles")
-      .select("is_verified")
-      .eq("user_id", userId)
-      .maybeSingle()) as { data: { is_verified: boolean } | null; error: unknown };
-    if (error || !data) return null;
-    return data.is_verified;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Exchange the email-confirmation / magic-link code for a session
  * (called from app/auth/callback/page.tsx). Runs on the server so
  * the session cookies can be set. Throws a generic error when the
@@ -140,8 +120,8 @@ export async function exchangeAuthCode(code: string): Promise<{ ok: true }> {
  * only when the signed-in session belongs to the same user id, and
  * only when no row exists yet — an existing row is never overwritten,
  * so an admin's role can never be downgraded here. The "admin" role
- * can never be assigned here: only "customer" or "seller" are
- * accepted (see lib/profile-rules.ts).
+ * can never be assigned here: only "customer" is accepted
+ * (see lib/profile-rules.ts).
  *
  * NOTE: with email confirmation on, signUp returns no session, so
  * this call throws at sign-up time and the row is created later —
@@ -154,10 +134,10 @@ export async function exchangeAuthCode(code: string): Promise<{ ok: true }> {
 export async function ensureProfile(
   userId: string,
   displayName: string,
-  role: "customer" | "seller",
+  role: "customer",
 ): Promise<{ ok: true }> {
   const genericError = new Error("Could not create your profile. Please try again.");
-  let row: { id: string; display_name: string; role: "customer" | "seller" };
+  let row: { id: string; display_name: string; role: "customer" };
   try {
     row = buildProfileRow(userId, displayName, role);
   } catch {

@@ -15,10 +15,18 @@
 -- the backfill at the end only inserts rows that are missing, and
 -- existing rows are never overwritten.
 --
--- Admin rule: the trigger only ever creates "customer" or "seller"
--- (taken from the role chosen at sign-up, stored in user metadata).
--- "admin" is never assigned here; it is only granted manually in
--- the database, e.g.:
+-- NOTE (single-seller change, 2026-11-08): re-run this file on the
+-- live project to replace the old trigger (which could still create
+-- "seller" rows). The backfill still only inserts MISSING rows, so
+-- any profiles row that already has role 'seller' from before this
+-- change is NOT changed by this file — convert those manually:
+--   update public.profiles set role = 'customer' where role = 'seller';
+-- (The seller_profiles table is left untouched: legacy/unused.)
+--
+-- Single-seller store (2026-11-08): the trigger only ever creates
+-- role "customer". Sign-up offers no other role, so the role stored
+-- in user metadata is ignored entirely. "admin" is never assigned
+-- here; it is only granted manually in the database, e.g.:
 --   update public.profiles set role = 'admin'
 --   where id = (select id from auth.users where email = 'you@example.com');
 -- If the profile row itself is missing, create it as admin in one step:
@@ -48,10 +56,9 @@ begin
     nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
     'TechShot customer'
   );
-  -- Only "seller" survives from metadata; anything else — including
-  -- "admin" — becomes "customer".
-  v_role := case when new.raw_user_meta_data ->> 'role' = 'seller'
-    then 'seller' else 'customer' end;
+  -- Single-seller store: every new profile is a customer, whatever
+  -- the metadata claims (a legacy "seller" value is ignored).
+  v_role := 'customer';
 
   insert into public.profiles (id, display_name, role)
   values (new.id, v_display_name, v_role)
@@ -79,7 +86,6 @@ select
     nullif(split_part(coalesce(email, ''), '@', 1), ''),
     'TechShot customer'
   ),
-  case when raw_user_meta_data ->> 'role' = 'seller'
-    then 'seller' else 'customer' end
+  'customer'
 from auth.users
 on conflict (id) do nothing;

@@ -30,7 +30,7 @@ function AuthCallbackInner() {
     }
     void exchangeAuthCode(code)
       .then(() => {
-        router.replace("/account");
+        router.replace("/account?signed_in=1");
         router.refresh();
       })
       .catch(() => {

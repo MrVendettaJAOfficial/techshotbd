@@ -21,7 +21,6 @@ const HELP_LINKS = [
 ];
 
 const TECHSHOT_LINKS = [
-  { label: "Sell on TechShot", href: "/seller" },
   { label: "Admin", href: "/admin" },
   { label: "Subscriptions", href: "/shop?category=subscriptions" },
 ];

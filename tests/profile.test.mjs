@@ -42,16 +42,19 @@ import {
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 
 // ---------------------------------------------------------------------------
-// Role rule: only "seller" survives; "admin" can never be assigned.
+// Role rule (single-seller store, 2026-11-08): every value sanitizes
+// to "customer". "seller" no longer exists in the app and "admin"
+// can never be assigned here.
 // ---------------------------------------------------------------------------
 
-test("sanitizeProfileRole keeps seller, turns admin into customer", () => {
-  assert.equal(sanitizeProfileRole("seller"), "seller");
+test("sanitizeProfileRole always returns customer, including for seller and admin", () => {
+  assert.equal(sanitizeProfileRole("seller"), "customer");
   assert.equal(sanitizeProfileRole("customer"), "customer");
   assert.equal(sanitizeProfileRole("admin"), "customer");
   assert.equal(sanitizeProfileRole(undefined), "customer");
   assert.equal(sanitizeProfileRole(null), "customer");
   assert.equal(sanitizeProfileRole("ADMIN"), "customer");
+  assert.equal(sanitizeProfileRole("SELLER"), "customer");
 });
 
 // ---------------------------------------------------------------------------
@@ -86,7 +89,7 @@ test("buildProfileRow builds a valid row and sanitizes the role", () => {
     display_name: "Md Joynal Abedin",
     role: "customer",
   });
-  assert.deepEqual(buildProfileRow(USER_ID, "Shop Owner", "seller").role, "seller");
+  assert.equal(buildProfileRow(USER_ID, "Shop Owner", "seller").role, "customer");
   assert.equal(buildProfileRow(USER_ID, "Shop Owner", "admin").role, "customer");
 });
 
@@ -116,13 +119,14 @@ test("sign-up without a session still yields a creatable profile row", () => {
     role: "customer",
   });
 
-  // A seller sign-up keeps the seller role through the same path.
-  const sellerRow = deriveProfileFromMetadata(
+  // A sign-up whose metadata claims "seller" (legacy) still becomes
+  // a customer through the same path.
+  const legacySellerRow = deriveProfileFromMetadata(
     USER_ID,
     { display_name: "Tech Seller", role: "seller" },
     "seller@example.com",
   );
-  assert.equal(sellerRow.role, "seller");
+  assert.equal(legacySellerRow.role, "customer");
 
   // Metadata that claims "admin" never produces an admin row.
   const attackerRow = deriveProfileFromMetadata(
@@ -225,7 +229,10 @@ test("migration 0002 trigger is security definer and never assigns admin", () =>
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n");
   assert.equal(/role\s*=\s*'admin'/i.test(executable), false);
-  assert.match(executable, /'seller'.*'customer'/s);
+  // Single-seller store: no executable statement mentions 'seller'
+  // at all — the trigger always creates role 'customer'.
+  assert.equal(/'seller'/i.test(executable), false);
+  assert.match(executable, /'customer'/);
 });
 
 test("migration 0002 backfills profiles for pre-existing auth users", () => {

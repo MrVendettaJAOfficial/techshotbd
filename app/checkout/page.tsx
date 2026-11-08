@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   addressSchema,
-  computeCheckoutTotals,
+  computeCheckoutTotalsFromLines,
   createOrderNumber,
   createOrderRecord,
   toAddressSnapshot,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/orders";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { createSupabaseOrder } from "@/lib/orders-server";
+import { getPricedCartLines } from "@/lib/cart-server";
 import CheckoutForm from "./CheckoutForm";
 
 export default function CheckoutPage() {
@@ -72,8 +73,22 @@ export default function CheckoutPage() {
       return { ok: false, errors: {}, message: supabaseResult.message };
     }
 
-    // Recompute everything server-side from catalog prices.
-    const totals = await computeCheckoutTotals(input.items, input.couponCode, input.delivery);
+    // Recompute everything server-side from live prices (seed catalogue
+    // when Supabase is not configured). getPricedCartLines resolves each
+    // cart slug against the live database first, so a guest checking out
+    // while Supabase is configured is priced from live prices — pricing
+    // from the seed catalogue alone would drop live slugs as "no longer
+    // available" and block checkout entirely.
+    const priced = await getPricedCartLines(input.items);
+    if (priced.stockErrors.length > 0) {
+      return { ok: false, errors: {}, message: priced.stockErrors.join(" ") };
+    }
+    const totals = computeCheckoutTotalsFromLines(
+      priced.lines,
+      priced.unknownSlugs,
+      input.couponCode,
+      input.delivery,
+    );
     if (totals.errors && totals.errors.length > 0) {
       return { ok: false, errors: {}, message: totals.errors.join(" ") };
     }

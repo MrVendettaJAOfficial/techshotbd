@@ -21,13 +21,19 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "./supabase/server";
-import { getProduct } from "./data/catalog";
+import { getProductForCartSlug } from "./data/catalog";
+import { normalizeVariantLabel, variantMatchesOption } from "./catalog-rules";
+import { resolveCartLines } from "./orders";
 import type { CartItem } from "./cart-store";
+import type { OrderItem } from "./checkout-store";
 
 interface DbProductRow {
   id: string;
   slug: string;
+  title: string;
   price_poisha: number;
+  compare_at_poisha: number | null;
+  stock: number;
 }
 
 interface DbVariantRow {
@@ -83,14 +89,14 @@ async function resolveDbProduct(
 ): Promise<DbProductRow | null> {
   const exact = await admin
     .from("products")
-    .select("id, slug, price_poisha")
+    .select("id, slug, title, price_poisha, compare_at_poisha, stock")
     .eq("slug", slug)
     .eq("status", "active")
     .maybeSingle();
   if (exact.data) return exact.data as DbProductRow;
   const prefixed = await admin
     .from("products")
-    .select("id, slug, price_poisha")
+    .select("id, slug, title, price_poisha, compare_at_poisha, stock")
     .like("slug", `${slug}-%`)
     .eq("status", "active")
     .order("slug")
@@ -110,10 +116,107 @@ async function resolveDbVariant(
     .select("id, name, price_override_poisha, stock")
     .eq("product_id", productId);
   const rows = (data ?? []) as DbVariantRow[];
+  // Variant labels are compared space- and case-insensitively: the
+  // live label "256GB Natural Titanium" must match a stored variant
+  // named "256 GB", and vice versa.
+  const wanted = normalizeVariantLabel(variantLabel);
   return (
-    rows.find((v) => variantLabel.startsWith(v.name) || v.name.startsWith(variantLabel)) ??
-    null
+    rows.find(
+      (v) =>
+        wanted.startsWith(normalizeVariantLabel(v.name)) ||
+        normalizeVariantLabel(v.name).startsWith(wanted),
+    ) ?? null
   );
+}
+
+export interface PricedCartLines {
+  lines: OrderItem[];
+  unknownSlugs: string[];
+  /** Lines whose quantity exceeds live stock, as user-facing messages. */
+  stockErrors: string[];
+}
+
+/**
+ * Price cart lines from the LIVE database when Supabase is configured,
+ * falling back to the seed catalogue per line (and entirely when
+ * unconfigured). This is what the cart page, the checkout form and the
+ * checkout action display and charge from, so a product added in the
+ * admin — which has a live slug and a live price but no seed counterpart
+ * — still shows a price, a total and a working checkout instead of
+ * "no longer available". Prices come from the `products` /
+ * `product_variants` tables plus the seed catalogue's storage-option
+ * delta for the variant; the browser never supplies a price. Stock is
+ * checked against the live row, so an over-quantity line is reported in
+ * stockErrors instead of being silently priced.
+ *
+ * Safe to call from the browser: it only reads public product prices
+ * for the caller's own cart slugs, and returns the same OrderItem shape
+ * as the local resolver.
+ */
+export async function getPricedCartLines(
+  items: CartItem[],
+): Promise<PricedCartLines> {
+  if (!items || items.length === 0) {
+    return { lines: [], unknownSlugs: [], stockErrors: [] };
+  }
+  if (!isConfigured()) {
+    const { lines, unknownSlugs } = resolveCartLines(items);
+    return { lines, unknownSlugs, stockErrors: [] };
+  }
+  let admin: SupabaseClient;
+  try {
+    admin = untyped(createAdminClient());
+  } catch {
+    const { lines, unknownSlugs } = resolveCartLines(items);
+    return { lines, unknownSlugs, stockErrors: [] };
+  }
+  const lines: OrderItem[] = [];
+  const unknownSlugs: string[] = [];
+  const stockErrors: string[] = [];
+  for (const item of items) {
+    let dbProduct: DbProductRow | null = null;
+    try {
+      dbProduct = await resolveDbProduct(admin, item.slug);
+    } catch {
+      // Live lookup failed (network / transient): fall back to the
+      // seed catalogue for this line instead of breaking the cart.
+      dbProduct = null;
+    }
+    if (!dbProduct) {
+      // No live product (e.g. a seed-only slug, or the live row was
+      // removed): fall back to the seed catalogue for this line.
+      const local = resolveCartLines([item]);
+      if (local.lines.length > 0) lines.push(...local.lines);
+      else unknownSlugs.push(...local.unknownSlugs);
+      continue;
+    }
+    const dbVariant = await resolveDbVariant(admin, dbProduct.id, item.variant);
+    const local = getProductForCartSlug(item.slug);
+    const option = local?.storageOptions?.find(
+      (o) => variantMatchesOption(item.variant, o.label),
+    );
+    const delta = option?.priceDeltaPoisha ?? 0;
+    const unitPrice =
+      (dbVariant?.price_override_poisha ?? dbProduct.price_poisha) + delta;
+    const quantity = Math.max(1, item.quantity);
+    const stock = dbVariant?.stock ?? dbProduct.stock;
+    if (quantity > stock) {
+      stockErrors.push(
+        `${dbProduct.title}: only ${stock} in stock, you asked for ${quantity}.`,
+      );
+      continue;
+    }
+    lines.push({
+      productId: item.slug,
+      title: dbProduct.title,
+      variant: item.variant ?? dbVariant?.name ?? local?.variant,
+      price_poisha: unitPrice,
+      mrp_poisha: (dbProduct.compare_at_poisha ?? unitPrice) + delta,
+      image: local?.image,
+      quantity,
+    });
+  }
+  return { lines, unknownSlugs, stockErrors };
 }
 
 /**
@@ -188,9 +291,9 @@ export async function syncCartItem(
     return { ok: true };
   }
   const dbVariant = await resolveDbVariant(admin, product.id, variant);
-  const local = getProduct(slug);
+  const local = getProductForCartSlug(slug);
   const option = local?.storageOptions?.find(
-    (o) => variant != null && variant.startsWith(o.label),
+    (o) => variantMatchesOption(variant, o.label),
   );
   const priceSnapshot =
     (dbVariant?.price_override_poisha ?? product.price_poisha) +

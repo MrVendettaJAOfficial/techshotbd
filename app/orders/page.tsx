@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatBDT } from "@/lib/theme";
-import { listOrders, type StoredOrder } from "@/lib/checkout-store";
+import { getOrderStatusFromServer } from "@/lib/orders-server";
+import {
+  listOrders,
+  updateOrderStatus,
+  type StoredOrder,
+} from "@/lib/checkout-store";
 
 const STATUS_STYLES: Record<string, string> = {
   pending_payment: "bg-amber-500/20 text-amber-300",
@@ -42,8 +47,39 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<StoredOrder[]>([]);
 
   useEffect(() => {
-    setOrders(listOrders());
+    const browserOrders = listOrders();
+    setOrders(browserOrders);
     setLoaded(true);
+    // Same server reconciliation as the order detail page (see there):
+    // a payment completed through the public callback route updates the
+    // server-side record, not this browser copy. Only copies still
+    // pending payment adopt the server status.
+    const pending = browserOrders.filter((o) => o.status === "pending_payment");
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      pending.map(async (o) => {
+        const server = await getOrderStatusFromServer(o.id).catch(() => null);
+        if (!server) return false;
+        if (
+          server.status === "pending_payment" &&
+          server.paymentStatus === o.paymentStatus
+        ) {
+          return false;
+        }
+        return (
+          updateOrderStatus(o.id, {
+            status: server.status,
+            paymentStatus: server.paymentStatus,
+          }) !== null
+        );
+      }),
+    ).then((results) => {
+      if (!cancelled && results.some(Boolean)) setOrders(listOrders());
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (!loaded) {

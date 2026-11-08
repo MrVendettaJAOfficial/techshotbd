@@ -8,15 +8,15 @@
 // a generic message and nothing is stored locally — there is no demo
 // account, no demo admin, and no local password hash anywhere.
 //
-// Roles: sign-up only offers `customer` or `seller`. The `admin` role can
-// never be assigned here (or by the profile server action in
-// lib/auth-server.ts); admins are granted manually in the database.
-// Seller accounts need admin approval before they can publish products
-// (see lib/demo-store); signing up as a seller still records that
-// pending approval.
+// Single-seller store: sign-up only ever creates a `customer`. The
+// `admin` role can never be assigned here (or by the profile server
+// action in lib/auth-server.ts); admins are granted manually in the
+// database. The owner is the only seller and manages products in
+// /admin. A legacy "seller" role value (old metadata / old profile
+// row) is treated as "customer" — it grants no selling rights.
 //
-// The useAuth() return shape and the AppUser type are unchanged from the
-// demo version, so Header / account / seller / admin / checkout pages
+// The useAuth() return shape and the AppUser type are unchanged from
+// the demo version, so Header / account / admin / checkout pages
 // keep working without changes.
 
 "use client";
@@ -26,9 +26,8 @@ import { z } from "zod";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/client";
 import { ensureCurrentUserProfile, ensureProfile } from "./auth-server";
-import { addSellerApproval } from "./demo-store";
 
-export type UserRole = "customer" | "seller" | "admin";
+export type UserRole = "customer" | "admin";
 
 export interface AppUser {
   id: string;
@@ -46,7 +45,7 @@ const signUpSchema = z.object({
   displayName: z.string().trim().min(2, "Please enter your name (at least 2 characters)."),
   email: z.string().trim().toLowerCase().email("Please enter a valid email address."),
   password: z.string().min(8, "Password must be at least 8 characters."),
-  role: z.enum(["customer", "seller"]),
+  role: z.literal("customer"),
 });
 
 const signInSchema = z.object({
@@ -76,7 +75,9 @@ function notConfiguredError(): Error {
 }
 
 function isValidRole(value: unknown): value is UserRole {
-  return value === "customer" || value === "seller" || value === "admin";
+  // A legacy "seller" role is not a valid app role any more: it is
+  // treated as "customer" (see toAppUser below).
+  return value === "customer" || value === "admin";
 }
 
 /** Build the AppUser the rest of the app sees: profile row first,
@@ -109,7 +110,8 @@ async function toAppUser(
     displayName = metadata.display_name;
   }
   if (!displayName) displayName = authUser.email?.split("@")[0] ?? "TechShot customer";
-  if (role === "customer" && metadata.role === "seller") role = "seller";
+  // Legacy metadata claiming role "seller" is ignored: sign-up only
+  // ever creates customers now.
   return { id: authUser.id, email: authUser.email ?? "", displayName, role };
 }
 
@@ -152,7 +154,7 @@ export async function signUp(input: {
   displayName: string;
   email: string;
   password: string;
-  role: "customer" | "seller";
+  role: "customer";
 }): Promise<AuthSession> {
   const parsed = signUpSchema.safeParse(input);
   if (!parsed.success) {
@@ -198,17 +200,6 @@ export async function signUp(input: {
   } catch {
     // Profile creation is retried on the first sign-in (see signIn)
     // and by the database trigger; sign-up itself still succeeded.
-  }
-  if (role === "seller") {
-    // A seller signup is a pending approval until an admin approves it.
-    addSellerApproval({
-      id: `approval-${authUser.id}`,
-      displayName,
-      email,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      decidedAt: null,
-    });
   }
   if (!data.session) {
     // Email confirmation is on: there is no session yet. The account

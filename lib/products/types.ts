@@ -1,5 +1,5 @@
-// TechShot marketplace — shared product shapes for the seller /
-// admin dashboards. Plain data only, so server components can pass
+// TechShot marketplace — shared product shapes for the admin
+// dashboard. Plain data only, so server components can pass
 // these as props to client components.
 
 import type { ProductStatus } from "./validation";
@@ -24,7 +24,8 @@ export interface ProductListItem {
   status: ProductStatus;
   categorySlug: string | null;
   categoryName: string;
-  /** Null for platform-owned products. */
+  /** Always null: every product is store-owned (single-seller store).
+   *  Kept because the products table still has the seller_id column. */
   sellerId: string | null;
   /** First product image path, or null when there is none. */
   imagePath: string | null;

@@ -7,13 +7,12 @@ import { EXPRESS_DELIVERY_POISHA, formatBDT } from "@/lib/theme";
 import {
   addressSchema,
   computeTotals,
-  resolveCartLines,
   validateCoupon,
   type AddressInput,
   type PlaceOrderInput,
   type PlaceOrderResult,
 } from "@/lib/orders";
-import { useCart } from "@/lib/cart-store";
+import { useCart, usePricedCartLines } from "@/lib/cart-store";
 import {
   DIVISIONS,
   DISTRICTS,
@@ -62,9 +61,13 @@ export default function CheckoutForm({
   placeOrder: (input: PlaceOrderInput) => Promise<PlaceOrderResult>;
 }) {
   const router = useRouter();
-  // The live cart is owned by lib/cart-store; display lines are resolved
-  // from the catalog (resolveCartLines) and the server re-prices them.
+  // The live cart is owned by lib/cart-store; display lines are priced
+  // lines (seed catalogue immediately, live database when Supabase is
+  // configured — see usePricedCartLines) and the server re-prices them
+  // again at order time, so the total shown here can never change what
+  // a customer is charged.
   const cart = useCart();
+  const { lines, unknownSlugs } = usePricedCartLines();
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [address, setAddress] = useState<AddressInput>(emptyAddress);
@@ -81,11 +84,6 @@ export default function CheckoutForm({
   useEffect(() => {
     setCouponCode(getCouponCode());
   }, []);
-
-  const { lines, unknownSlugs } = useMemo(
-    () => resolveCartLines(cart.items),
-    [cart.items],
-  );
 
   const resolvedSubtotal_poisha = useMemo(
     () => lines.reduce((sum, l) => sum + l.price_poisha * l.quantity, 0),

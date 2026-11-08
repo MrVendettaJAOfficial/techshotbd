@@ -1,9 +1,38 @@
+// My account page.
+//
+// Shows the signed-in user's dashboard: name, email and role from
+// Supabase (via useAuth + getAccountData), saved addresses, order
+// history and wishlist. When Supabase is configured those sections
+// read from Supabase (addresses / orders / order_items / wishlists,
+// all owner-only under RLS); when it is not configured — or nobody
+// is signed in — the page falls back to the browser-local data in
+// lib/checkout-store, exactly as before, so the preview still works.
+//
+// After a successful sign-in / sign-up / email confirmation the user
+// lands here with ?signed_in=1, and a visible "Signed in
+// successfully" banner is shown (role="status") — not just a console
+// log. The banner is dismissible and does not reappear on refresh:
+// dismissing it removes the query parameter.
+//
+// A signed-out visitor sees a sign-in prompt at the top and the
+// local sections below; a signed-in user gets a Sign out button.
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatBDT } from "@/lib/theme";
 import { useCart } from "@/lib/cart-store";
+import { AuthProvider, useAuth, type AppUser } from "@/lib/auth";
+import {
+  deleteAccountAddress,
+  getAccountData,
+  removeAccountWishlist,
+  saveAccountAddress,
+  saveAccountProfile,
+} from "@/lib/account-server";
+import { mergeOrders } from "@/lib/account-rules";
 import {
   DIVISIONS,
   DISTRICTS,
@@ -12,11 +41,13 @@ import {
   getAddresses,
   getProfile,
   getWishlist,
+  listOrders,
   removeFromWishlist,
   saveProfile,
   updateAddress,
   type Address,
   type Profile,
+  type StoredOrder,
   type WishlistItem,
 } from "@/lib/checkout-store";
 
@@ -42,13 +73,47 @@ const emptyAddressForm = {
   city: "",
 };
 
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  pending_payment: "Pending payment",
+  confirmed: "Confirmed",
+  processing: "Processing",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+};
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function roleLabel(role: AppUser["role"]): string {
+  return role === "admin" ? "Admin" : "Customer";
+}
+
 function isValidMobile(mobile: string): boolean {
   return /^(\+880|0)?1[3-9]\d{8}$/.test(mobile.trim());
 }
 
-export default function AccountPage() {
+function AccountPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const cart = useCart();
+  const { user, loading: authLoading, signOutUser } = useAuth();
   const [loaded, setLoaded] = useState(false);
+  const [serverMode, setServerMode] = useState(false);
+  const [accountUser, setAccountUser] = useState<(AppUser & { phone: string }) | null>(null);
+  const [showSignedIn, setShowSignedIn] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
   const [profile, setProfile] = useState<Profile>({ displayName: "", phone: "", email: "" });
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -63,18 +128,72 @@ export default function AccountPage() {
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [wishlistNotice, setWishlistNotice] = useState<string | null>(null);
 
+  const [orders, setOrders] = useState<StoredOrder[]>([]);
+
+  const refreshAccountData = useCallback(async () => {
+    const data = await getAccountData().catch(() => null);
+    if (!data) {
+      setServerMode(false);
+      return false;
+    }
+    setServerMode(true);
+    setAccountUser(data.user);
+    setProfile({
+      displayName: data.user.displayName,
+      phone: data.user.phone,
+      email: data.user.email,
+    });
+    setAddresses(data.addresses);
+    setWishlist(data.wishlist);
+    setOrders((local) => mergeOrders(local, data.orders));
+    return true;
+  }, []);
+
+  // Browser-local data first, so the page renders immediately even
+  // before auth resolves; Supabase data replaces it when available.
   useEffect(() => {
     setProfile(getProfile());
     setAddresses(getAddresses());
     setWishlist(getWishlist());
+    setOrders(listOrders());
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    // Fill the profile form from the signed-in user even before the
+    // server data arrives (name/email/role come from the profile row,
+    // with user_metadata as fallback — see lib/auth.ts toAppUser).
+    setProfile((prev) => ({
+      displayName: prev.displayName || user.displayName,
+      phone: prev.phone,
+      email: user.email,
+    }));
+    void refreshAccountData();
+  }, [authLoading, user, refreshAccountData]);
+
+  useEffect(() => {
+    if (searchParams.get("signed_in") === "1") setShowSignedIn(true);
+  }, [searchParams]);
+
+  function dismissSignedIn() {
+    setShowSignedIn(false);
+    router.replace("/account", { scroll: false });
+  }
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    signOutUser();
+    router.push("/");
+    router.refresh();
+  }
 
   function refreshAddresses() {
     setAddresses(getAddresses());
   }
 
-  function handleSaveProfile(event: React.FormEvent) {
+  async function handleSaveProfile(event: React.FormEvent) {
     event.preventDefault();
     if (profile.phone && !isValidMobile(profile.phone)) {
       setProfileError("Enter a valid Bangladeshi mobile number, e.g. 01XXXXXXXXX.");
@@ -86,14 +205,28 @@ export default function AccountPage() {
       setProfileSaved(false);
       return;
     }
-    saveProfile(profile);
+    if (serverMode) {
+      const result = await saveAccountProfile({
+        displayName: profile.displayName,
+        phone: profile.phone,
+      });
+      if (!result.ok) {
+        setProfileError(result.message);
+        setProfileSaved(false);
+        return;
+      }
+      // Keep the browser-local copy in sync for the preview fallback.
+      saveProfile(profile);
+    } else {
+      saveProfile(profile);
+    }
     setProfileError(null);
     setProfileSaved(true);
   }
 
   function openNewAddress() {
     setEditingId(null);
-    setAddressForm(emptyAddressForm);
+    setAddressForm({ ...emptyAddressForm, email: user?.email ?? "" });
     setAddressErrors({});
     setShowAddressForm(true);
   }
@@ -104,7 +237,7 @@ export default function AccountPage() {
       label: address.label ?? "",
       firstName: address.firstName,
       lastName: address.lastName,
-      email: address.email,
+      email: address.email || user?.email || "",
       mobile: address.mobile,
       address: address.address,
       area: address.area,
@@ -135,7 +268,7 @@ export default function AccountPage() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleSaveAddress(event: React.FormEvent) {
+  async function handleSaveAddress(event: React.FormEvent) {
     event.preventDefault();
     if (!validateAddressForm()) return;
     const payload = {
@@ -151,6 +284,21 @@ export default function AccountPage() {
       city: addressForm.city.trim(),
       isDefault: addresses.length === 0,
     };
+    if (serverMode) {
+      const result = await saveAccountAddress(
+        editingId ? { ...payload, id: editingId } : payload,
+      );
+      if (!result.ok) {
+        if (result.errors) setAddressErrors(result.errors);
+        else setAddressErrors({ form: result.message });
+        return;
+      }
+      setAddressNotice(editingId ? "Address updated." : "Address added.");
+      setShowAddressForm(false);
+      setEditingId(null);
+      await refreshAccountData();
+      return;
+    }
     if (editingId) {
       updateAddress(editingId, payload);
       setAddressNotice("Address updated.");
@@ -163,11 +311,48 @@ export default function AccountPage() {
     refreshAddresses();
   }
 
-  function moveWishlistToCart(item: WishlistItem) {
+  async function handleDeleteAddress(id: string) {
+    if (serverMode) {
+      const result = await deleteAccountAddress(id);
+      if (!result.ok) {
+        setAddressNotice(result.message);
+        return;
+      }
+      await refreshAccountData();
+      return;
+    }
+    deleteAddress(id);
+    refreshAddresses();
+  }
+
+  async function handleSetDefaultAddress(address: Address) {
+    if (serverMode) {
+      const result = await saveAccountAddress({ ...address, isDefault: true });
+      if (!result.ok) {
+        setAddressNotice(result.message);
+        return;
+      }
+      await refreshAccountData();
+      return;
+    }
+    updateAddress(address.id, { isDefault: true });
+    refreshAddresses();
+  }
+
+  async function handleRemoveWishlist(productId: string) {
+    if (serverMode) {
+      await removeAccountWishlist(productId);
+      await refreshAccountData();
+      return;
+    }
+    removeFromWishlist(productId);
+    setWishlist(getWishlist());
+  }
+
+  async function moveWishlistToCart(item: WishlistItem) {
     // Wishlist stores catalog slugs; the live cart is lib/cart-store.
     cart.add(item.productId, undefined, 1);
-    removeFromWishlist(item.productId);
-    setWishlist(getWishlist());
+    await handleRemoveWishlist(item.productId);
     setWishlistNotice(`Moved “${item.title}” to your cart.`);
   }
 
@@ -180,11 +365,57 @@ export default function AccountPage() {
   }
 
   const districts = addressForm.division ? DISTRICTS[addressForm.division] ?? [] : [];
+  const displayUser = accountUser ?? user;
+  const recentOrders = orders.slice(0, 5);
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-10">
       <h1 className="text-3xl font-bold text-text">My account</h1>
-      <p className="mt-1 text-muted">Profile, addresses and wishlist — saved in your browser.</p>
+
+      {showSignedIn && user && (
+        <p
+          role="status"
+          className="mt-4 flex items-start justify-between gap-4 rounded-lg border border-[#5bd4a0]/40 bg-[#5bd4a0]/15 px-4 py-3 text-sm font-medium text-[#5bd4a0]"
+        >
+          <span>Signed in successfully. Welcome back, {user.displayName}.</span>
+          <button type="button" onClick={dismissSignedIn} className="shrink-0 font-bold hover:underline" aria-label="Dismiss">
+            Dismiss
+          </button>
+        </p>
+      )}
+
+      {!authLoading && !user && (
+        <div className="mt-4 rounded-2xl border border-border bg-panel p-5">
+          <h2 className="text-lg font-bold text-text">You are not signed in</h2>
+          <p className="mt-1 text-sm text-muted">
+            Sign in to see your profile, orders and wishlist saved to your account.
+          </p>
+          <Link href="/auth/sign-in" className={`${btnPrimary} mt-4`}>
+            Sign in
+          </Link>
+        </div>
+      )}
+
+      {displayUser && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-panel p-5">
+          <div className="text-sm">
+            <p className="text-lg font-bold text-text">{displayUser.displayName}</p>
+            <p className="mt-0.5 text-muted">{displayUser.email}</p>
+            <p className="mt-1 text-muted">
+              Role: <span className="font-semibold text-text">{roleLabel(displayUser.role)}</span>
+            </p>
+          </div>
+          <button type="button" className={btnGhost} onClick={handleSignOut} disabled={signingOut}>
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
+        </div>
+      )}
+
+      <p className="mt-4 text-muted">
+        {serverMode
+          ? "Profile, addresses and wishlist — saved to your TechShot account."
+          : "Profile, addresses and wishlist — saved in your browser."}
+      </p>
 
       {/* Profile */}
       <section className="mt-8 rounded-2xl border border-border bg-panel p-5" aria-label="Profile">
@@ -223,7 +454,12 @@ export default function AccountPage() {
               placeholder="you@example.com"
               className={inputCls}
               autoComplete="email"
+              readOnly={!!user}
+              aria-readonly={!!user}
             />
+            {user && (
+              <p className="mt-1 text-xs text-muted">Your sign-in email cannot be changed here.</p>
+            )}
           </div>
           {profileError && <p role="alert" className="text-sm text-red-400 sm:col-span-2">{profileError}</p>}
           {profileSaved && <p role="status" className="text-sm text-success sm:col-span-2">Profile saved.</p>}
@@ -240,6 +476,7 @@ export default function AccountPage() {
           <button type="button" className={btnGhost} onClick={openNewAddress}>Add address</button>
         </div>
         {addressNotice && <p role="status" className="mt-3 text-sm text-success">{addressNotice}</p>}
+        {addressErrors.form && <p role="alert" className="mt-3 text-sm text-red-400">{addressErrors.form}</p>}
 
         {addresses.length === 0 && !showAddressForm && (
           <p className="mt-3 text-sm text-muted">No addresses yet. Add your delivery address here.</p>
@@ -267,7 +504,7 @@ export default function AccountPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {!address.isDefault && (
-                    <button type="button" className={btnGhost} onClick={() => { updateAddress(address.id, { isDefault: true }); refreshAddresses(); }}>
+                    <button type="button" className={btnGhost} onClick={() => { void handleSetDefaultAddress(address); }}>
                       Set as default
                     </button>
                   )}
@@ -275,7 +512,7 @@ export default function AccountPage() {
                   <button
                     type="button"
                     className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-red-400 hover:border-red-400"
-                    onClick={() => { deleteAddress(address.id); refreshAddresses(); }}
+                    onClick={() => { void handleDeleteAddress(address.id); }}
                   >
                     Delete
                   </button>
@@ -286,7 +523,7 @@ export default function AccountPage() {
         </ul>
 
         {showAddressForm && (
-          <form onSubmit={handleSaveAddress} className="mt-5 grid gap-4 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2">
+          <form onSubmit={(e) => { void handleSaveAddress(e); }} className="mt-5 grid gap-4 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2">
             <div>
               <label htmlFor="addrLabel" className={labelCls}>Label (optional, e.g. Home)</label>
               <input id="addrLabel" value={addressForm.label} onChange={(e) => setAddressForm({ ...addressForm, label: e.target.value })} className={inputCls} />
@@ -382,13 +619,13 @@ export default function AccountPage() {
                   <span className="block truncate font-medium text-text">{item.title}</span>
                   <span className="text-sm text-muted">{formatBDT(item.price_poisha)}</span>
                 </span>
-                <button type="button" className={btnGhost} onClick={() => moveWishlistToCart(item)}>
+                <button type="button" className={btnGhost} onClick={() => { void moveWishlistToCart(item); }}>
                   Move to cart
                 </button>
                 <button
                   type="button"
                   className="text-sm text-muted hover:text-text"
-                  onClick={() => { removeFromWishlist(item.productId); setWishlist(getWishlist()); }}
+                  onClick={() => { void handleRemoveWishlist(item.productId); }}
                 >
                   Remove
                 </button>
@@ -401,9 +638,46 @@ export default function AccountPage() {
       {/* Order history */}
       <section className="mt-6 rounded-2xl border border-border bg-panel p-5" aria-label="Order history">
         <h2 className="text-lg font-bold text-text">Order history</h2>
-        <p className="mt-2 text-sm text-muted">See every order you have placed, with its current status.</p>
+        {recentOrders.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">No orders yet. Orders you place will show up here with their status and totals.</p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {recentOrders.map((order) => (
+              <li key={order.id}>
+                <Link
+                  href={`/orders/${order.id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4 hover:border-brand"
+                >
+                  <span>
+                    <span className="block font-semibold text-text">{order.orderNumber}</span>
+                    <span className="block text-sm text-muted">
+                      {formatDate(order.createdAt)} · {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                    </span>
+                  </span>
+                  <span className="font-bold text-text">{formatBDT(order.total_poisha)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
         <Link href="/orders" className={`${btnPrimary} mt-4`}>View my orders</Link>
       </section>
     </main>
+  );
+}
+
+export default function AccountPage() {
+  return (
+    <AuthProvider>
+      <Suspense
+        fallback={
+          <main className="mx-auto max-w-[900px] px-4 py-10">
+            <p className="text-muted">Loading your account…</p>
+          </main>
+        }
+      >
+        <AccountPageInner />
+      </Suspense>
+    </AuthProvider>
   );
 }

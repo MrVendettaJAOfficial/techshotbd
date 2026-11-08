@@ -6,8 +6,9 @@
 // (profiles rows, passed in as props from the server page).
 //
 // The sections below are unchanged from the demo dashboard and are
-// NOT yet wired to Supabase: seller approvals, orders
-// (lib/checkout-store) and coupons (lib/demo-store).
+// NOT yet wired to Supabase: orders (lib/checkout-store) and coupons
+// (lib/demo-store). There is no seller-approval section any more:
+// TechShot is single-seller, so nobody can sign up as a seller.
 //
 // NOTE on the demo admin button: the auth workstream has removed the
 // demo auth store (lib/auth.ts no longer exports signInAsDemoAdmin
@@ -25,13 +26,10 @@ import { z } from "zod";
 import { useAuth } from "@/lib/auth";
 import {
   addAdminCoupon,
-  decideSellerApproval,
   deleteCoupon,
   getAdminCoupons,
-  getSellerApprovals,
   toggleCoupon,
   type AdminCoupon,
-  type SellerApproval,
 } from "@/lib/demo-store";
 import { formatBDT } from "@/lib/theme";
 import { listOrders, updateOrderStatus, type StoredOrder } from "@/lib/checkout-store";
@@ -51,7 +49,7 @@ interface ListedOrder {
 }
 
 /** Map a stored checkout order (lib/checkout-store) to the shape this
- *  page renders. Stored orders carry no seller id. */
+ *  page renders. Stored orders are store orders (no per-account split). */
 function fromStoredOrder(order: StoredOrder): ListedOrder {
   return {
     id: order.id,
@@ -90,7 +88,6 @@ export default function AdminDashboard({ products, categories, configured, users
   const router = useRouter();
   const { user, loading, signOutUser } = useAuth();
   const [orders, setOrders] = useState<ListedOrder[]>([]);
-  const [approvals, setApprovals] = useState<SellerApproval[]>([]);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
 
   const [couponCode, setCouponCode] = useState("");
@@ -100,7 +97,6 @@ export default function AdminDashboard({ products, categories, configured, users
   const [couponNotice, setCouponNotice] = useState<string | null>(null);
 
   const refreshAll = useCallback(() => {
-    setApprovals(getSellerApprovals());
     setCoupons(getAdminCoupons());
   }, []);
 
@@ -126,7 +122,7 @@ export default function AdminDashboard({ products, categories, configured, users
         />
         <Card>
           <p className="text-sm text-muted">
-            Sign in with an admin account to manage products, seller approvals, orders, coupons and users.
+            Sign in with an admin account to manage products, orders, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
             <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
@@ -139,13 +135,7 @@ export default function AdminDashboard({ products, categories, configured, users
   }
 
   const ordersWithStatus = orders;
-  const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const totalRevenue = ordersWithStatus.reduce((sum, o) => sum + o.totalPoisha, 0);
-
-  function handleDecideApproval(id: string, status: "approved" | "rejected") {
-    decideSellerApproval(id, status);
-    refreshAll();
-  }
 
   function handleAdvanceOrder(order: ListedOrder) {
     const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
@@ -207,11 +197,7 @@ export default function AdminDashboard({ products, categories, configured, users
         </Button>
       </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-4">
-        <Card>
-          <p className="text-sm text-muted">Pending approvals</p>
-          <p className="mt-1 text-2xl font-bold text-text">{pendingApprovals.length}</p>
-        </Card>
+      <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <Card>
           <p className="text-sm text-muted">Products</p>
           <p className="mt-1 text-2xl font-bold text-text">{products.length}</p>
@@ -226,49 +212,9 @@ export default function AdminDashboard({ products, categories, configured, users
         </Card>
       </div>
 
-      <SectionHeading title="Seller approvals" description="Seller accounts wait for approval before they can publish products." />
-      {approvals.length === 0 ? (
-        <EmptyState
-          title="No seller sign-ups yet"
-          description="When someone signs up as a seller, their approval request appears here."
-          className="mb-10"
-        />
-      ) : (
-        <div className="mb-10 space-y-3">
-          {approvals.map((approval) => (
-            <Card key={approval.id}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-text">{approval.displayName}</p>
-                  <p className="text-sm text-muted">
-                    {approval.email} · Signed up {new Date(approval.createdAt).toLocaleDateString("en-GB")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge tone={approval.status === "approved" ? "success" : approval.status === "rejected" ? "danger" : "warning"}>
-                    {approval.status}
-                  </Badge>
-                  {approval.status === "pending" ? (
-                    <>
-                      <Button size="sm" onClick={() => handleDecideApproval(approval.id, "approved")}>Approve</Button>
-                      <Button size="sm" variant="danger" onClick={() => handleDecideApproval(approval.id, "rejected")}>Reject</Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={() => handleDecideApproval(approval.id, approval.status === "approved" ? "rejected" : "approved")}>
-                      {approval.status === "approved" ? "Revoke" : "Approve"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
       <ProductManager
         products={products}
         categories={categories}
-        mode="admin"
         canPublish
         configured={configured}
       />
@@ -381,7 +327,7 @@ export default function AdminDashboard({ products, categories, configured, users
       {users.length === 0 ? (
         <EmptyState
           title="No registered users yet"
-          description={configured ? "Customers and sellers who sign up appear here." : "Live user data is not configured yet, so no users can be listed here."}
+          description={configured ? "Customers who sign up appear here." : "Live user data is not configured yet, so no users can be listed here."}
         />
       ) : (
         <div className="space-y-3">
@@ -394,7 +340,7 @@ export default function AdminDashboard({ products, categories, configured, users
                     Joined {new Date(account.createdAt).toLocaleDateString("en-GB")}
                   </p>
                 </div>
-                <Badge tone={account.role === "seller" ? "brand" : account.role === "admin" ? "warning" : "default"}>{account.role}</Badge>
+                <Badge tone={account.role === "admin" ? "warning" : "default"}>{account.role}</Badge>
               </div>
             </Card>
           ))}

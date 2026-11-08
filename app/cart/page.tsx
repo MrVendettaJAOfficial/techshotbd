@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatBDT, FREE_DELIVERY_THRESHOLD_POISHA } from "@/lib/theme";
-import { PRODUCTS, getProduct } from "@/lib/data/catalog";
-import { computeTotals, resolveCartLines, validateCoupon } from "@/lib/orders";
-import { useCart } from "@/lib/cart-store";
+import { PRODUCTS, getProductForCartSlug } from "@/lib/data/catalog";
+import { computeTotals, validateCoupon } from "@/lib/orders";
+import { useCart, usePricedCartLines } from "@/lib/cart-store";
 import ProductImage from "@/components/ProductImage";
 import {
   getCouponCode,
@@ -43,10 +43,11 @@ export default function CartPage() {
     if (def?.city) setDeliverCity(def.city);
   }, []);
 
-  const { lines, unknownSlugs } = useMemo(
-    () => resolveCartLines(cart.items),
-    [cart.items],
-  );
+  // Priced lines: resolved from the seed catalogue immediately, then
+  // from the live database when Supabase is configured (see
+  // usePricedCartLines in lib/cart-store.ts). Prices are never stored
+  // in the cart — only slugs, variants and quantities are.
+  const { lines, unknownSlugs } = usePricedCartLines();
 
   const mrpTotal_poisha = useMemo(
     () => lines.reduce((sum, l) => sum + l.mrp_poisha * l.quantity, 0),
@@ -122,7 +123,7 @@ export default function CartPage() {
             <h2 className="text-lg font-semibold text-text">Saved for later</h2>
             <ul className="mt-4 space-y-3">
               {saved.map((item) => {
-                const product = getProduct(item.slug);
+                const product = getProductForCartSlug(item.slug);
                 if (!product) return null;
                 return (
                   <li key={`${item.slug}::${item.variant ?? ""}`} className="flex items-center gap-4 rounded-xl border border-border bg-panel p-4">
@@ -198,14 +199,18 @@ export default function CartPage() {
 
           <ul className="mt-4 space-y-4">
             {cart.items.map((item) => {
-              const product = getProduct(item.slug);
+              const product = getProductForCartSlug(item.slug);
               const line = lines.find(
                 (l) => l.productId === item.slug && (l.variant ?? "") === (item.variant ?? product?.variant ?? ""),
               );
+              // Title / image come from the priced line when there is
+              // one (live title and price), else the seed catalogue.
+              const title = line?.title ?? product?.title ?? `Unavailable product (${item.slug})`;
+              const image = line?.image ?? product?.image;
               return (
                 <li key={`${item.slug}::${item.variant ?? ""}`} className="flex gap-4 rounded-2xl border border-border bg-panel p-4">
-                  {product ? (
-                    <ProductImage src={product.image} alt={product.title} className="h-20 w-20 shrink-0 rounded-lg" />
+                  {image ? (
+                    <ProductImage src={image} alt={title} className="h-20 w-20 shrink-0 rounded-lg" />
                   ) : (
                     <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-surface text-2xl font-bold text-brand">
                       ?
@@ -213,7 +218,7 @@ export default function CartPage() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-text">
-                      {product ? product.title : `Unavailable product (${item.slug})`}
+                      {title}
                     </p>
                     {item.variant && <p className="text-sm text-muted">{item.variant}</p>}
                     {line && (
@@ -277,7 +282,7 @@ export default function CartPage() {
               <h2 className="text-lg font-semibold text-text">Saved for later</h2>
               <ul className="mt-3 space-y-3">
                 {saved.map((item) => {
-                  const product = getProduct(item.slug);
+                  const product = getProductForCartSlug(item.slug);
                   if (!product) return null;
                   return (
                     <li key={`${item.slug}::${item.variant ?? ""}`} className="flex items-center gap-4 rounded-xl border border-border bg-panel p-4">

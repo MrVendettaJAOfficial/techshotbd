@@ -1,9 +1,9 @@
 // Admin dashboard — server component.
 //
-// Fetches every live product (all sellers, all statuses) and the
+// Fetches every live product (all statuses) and the
 // live categories from Supabase (see lib/products/queries.ts) and
 // renders the client dashboard, which still owns the demo-auth
-// session, approvals, coupons, orders and users. Product writes go
+// session, coupons, orders and users. Product writes go
 // through the server actions in lib/products/actions.ts, so the shop
 // reflects them immediately.
 

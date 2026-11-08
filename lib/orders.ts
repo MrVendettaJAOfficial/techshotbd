@@ -25,7 +25,8 @@ import {
   FIRST2000_MIN_POISHA,
   FIRST2000_VALUE_POISHA,
 } from "@/lib/theme";
-import { getProduct } from "@/lib/data/catalog";
+import { getProductForCartSlug } from "@/lib/data/catalog";
+import { variantMatchesOption } from "@/lib/catalog-rules";
 import { computeTotals as pricingComputeTotals } from "@/lib/pricing";
 import type {
   Address,
@@ -114,10 +115,31 @@ export function validateCoupon(
 // Catalog price resolution.
 //
 // resolveCartLines() turns client cart lines ({slug, variant, quantity})
-// into priced order lines using getProduct(). A variant that starts with
-// a storage-option label (e.g. "512 GB · ...") applies that option's
-// price delta and stock. Lines whose slug is not in the catalog are
+// into priced order lines. A cart slug is resolved with
+// getProductForCartSlug(): the live storefront sells products under
+// their Supabase slugs, which are longer than the local seed slugs for
+// some products (live `apple-iphone-16-pro-256gb-natural-titanium` vs
+// seed `apple-iphone-16-pro`), so an exact match is tried first and then
+// the local slug that is a `<slug>-…` prefix of the cart slug. Without
+// that step a live product's line was reported as "no longer available"
+// and priced at ৳0, which made the cart unusable whenever Supabase was
+// configured — the line was in the cart, the badge counted it, but the
+// cart page showed it as unavailable and checkout refused it.
+//
+// The returned line keeps the ORIGINAL cart slug as productId (the live
+// slug when Supabase is configured, the seed slug otherwise), so the
+// cart page can match lines back to cart items and the server-side
+// checkout can re-resolve the same slug against the live database.
+// Prices come from the seed product; a variant that matches a storage
+// option (compared space- and case-insensitively, so "256GB Natural
+// Titanium" matches the "256 GB" option) applies that option's price
+// delta and stock. Lines whose slug matches no product at all are
 // reported in unknownSlugs and dropped — they must never be charged.
+// A product that exists only in the live database (added in the admin,
+// no seed counterpart) is NOT resolved here: it is priced from the live
+// database by getPricedCartLines in lib/cart-server.ts, which the cart
+// page, checkout form and checkout action use when Supabase is
+// configured.
 // ---------------------------------------------------------------------------
 
 export function resolveCartLines(items: CheckoutCartItem[]): {
@@ -127,17 +149,17 @@ export function resolveCartLines(items: CheckoutCartItem[]): {
   const lines: OrderItem[] = [];
   const unknownSlugs: string[] = [];
   for (const item of items) {
-    const product = getProduct(item.slug);
+    const product = getProductForCartSlug(item.slug);
     if (!product) {
       unknownSlugs.push(item.slug);
       continue;
     }
     const option = product.storageOptions?.find(
-      (o) => item.variant != null && item.variant.startsWith(o.label),
+      (o) => variantMatchesOption(item.variant, o.label),
     );
     const delta = option?.priceDeltaPoisha ?? 0;
     lines.push({
-      productId: product.slug,
+      productId: item.slug,
       title: product.title,
       variant: item.variant ?? product.variant,
       price_poisha: product.price_poisha + delta,
@@ -150,10 +172,10 @@ export function resolveCartLines(items: CheckoutCartItem[]): {
 }
 
 function stockFor(item: OrderItem): number | null {
-  const product = getProduct(item.productId);
+  const product = getProductForCartSlug(item.productId);
   if (!product) return null;
   const option = product.storageOptions?.find(
-    (o) => item.variant != null && item.variant.startsWith(o.label),
+    (o) => variantMatchesOption(item.variant, o.label),
   );
   return option?.stock ?? product.stock;
 }
@@ -202,6 +224,22 @@ export async function computeCheckoutTotals(
   delivery: DeliveryOption,
 ): Promise<CheckoutTotals> {
   const { lines: items, unknownSlugs } = resolveCartLines(cartItems);
+  return computeCheckoutTotalsFromLines(items, unknownSlugs, couponCode, delivery);
+}
+
+/**
+ * The same totals, from already-priced lines. The checkout action
+ * uses this with the live-resolved lines from getPricedCartLines
+ * (lib/cart-server.ts) so a guest checking out while Supabase is
+ * configured is priced from the live database, not the seed catalogue.
+ * `unknownSlugs` are the slugs the resolver could not price.
+ */
+export function computeCheckoutTotalsFromLines(
+  items: OrderItem[],
+  unknownSlugs: string[],
+  couponCode: string | null | undefined,
+  delivery: DeliveryOption,
+): CheckoutTotals {
   const subtotal_poisha = items.reduce((sum, i) => sum + i.price_poisha * i.quantity, 0);
   const normalizedCode = (couponCode ?? "").trim().toUpperCase() || null;
   let couponDiscount_poisha = 0;
