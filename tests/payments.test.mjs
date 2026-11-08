@@ -14,6 +14,9 @@
 //     cancelled callback, and rejects a bad signature, a signature made
 //     with a different secret, a tampered status, an unknown status and
 //     a malformed payload — without ever throwing for a bad callback;
+//   - every signed callback carries a timestamp + nonce in the HMAC
+//     input: a replayed callback is rejected, a stale timestamp is
+//     rejected, and the old two-field payload no longer verifies;
 //   - with NO signing secret configured, signTestCallback() throws and
 //     verifyCallback() returns valid: false (fail closed). That is the
 //     public callback route's behaviour: without a secret no callback
@@ -44,6 +47,9 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 import {
+  CALLBACK_MAX_AGE_MS,
+  clearSeenCallbackNoncesForTests,
+  createTestCallbackPayload,
   testAdapter,
   signTestCallback,
 } from "../lib/payments/test-adapter.ts";
@@ -124,11 +130,18 @@ test("createPayment returns a payment id, a test-pay redirect and a provider ref
   );
 });
 
+/** A correctly signed callback payload for an outcome, with a fresh nonce. */
+function signed(status, overrides = {}) {
+  const payload = { ...createTestCallbackPayload(ORDER.id, status), ...overrides };
+  const signature = signTestCallback(payload.orderId, payload.status, payload.timestamp, payload.nonce);
+  return { payload, signature };
+}
+
 test("verifyCallback accepts a correctly signed paid callback", async () => {
   const restore = withSecret(SIGNING_SECRET);
   try {
-    const signature = signTestCallback(ORDER.id, "paid");
-    const result = await testAdapter.verifyCallback({ orderId: ORDER.id, status: "paid" }, signature);
+    const { payload, signature } = signed("paid");
+    const result = await testAdapter.verifyCallback(payload, signature);
     assert.deepEqual(result, { valid: true, orderId: ORDER.id, status: "paid" });
   } finally {
     restore();
@@ -139,8 +152,8 @@ test("verifyCallback accepts failed and cancelled outcomes", async () => {
   const restore = withSecret(SIGNING_SECRET);
   try {
     for (const status of ["failed", "cancelled"]) {
-      const signature = signTestCallback(ORDER.id, status);
-      const result = await testAdapter.verifyCallback({ orderId: ORDER.id, status }, signature);
+      const { payload, signature } = signed(status);
+      const result = await testAdapter.verifyCallback(payload, signature);
       assert.deepEqual(result, { valid: true, orderId: ORDER.id, status });
     }
   } finally {
@@ -151,10 +164,8 @@ test("verifyCallback accepts failed and cancelled outcomes", async () => {
 test("verifyCallback rejects an invalid signature (valid: false, no throw)", async () => {
   const restore = withSecret(SIGNING_SECRET);
   try {
-    const result = await testAdapter.verifyCallback(
-      { orderId: ORDER.id, status: "paid" },
-      "0".repeat(64),
-    );
+    const payload = createTestCallbackPayload(ORDER.id, "paid");
+    const result = await testAdapter.verifyCallback(payload, "0".repeat(64));
     assert.equal(result.valid, false);
     assert.equal(result.orderId, ORDER.id);
     assert.equal(result.status, "paid");
@@ -166,10 +177,11 @@ test("verifyCallback rejects an invalid signature (valid: false, no throw)", asy
 test("verifyCallback rejects a signature made with a different secret", async () => {
   const restore = withSecret(SIGNING_SECRET);
   try {
+    const payload = createTestCallbackPayload(ORDER.id, "paid");
     const forged = createHmac("sha256", "attacker-secret")
-      .update(`${ORDER.id}:paid`)
+      .update(`${payload.orderId}:${payload.status}:${payload.timestamp}:${payload.nonce}`)
       .digest("hex");
-    const result = await testAdapter.verifyCallback({ orderId: ORDER.id, status: "paid" }, forged);
+    const result = await testAdapter.verifyCallback(payload, forged);
     assert.equal(result.valid, false);
   } finally {
     restore();
@@ -180,8 +192,8 @@ test("verifyCallback rejects a tampered status even with a real signature", asyn
   const restore = withSecret(SIGNING_SECRET);
   try {
     // Signature is for "failed"; the callback claims "paid".
-    const signature = signTestCallback(ORDER.id, "failed");
-    const result = await testAdapter.verifyCallback({ orderId: ORDER.id, status: "paid" }, signature);
+    const { payload, signature } = signed("failed");
+    const result = await testAdapter.verifyCallback({ ...payload, status: "paid" }, signature);
     assert.equal(result.valid, false);
   } finally {
     restore();
@@ -191,9 +203,10 @@ test("verifyCallback rejects a tampered status even with a real signature", asyn
 test("verifyCallback rejects an unknown status and a malformed payload", async () => {
   const restore = withSecret(SIGNING_SECRET);
   try {
+    const payload = createTestCallbackPayload(ORDER.id, "refunded");
     const unknown = await testAdapter.verifyCallback(
-      { orderId: ORDER.id, status: "refunded" },
-      signTestCallback(ORDER.id, "refunded"),
+      payload,
+      signTestCallback(payload.orderId, payload.status, payload.timestamp, payload.nonce),
     );
     assert.equal(unknown.valid, false);
     const malformed = await testAdapter.verifyCallback(null, "0".repeat(64));
@@ -204,12 +217,59 @@ test("verifyCallback rejects an unknown status and a malformed payload", async (
   }
 });
 
+test("verifyCallback rejects a replayed callback (same signed payload twice)", async () => {
+  const restore = withSecret(SIGNING_SECRET);
+  try {
+    clearSeenCallbackNoncesForTests();
+    const { payload, signature } = signed("paid");
+    const first = await testAdapter.verifyCallback(payload, signature);
+    assert.equal(first.valid, true);
+    // Same payload, same signature, posted again: replay.
+    const second = await testAdapter.verifyCallback(payload, signature);
+    assert.equal(second.valid, false);
+  } finally {
+    restore();
+  }
+});
+
+test("verifyCallback rejects a stale timestamp even with a valid signature", async () => {
+  const restore = withSecret(SIGNING_SECRET);
+  try {
+    const { payload, signature } = signed("paid", {
+      timestamp: Date.now() - CALLBACK_MAX_AGE_MS - 1000,
+    });
+    const result = await testAdapter.verifyCallback(payload, signature);
+    assert.equal(result.valid, false);
+  } finally {
+    restore();
+  }
+});
+
+test("verifyCallback rejects the old two-field payload (no timestamp / nonce)", async () => {
+  const restore = withSecret(SIGNING_SECRET);
+  try {
+    // Old format: { orderId, status } only. The HMAC input changed, so
+    // there is no legacy path that could weaken the replay check.
+    const result = await testAdapter.verifyCallback(
+      { orderId: ORDER.id, status: "paid" },
+      "0".repeat(64),
+    );
+    assert.equal(result.valid, false);
+    assert.equal(result.orderId, "");
+  } finally {
+    restore();
+  }
+});
+
 test("without a signing secret, signing throws and verification fails closed", async () => {
   const restore = withSecret(undefined);
   try {
-    assert.throws(() => signTestCallback(ORDER.id, "paid"), /not configured/);
+    assert.throws(
+      () => signTestCallback(ORDER.id, "paid", Date.now(), "test-nonce-12345678"),
+      /not configured/,
+    );
     const result = await testAdapter.verifyCallback(
-      { orderId: ORDER.id, status: "paid" },
+      createTestCallbackPayload(ORDER.id, "paid"),
       "0".repeat(64),
     );
     assert.equal(result.valid, false);

@@ -178,7 +178,15 @@ export function mergeOrders<T extends LocalOrderSummary>(local: T[], remote: T[]
   const byId = new Map<string, T>();
   for (const order of local) byId.set(order.id, order);
   for (const order of remote) byId.set(order.id, order);
-  return [...byId.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  // Newest first, compared as numbers: ISO strings sort correctly
+  // only when every value uses the same format, and equal timestamps
+  // must compare 0 (the old comparator returned -1 for equals, which
+  // is not a valid sort order). Unparseable dates sort as epoch.
+  return [...byId.values()].sort((a, b) => {
+    const ta = Date.parse(a.createdAt);
+    const tb = Date.parse(b.createdAt);
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
 }
 
 /** Validate the account address form. Returns field errors, empty

@@ -11,6 +11,12 @@
 // fulfilment (pending_payment or confirmed). Refund is only allowed
 // for an order whose latest payment is paid, and only once the order
 // exists past payment (confirmed, processing, shipped, delivered).
+//
+// Refund from "delivered" is a returns flow, not a label: the admin
+// refund path (lib/orders/actions.ts changeOrderStatus) restores the
+// stock for the order's items AND calls PaymentAdapter.refund() before
+// the order is marked refunded, exactly like a refund from any other
+// paid state — so "delivered" stays a refund source here.
 
 import type { OrderStatus, PaymentStatus } from "../checkout-store";
 

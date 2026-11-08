@@ -10,11 +10,14 @@ import { testAdapter } from "@/lib/payments/test-adapter";
 import { updateSupabaseOrderFromCallback } from "@/lib/orders-server";
 
 // POST /api/payments/callback — test-gateway callback endpoint.
-// Body: { orderId, status, signature }. "status" is "paid" (the adapter's
-// word) or "success" (the checkout UI's word) for a paid order, or
-// "failed" / "cancelled". The signature is verified with the test
-// adapter's HMAC check (testAdapter.verifyCallback). Errors are
-// deliberately generic — no internals are leaked.
+// Body: { orderId, status, timestamp, nonce, signature }. "status" is
+// "paid" (the adapter's word) or "success" (the checkout UI's word)
+// for a paid order, or "failed" / "cancelled". The signature is
+// verified with the test adapter's HMAC check
+// (testAdapter.verifyCallback), which also rejects stale timestamps
+// and reused nonces — a replayed callback is rejected, so a failed
+// retry can never overwrite a paid record. Errors are deliberately
+// generic — no internals are leaked.
 //
 // NOTE: verification fails closed when TEST_PAYMENT_SIGNING_SECRET is not
 // configured (see .env.example). Set it in .env.local before exercising
@@ -22,6 +25,8 @@ import { updateSupabaseOrderFromCallback } from "@/lib/orders-server";
 const callbackSchema = z.object({
   orderId: z.string().min(1),
   status: z.enum(["success", "paid", "failed", "cancelled"]),
+  timestamp: z.number().int(),
+  nonce: z.string().min(8).max(64),
   signature: z.string().min(1),
 });
 
@@ -38,7 +43,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid callback" }, { status: 400 });
   }
 
-  const { orderId, signature } = parsed.data;
+  const { orderId, signature, timestamp, nonce } = parsed.data;
   const adapterStatus = parsed.data.status === "success" ? "paid" : parsed.data.status;
 
   const order = getOrderRecord(orderId);
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   const verified = await testAdapter.verifyCallback(
-    { orderId, status: adapterStatus },
+    { orderId, status: adapterStatus, timestamp, nonce },
     signature,
   );
   if (!verified.valid) {

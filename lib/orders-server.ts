@@ -45,6 +45,9 @@ import {
   type AddressInput,
   type PlaceOrderInput,
 } from "./orders";
+import { adjustStockRow, decrementStockGuarded } from "./orders/stock";
+import { isLegalOrderTransition } from "./orders/transitions";
+import { EXPRESS_DELIVERY_POISHA } from "./theme";
 import type { OrderItem, StoredOrder } from "./checkout-store";
 
 interface DbProductRow {
@@ -102,6 +105,95 @@ async function getSignedInUserId(): Promise<string | null> {
     return user?.id ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Signed-in user with email + profile role, or null. */
+async function getSignedInUser(): Promise<{
+  id: string;
+  email: string;
+  role: string | null;
+} | null> {
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    return null;
+  }
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+    let role: string | null = null;
+    try {
+      const admin = untyped(createAdminClient());
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      role = (profile?.role as string | null) ?? null;
+    } catch {
+      role = null;
+    }
+    return { id: user.id, email: (user.email ?? "").toLowerCase(), role };
+  } catch {
+    return null;
+  }
+}
+
+/** Latest payments-row status for an order ("unpaid" when there is none). */
+async function latestPaymentStatus(
+  admin: SupabaseClient,
+  orderId: string,
+): Promise<StoredOrder["paymentStatus"]> {
+  try {
+    const { data: payment } = await admin
+      .from("payments")
+      .select("status")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (payment?.status === "paid") return "paid";
+    if (payment?.status === "failed") return "failed";
+    if (payment?.status === "refunded") return "refunded";
+    return "unpaid";
+  } catch {
+    return "unpaid";
+  }
+}
+
+/**
+ * Best-effort audit row for a status change made outside the admin
+ * server actions (payment sync / callback). A failure is logged
+ * server-side and never fails the order write or reaches the client.
+ */
+async function writeOrderAudit(
+  admin: SupabaseClient,
+  actorId: string | null,
+  orderId: string,
+  oldStatus: StoredOrder["status"],
+  newStatus: StoredOrder["status"],
+  source: string,
+): Promise<void> {
+  try {
+    const { error } = await admin.from("audit_log").insert({
+      actor_id: actorId,
+      action: `order.status:${oldStatus}->${newStatus} (${source})`,
+      entity_type: "order",
+      entity_id: orderId,
+    });
+    if (error) {
+      console.error("TechShot audit_log insert failed:", error.message);
+    }
+  } catch (error) {
+    console.error(
+      "TechShot audit_log insert failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
   }
 }
 
@@ -340,17 +432,19 @@ export async function createSupabaseOrder(
   if (orderError || !orderRow) return genericFailure;
   const orderId = orderRow.id as string;
 
+  // Rollback restores stock by ADDING each decremented quantity back
+  // through the guarded helper (never by writing an absolute stock
+  // value, which could clobber a concurrent checkout's decrement),
+  // then deletes the order row (items cascade).
   const rollback = async (restored: ResolvedDbLine[]): Promise<void> => {
     for (const line of restored) {
       try {
-        if (line.variantId) {
-          await admin
-            .from("product_variants")
-            .update({ stock: line.stock })
-            .eq("id", line.variantId);
-        } else {
-          await admin.from("products").update({ stock: line.stock }).eq("id", line.productId);
-        }
+        await adjustStockRow(
+          admin,
+          line.variantId ? "product_variants" : "products",
+          line.variantId ?? line.productId,
+          line.quantity,
+        );
       } catch {
         // Best effort — the order row is still deleted below.
       }
@@ -377,20 +471,49 @@ export async function createSupabaseOrder(
     return genericFailure;
   }
 
+  // Conditional decrement: the update only lands when the row still
+  // holds the stock we checked against. Two concurrent checkouts for
+  // the last item cannot both succeed — the loser sees 0 rows
+  // affected, rolls back and the order fails instead of overselling
+  // into negative stock.
   const decremented: ResolvedDbLine[] = [];
   for (const line of dbLines) {
-    const newStock = line.stock - line.quantity;
-    const result = line.variantId
-      ? await admin
-          .from("product_variants")
-          .update({ stock: newStock })
-          .eq("id", line.variantId)
-      : await admin.from("products").update({ stock: newStock }).eq("id", line.productId);
-    if (result.error) {
+    const ok = await decrementStockGuarded(
+      admin,
+      line.variantId ? "product_variants" : "products",
+      line.variantId ?? line.productId,
+      line.stock,
+      line.quantity,
+    );
+    if (!ok) {
       await rollback(decremented);
       return genericFailure;
     }
     decremented.push(line);
+  }
+
+  // Record which variant row each order line decremented, so a later
+  // cancel / refund restores exactly that row (migration 0003 adds
+  // order_items.variant_id). Best effort: a database that has not
+  // applied the migration yet must not fail the order.
+  try {
+    const { data: itemRows } = await admin
+      .from("order_items")
+      .select("id, product_id")
+      .eq("order_id", orderId);
+    for (const line of dbLines) {
+      if (!line.variantId) continue;
+      const itemRow = ((itemRows ?? []) as Array<{ id: string; product_id: string }>).find(
+        (r) => r.product_id === line.productId,
+      );
+      if (!itemRow) continue;
+      await admin
+        .from("order_items")
+        .update({ variant_id: line.variantId })
+        .eq("id", itemRow.id);
+    }
+  } catch {
+    // Variant attribution is best effort; the order is already placed.
   }
 
   // Coupon usage count (best effort — a failure here does not fail
@@ -475,7 +598,19 @@ function toStoredOrder(
       city: typeof snapshot.city === "string" ? snapshot.city : "",
       isDefault: false,
     },
-    delivery: "standard" as const,
+    // Delivery method is NOT stored on the orders table (there is no
+    // delivery_method column — see ORDER_COLUMNS): it is inferred from
+    // the delivery charge. Express is a flat ৳499 (49900 poisha,
+    // lib/theme.ts); standard is ৳60 or free over ৳999, so any other
+    // charge is standard. Savings and coupon code are likewise not
+    // stored (order_items keeps price only, no compare-at price, and
+    // orders keeps the discount amount only, no code): savings stays 0
+    // and couponCode stays null rather than inventing values, while
+    // couponDiscount_poisha below is the real stored discount.
+    delivery:
+      typeof row.delivery_poisha === "number" && row.delivery_poisha === EXPRESS_DELIVERY_POISHA
+        ? ("express" as const)
+        : ("standard" as const),
     paymentMethod: (typeof row.payment_method === "string"
       ? row.payment_method
       : "cod") as StoredOrder["paymentMethod"],
@@ -532,7 +667,8 @@ export async function listAdminOrders(): Promise<StoredOrder[]> {
         .from("payments")
         .select("order_id, status, created_at")
         .in("order_id", orderIds)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
       for (const payment of (payments ?? []) as Array<Record<string, unknown>>) {
         const orderId = String(payment.order_id);
         if (paymentByOrder.has(orderId)) continue;
@@ -554,6 +690,8 @@ export async function listAdminOrders(): Promise<StoredOrder[]> {
  * StoredOrder shape the browser order list uses. Empty when Supabase
  * is not configured or nobody is signed in. (Read with the
  * request-scoped client, so RLS limits it to the caller's own orders.)
+ * The payment status comes from each order's latest payments row,
+ * exactly as listAdminOrders does — never a hardcoded "unpaid".
  */
 export async function listSupabaseOrders(): Promise<StoredOrder[]> {
   if (!isConfigured()) return [];
@@ -571,18 +709,50 @@ export async function listSupabaseOrders(): Promise<StoredOrder[]> {
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error || !rows) return [];
-  return (rows as unknown as Array<Record<string, unknown>>).map((row) =>
-    toStoredOrder(row, "unpaid"),
+  const typedRows = rows as unknown as Array<Record<string, unknown>>;
+  const orderIds = typedRows.map((row) => String(row.id));
+  const paymentByOrder = new Map<string, StoredOrder["paymentStatus"]>();
+  if (orderIds.length > 0) {
+    try {
+      const { data: payments } = await supabase
+        .from("payments")
+        .select("order_id, status, created_at")
+        .in("order_id", orderIds)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+      for (const payment of (payments ?? []) as Array<Record<string, unknown>>) {
+        const orderId = String(payment.order_id);
+        if (paymentByOrder.has(orderId)) continue;
+        if (payment.status === "paid") paymentByOrder.set(orderId, "paid");
+        else if (payment.status === "failed") paymentByOrder.set(orderId, "failed");
+        else if (payment.status === "refunded") paymentByOrder.set(orderId, "refunded");
+      }
+    } catch {
+      // No payment rows readable: every order reads as unpaid.
+    }
+  }
+  return typedRows.map((row) =>
+    toStoredOrder(row, paymentByOrder.get(String(row.id)) ?? "unpaid"),
   );
 }
 
 /**
- * Sync a Supabase order's status after the test-payment outcome (or a
- * cancellation). Only the order's owner or an admin may do this. The
- * `payments` table has no direct payment-status column on `orders`, so
- * a paid/failed/cancelled outcome is also recorded as a payments row
- * for the order. Best effort: returns ok:false (generic) on failure
- * and the caller keeps the local order state.
+ * Sync a Supabase order's status after a payment outcome (or a
+ * cancellation). Only the order's owner or an admin may do this.
+ *
+ * Guardrails (review fixes):
+ *   - patch.status is validated with isLegalOrderTransition() against
+ *     the order's CURRENT status and latest payment status — a
+ *     customer can no longer self-mark their own order "delivered"
+ *     (unlocking reviews) or "refunded". Delivered / refunded moves
+ *     are admin-only.
+ *   - patch.paymentStatus is REJECTED from this path entirely:
+ *     payment status may only change via the verified callback
+ *     (updateSupabaseOrderFromCallback), which appends a new attempt
+ *     row. Callers that used to pass a payment status here (the
+ *     test-pay page) now use the callback path instead.
+ *   - The update is conditional on the current status, and an audit
+ *     row is written best-effort for the change.
  */
 export async function updateSupabaseOrderStatus(
   orderId: string,
@@ -591,6 +761,9 @@ export async function updateSupabaseOrderStatus(
   if (!isConfigured()) return { ok: false, message: "Supabase is not configured." };
   const userId = await getSignedInUserId();
   if (!userId) return { ok: false, message: "Not allowed." };
+  if (patch.paymentStatus !== undefined && patch.paymentStatus !== "unpaid") {
+    return { ok: false, message: "Not allowed." };
+  }
   let admin: SupabaseClient;
   try {
     admin = untyped(createAdminClient());
@@ -599,7 +772,7 @@ export async function updateSupabaseOrderStatus(
   }
   const { data: order } = await admin
     .from("orders")
-    .select("id, user_id, payment_method, total_poisha")
+    .select("id, user_id, status, payment_method, total_poisha")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return { ok: false, message: "Order not found." };
@@ -608,45 +781,29 @@ export async function updateSupabaseOrderStatus(
     .select("role")
     .eq("id", userId)
     .maybeSingle();
-  if (order.user_id !== userId && caller?.role !== "admin") {
+  const isAdmin = caller?.role === "admin";
+  if (order.user_id !== userId && !isAdmin) {
     return { ok: false, message: "Not allowed." };
   }
-  const { error } = await admin
+  const currentStatus = order.status as StoredOrder["status"];
+  const currentPayment = await latestPaymentStatus(admin, orderId);
+  if (!isLegalOrderTransition(currentStatus, patch.status, currentPayment)) {
+    return { ok: false, message: "That status change is not allowed." };
+  }
+  if ((patch.status === "delivered" || patch.status === "refunded") && !isAdmin) {
+    return { ok: false, message: "Not allowed." };
+  }
+  const { data: updated, error } = await admin
     .from("orders")
     .update({ status: patch.status })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("status", currentStatus)
+    .select("id");
   if (error) return { ok: false, message: "Could not update the order." };
-  if (patch.paymentStatus && patch.paymentStatus !== "unpaid") {
-    const paymentStatus =
-      patch.paymentStatus === "paid"
-        ? "paid"
-        : patch.paymentStatus === "failed"
-          ? "failed"
-          : patch.paymentStatus === "cancelled"
-            ? "failed"
-            : "refunded";
-    try {
-      const { data: existing } = await admin
-        .from("payments")
-        .select("id")
-        .eq("order_id", orderId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (existing) {
-        await admin.from("payments").update({ status: paymentStatus }).eq("id", existing.id);
-      } else {
-        await admin.from("payments").insert({
-          order_id: orderId,
-          provider: order.payment_method ?? "cod",
-          amount_poisha: order.total_poisha,
-          status: paymentStatus,
-        });
-      }
-    } catch {
-      // Order status already updated; payment row is best effort.
-    }
+  if (!Array.isArray(updated) || updated.length !== 1) {
+    return { ok: false, message: "Could not update the order." };
   }
+  await writeOrderAudit(admin, userId, orderId, currentStatus, patch.status, "status-sync");
   return { ok: true };
 }
 
@@ -658,6 +815,14 @@ export async function updateSupabaseOrderStatus(
  * app/api/payments/callback/route.ts) — that verification is the trust
  * boundary here, not a session. Never call this from a browser-facing
  * form or an unverified request.
+ *
+ * Payment attempts are APPEND-ONLY: every callback INSERTS a new
+ * payments row for the attempt and never updates an existing row's
+ * status, so a failed retry (or a replayed failed callback) can never
+ * overwrite a paid record. The status move is validated like any
+ * other transition (a same-status outcome, e.g. a failed payment on
+ * an order still pending payment, is allowed) and written
+ * conditionally on the current status, with a best-effort audit row.
  */
 export async function updateSupabaseOrderFromCallback(
   orderId: string,
@@ -672,15 +837,27 @@ export async function updateSupabaseOrderFromCallback(
   }
   const { data: order } = await admin
     .from("orders")
-    .select("id, payment_method, total_poisha")
+    .select("id, status, payment_method, total_poisha")
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return { ok: false, message: "Order not found." };
-  const { error } = await admin
+  const currentStatus = order.status as StoredOrder["status"];
+  const currentPayment = await latestPaymentStatus(admin, orderId);
+  if (patch.status !== currentStatus) {
+    if (!isLegalOrderTransition(currentStatus, patch.status, currentPayment)) {
+      return { ok: false, message: "That status change is not allowed." };
+    }
+  }
+  const { data: updated, error } = await admin
     .from("orders")
     .update({ status: patch.status })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("status", currentStatus)
+    .select("id");
   if (error) return { ok: false, message: "Could not update the order." };
+  if (!Array.isArray(updated) || updated.length !== 1) {
+    return { ok: false, message: "Could not update the order." };
+  }
   if (patch.paymentStatus && patch.paymentStatus !== "unpaid") {
     const paymentStatus =
       patch.paymentStatus === "paid"
@@ -691,27 +868,23 @@ export async function updateSupabaseOrderFromCallback(
             ? "failed"
             : "refunded";
     try {
-      const { data: existing } = await admin
-        .from("payments")
-        .select("id")
-        .eq("order_id", orderId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (existing) {
-        await admin.from("payments").update({ status: paymentStatus }).eq("id", existing.id);
-      } else {
-        await admin.from("payments").insert({
-          order_id: orderId,
-          provider: order.payment_method ?? "cod",
-          amount_poisha: order.total_poisha,
-          status: paymentStatus,
-        });
+      const { error: insertError } = await admin.from("payments").insert({
+        order_id: orderId,
+        provider: order.payment_method ?? "cod",
+        amount_poisha: order.total_poisha,
+        status: paymentStatus,
+      });
+      if (insertError) {
+        console.error("TechShot callback payment row insert failed:", insertError.message);
       }
-    } catch {
-      // Order status already updated; payment row is best effort.
+    } catch (error) {
+      console.error(
+        "TechShot callback payment row insert failed:",
+        error instanceof Error ? error.message : "unknown error",
+      );
     }
   }
+  await writeOrderAudit(admin, null, orderId, currentStatus, patch.status, "payment-callback");
   return { ok: true };
 }
 
@@ -733,10 +906,12 @@ export async function updateSupabaseOrderFromCallback(
  * checkout, test-pay and the callback all register there), then the
  * Supabase order owned by the caller (payment status from the latest
  * payments row; no row means unpaid). Returns null when the order is
- * not found anywhere the caller may see it. The caller must be the
- * order's owner (or an admin) for the Supabase branch; the in-memory
- * branch needs no session because the id itself is the lookup key and
- * it only ever returns a status, never order contents.
+ * not found anywhere the caller may see it. BOTH branches require a
+ * signed-in session and the same owner-or-admin check: the in-memory
+ * record carries no owner id, so ownership there is the checkout
+ * email on the record matching the signed-in user's email (admins may
+ * see any order). A guest's browser copy is unaffected — this only
+ * gates the server-side status read.
  */
 export async function getOrderStatusFromServer(
   orderId: string,
@@ -746,6 +921,12 @@ export async function getOrderStatusFromServer(
 } | null> {
   const local = getOrderRecord(orderId);
   if (local) {
+    const user = await getSignedInUser();
+    if (!user) return null;
+    const ownerEmail = (local.address?.email ?? "").toLowerCase();
+    if (user.role !== "admin" && (!ownerEmail || ownerEmail !== user.email)) {
+      return null;
+    }
     return { status: local.status, paymentStatus: local.paymentStatus };
   }
   if (!isConfigured()) return null;
@@ -775,6 +956,7 @@ export async function getOrderStatusFromServer(
     .select("status")
     .eq("order_id", orderId)
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (payment?.status === "paid") paymentStatus = "paid";

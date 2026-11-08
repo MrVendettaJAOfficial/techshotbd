@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { formatBDT } from "@/lib/theme";
 import { applyPaymentOutcome, paymentQueryToOutcome } from "@/lib/orders";
 import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
+import { cancelMyOrder } from "@/lib/orders/actions";
 import {
   ORDER_TIMELINE_STEPS,
   getOrder,
@@ -152,15 +153,51 @@ function OrderDetailInner() {
     router.replace(`/orders/${id}`);
   }, [id, searchParams, router]);
 
-  function cancelOrder() {
-    if (!order) return;
-    const updated = updateOrderStatus(order.id, {
-      status: "cancelled",
-      paymentStatus: order.paymentStatus === "paid" ? "refunded" : "cancelled",
-    });
-    if (updated) {
-      setOrder(updated);
-      setNotice("Order cancelled. Stock for these items has been released back to inventory.");
+  const [cancelling, setCancelling] = useState(false);
+
+  // Cancel through the server: the live order is cancelled in
+  // Supabase (owner-checked, stock restored, audit row written) and
+  // the admin sees it. The "stock released" message is shown ONLY
+  // after the server confirms. When there is no live order to cancel
+  // (guest / browser-only order), the browser copy is cancelled
+  // instead and the notice says so honestly — no stock claim.
+  //
+  // The outcome is persisted ON THE STORED ORDER (cancelNotice),
+  // not only in component state: the cancel server action
+  // revalidates the order pages, and that refresh remounts this
+  // page — wiping a transient notice even though the cancel
+  // succeeded (proven 2026-11-08: live cancel + stock restore +
+  // audit row all landed, yet no notice showed). Deriving the
+  // notice from the stored order below survives the remount,
+  // because the remounted page reloads the order from storage.
+  async function cancelOrder() {
+    if (!order || cancelling) return;
+    setCancelling(true);
+    try {
+      const result = await cancelMyOrder(order.id);
+      if (result.ok) {
+        const updated = updateOrderStatus(order.id, {
+          status: "cancelled",
+          paymentStatus: order.paymentStatus,
+          cancelNotice: "live",
+        });
+        if (updated) setOrder(updated);
+        setNotice("Order cancelled. Stock for these items has been released back to inventory.");
+        return;
+      }
+      if (result.localOnly) {
+        const updated = updateOrderStatus(order.id, {
+          status: "cancelled",
+          paymentStatus: order.paymentStatus === "paid" ? "refunded" : "cancelled",
+          cancelNotice: "local",
+        });
+        if (updated) setOrder(updated);
+        setNotice("Order cancelled in this browser. This order was not saved to your account.");
+        return;
+      }
+      setNotice(result.error);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -189,7 +226,20 @@ function OrderDetailInner() {
     );
   }
 
-  const cancellable = ["pending_payment", "confirmed", "processing"].includes(order.status);
+  const cancellable = ["pending_payment", "confirmed"].includes(order.status);
+  // The notice to show: the transient one (payment outcomes, server
+  // errors) first, otherwise the persisted cancel outcome — the
+  // remount after a server-action refresh wipes the transient state,
+  // but the stored order reloads with cancelNotice intact (see
+  // cancelOrder above), so a confirmed live cancel still shows its
+  // stock-released message after the refresh.
+  const shownNotice =
+    notice ??
+    (order.cancelNotice === "live"
+      ? "Order cancelled. Stock for these items has been released back to inventory."
+      : order.cancelNotice === "local"
+        ? "Order cancelled in this browser. This order was not saved to your account."
+        : null);
   const timelineIndex =
     order.status === "cancelled" || order.status === "refunded"
       ? -1
@@ -208,9 +258,9 @@ function OrderDetailInner() {
         </span>
       </div>
 
-      {notice && (
+      {shownNotice && (
         <p role="status" className="mt-4 rounded-lg border border-success bg-panel px-4 py-3 text-sm text-success">
-          {notice}
+          {shownNotice}
         </p>
       )}
 
@@ -349,9 +399,10 @@ function OrderDetailInner() {
           <button
             type="button"
             onClick={cancelOrder}
-            className="mt-4 rounded-lg border border-red-400 px-5 py-2 font-semibold text-red-400 hover:bg-red-500/10"
+            disabled={cancelling}
+            className="mt-4 rounded-lg border border-red-400 px-5 py-2 font-semibold text-red-400 hover:bg-red-500/10 disabled:opacity-50"
           >
-            Cancel order
+            {cancelling ? "Cancelling…" : "Cancel order"}
           </button>
         </div>
       )}

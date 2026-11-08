@@ -31,7 +31,6 @@ export interface ProductQueryResult {
 export interface AdminUserItem {
   id: string;
   displayName: string;
-  email: string;
   role: string;
   createdAt: string;
 }
@@ -196,7 +195,6 @@ export async function fetchAdminUsers(): Promise<{ users: AdminUserItem[]; confi
         (row) => ({
           id: row.id,
           displayName: row.display_name ?? "TechShot user",
-          email: "",
           role: row.role,
           createdAt: row.created_at,
         }),

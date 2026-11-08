@@ -153,8 +153,20 @@ async function addIphoneFromShop(page) {
   await sleep(1200);
 }
 
+async function launchBrowser() {
+  const opts = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
+  try {
+    return await chromium.launch(opts);
+  } catch {
+    // The installed Playwright expects a Chromium build that is not
+    // downloaded; fall back to the downloaded chromium-1148 binary.
+    const exe = process.env.CHROMIUM_PATH ?? "/home/hatch/.cache/ms-playwright/chromium-1148/chrome-linux/chrome";
+    return await chromium.launch({ ...opts, executablePath: exe });
+  }
+}
+
 async function main() {
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await launchBrowser();
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1280, height: 900 });
   const pageErrors = [];
@@ -329,16 +341,35 @@ async function main() {
   check("callback-flow checkout reaches test-pay", page.url().includes("/checkout/test-pay"));
   const orderId = new URL(page.url()).searchParams.get("order") ?? "";
   check("test-pay URL carries the order id", orderId.length > 0, orderId);
-  const callbackBody = (status, signature) => ({
+  const callbackBody = (status, signature, timestamp, nonce) => ({
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ orderId, status, signature }),
+    body: JSON.stringify({ orderId, status, timestamp, nonce, signature }),
+  });
+  // Signed callback payload: timestamp + nonce are part of the HMAC
+  // input ("<orderId>:<status>:<timestamp>:<nonce>") and replay
+  // protection rejects the same signed payload twice.
+  const signCallback = (status, timestamp, nonce) => ({
+    timestamp,
+    nonce,
+    signature: createHmac("sha256", SECRET)
+      .update(`${orderId}:${status}:${timestamp}:${nonce}`)
+      .digest("hex"),
   });
   if (SECRET) {
-    const signature = createHmac("sha256", SECRET).update(`${orderId}:paid`).digest("hex");
-    const res = await fetch(`${BASE}/api/payments/callback`, callbackBody("paid", signature));
+    const first = signCallback("paid", Date.now(), `smoke-${Date.now()}-a1b2c3d4`);
+    const res = await fetch(
+      `${BASE}/api/payments/callback`,
+      callbackBody("paid", first.signature, first.timestamp, first.nonce),
+    );
     const json = await res.json().catch(() => ({}));
     check("signed callback returns 200", res.status === 200 && json.ok === true, `${res.status} ${JSON.stringify(json)}`);
+    // Replaying the exact same signed callback must be rejected.
+    const replay = await fetch(
+      `${BASE}/api/payments/callback`,
+      callbackBody("paid", first.signature, first.timestamp, first.nonce),
+    );
+    check("replayed callback is rejected (400)", replay.status === 400, `got ${replay.status}`);
     await page.goto(`${BASE}/orders/${orderId}`, { waitUntil: "networkidle0" });
     // The order page reconciles the browser copy with the server record
     // (updated by the callback), so wait for the paid state to appear.
@@ -351,7 +382,10 @@ async function main() {
     check("signed callback marks the order Confirmed", orderText.includes("Confirmed"));
     check("signed callback marks the payment Paid", orderText.includes("Paid"));
   } else {
-    const res = await fetch(`${BASE}/api/payments/callback`, callbackBody("paid", "0".repeat(64)));
+    const res = await fetch(
+      `${BASE}/api/payments/callback`,
+      callbackBody("paid", "0".repeat(64), Date.now(), "smoke-no-secret-nonce"),
+    );
     check("callback without a secret fails closed (400)", res.status === 400, `got ${res.status}`);
     await page.goto(`${BASE}/orders/${orderId}`, { waitUntil: "networkidle0" });
     await sleep(1200);

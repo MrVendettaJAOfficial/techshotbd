@@ -27,7 +27,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
@@ -104,6 +104,36 @@ export default function AdminDashboard({ products, categories, configured, users
   const [orders, setOrders] = useState<ListedOrder[]>(initialOrders);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [orderError, setOrderError] = useState<string | null>(null);
+  // Id of the order whose server action is in flight, if any. While
+  // set, that order's Advance / Cancel / Refund buttons are disabled.
+  // This state alone cannot stop a double-click: React state updates
+  // are async, so two clicks dispatched in the same task both read
+  // the stale value (null) and both reach the server — and the
+  // server's conditional update cannot stop the second one either,
+  // because by the time it runs the first advance has legitimately
+  // landed and "advance from the new status" is a legal next step.
+  // The ref below is the real guard: it mutates synchronously, so
+  // the second invocation in the same task sees the order already
+  // in flight and returns before any state update or server call.
+  // (Proven by the Playwright mock run, 2026-11-08: two synchronous
+  // clicks moved confirmed -> processing -> shipped, 2 audit rows.)
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const pendingOrderIdsRef = useRef<Set<string>>(new Set());
+
+  /** Synchronously claim an order for one action; false when it is already in flight. */
+  function beginOrderAction(orderId: string): boolean {
+    if (pendingOrderIdsRef.current.has(orderId)) return false;
+    pendingOrderIdsRef.current.add(orderId);
+    setPendingOrderId(orderId);
+    setOrderError(null);
+    return true;
+  }
+
+  /** Release an order after its action settles. */
+  function endOrderAction(orderId: string): void {
+    pendingOrderIdsRef.current.delete(orderId);
+    setPendingOrderId((current) => (current === orderId ? null : current));
+  }
 
   const [couponCode, setCouponCode] = useState("");
   const [couponValue, setCouponValue] = useState("");
@@ -163,9 +193,36 @@ export default function AdminDashboard({ products, categories, configured, users
    *  transition, writes the audit row and revalidates the order pages,
    *  so the customer order page moves too. */
   async function handleAdvanceOrder(order: ListedOrder) {
-    setOrderError(null);
-    if (configured) {
-      const result = await advanceOrderStatus(order.id);
+    if (!beginOrderAction(order.id)) return;
+    try {
+      if (configured) {
+        const result = await advanceOrderStatus(order.id);
+        if (!result.ok) {
+          setOrderError(result.error);
+          return;
+        }
+        setOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
+        );
+        router.refresh();
+        return;
+      }
+      const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
+      const index = flow.indexOf(order.status);
+      const next = index >= 0 && index < flow.length - 1 ? flow[index + 1] : "delivered";
+      updateOrderStatus(order.id, { status: next as StoredOrder["status"] });
+      setOrders(listOrders().map(fromStoredOrder));
+    } finally {
+      endOrderAction(order.id);
+    }
+  }
+
+  /** Cancel / refund via the live server action (configured only —
+   *  the demo store has no cancel or refund path). */
+  async function handleSetOrderStatus(order: ListedOrder, target: "cancelled" | "refunded") {
+    if (!beginOrderAction(order.id)) return;
+    try {
+      const result = await setOrderStatus(order.id, target);
       if (!result.ok) {
         setOrderError(result.error);
         return;
@@ -174,28 +231,9 @@ export default function AdminDashboard({ products, categories, configured, users
         prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
       );
       router.refresh();
-      return;
+    } finally {
+      endOrderAction(order.id);
     }
-    const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
-    const index = flow.indexOf(order.status);
-    const next = index >= 0 && index < flow.length - 1 ? flow[index + 1] : "delivered";
-    updateOrderStatus(order.id, { status: next as StoredOrder["status"] });
-    setOrders(listOrders().map(fromStoredOrder));
-  }
-
-  /** Cancel / refund via the live server action (configured only —
-   *  the demo store has no cancel or refund path). */
-  async function handleSetOrderStatus(order: ListedOrder, target: "cancelled" | "refunded") {
-    setOrderError(null);
-    const result = await setOrderStatus(order.id, target);
-    if (!result.ok) {
-      setOrderError(result.error);
-      return;
-    }
-    setOrders((prev) =>
-      prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
-    );
-    router.refresh();
   }
 
   function handleAddCoupon(event: FormEvent) {
@@ -311,13 +349,13 @@ export default function AdminDashboard({ products, categories, configured, users
                     {order.status !== "delivered" &&
                     order.status !== "cancelled" &&
                     order.status !== "refunded" ? (
-                      <Button variant="outline" size="sm" onClick={() => handleAdvanceOrder(order)}>
+                      <Button variant="outline" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleAdvanceOrder(order)}>
                         Advance status
                       </Button>
                     ) : null}
                     {(order.status === "pending_payment" || order.status === "confirmed") &&
                     configured ? (
-                      <Button variant="danger" size="sm" onClick={() => handleSetOrderStatus(order, "cancelled")}>
+                      <Button variant="danger" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleSetOrderStatus(order, "cancelled")}>
                         Cancel
                       </Button>
                     ) : null}
@@ -325,7 +363,7 @@ export default function AdminDashboard({ products, categories, configured, users
                     order.status !== "cancelled" &&
                     order.status !== "refunded" &&
                     configured ? (
-                      <Button variant="outline" size="sm" onClick={() => handleSetOrderStatus(order, "refunded")}>
+                      <Button variant="outline" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleSetOrderStatus(order, "refunded")}>
                         Refund
                       </Button>
                     ) : null}

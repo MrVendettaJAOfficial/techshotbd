@@ -8,8 +8,8 @@ import {
   updateOrderRecordStatus,
   type PaymentOutcome,
 } from "@/lib/orders";
-import { signTestCallback, testAdapter } from "@/lib/payments/test-adapter";
-import { updateSupabaseOrderStatus } from "@/lib/orders-server";
+import { signTestCallback, testAdapter, createTestCallbackPayload } from "@/lib/payments/test-adapter";
+import { updateSupabaseOrderFromCallback } from "@/lib/orders-server";
 
 // Server action: runs the test adapter's verifyCallback logic and redirects
 // to the order page with the outcome in the query string. No real card
@@ -34,11 +34,9 @@ async function testPayAction(formData: FormData) {
   const adapterStatus = outcomeToAdapterStatus(outcome);
   let verified = false;
   try {
-    const signature = signTestCallback(orderId, adapterStatus);
-    const result = await testAdapter.verifyCallback(
-      { orderId, status: adapterStatus },
-      signature,
-    );
+    const payload = createTestCallbackPayload(orderId, adapterStatus);
+    const signature = signTestCallback(payload.orderId, payload.status, payload.timestamp, payload.nonce);
+    const result = await testAdapter.verifyCallback(payload, signature);
     verified = result.valid;
   } catch {
     verified = true;
@@ -50,7 +48,10 @@ async function testPayAction(formData: FormData) {
   updateOrderRecordStatus(orderId, patch);
   // Keep the live Supabase order in sync too (best effort: no-op when
   // Supabase is not configured or this was a local fallback order).
-  await updateSupabaseOrderStatus(orderId, patch);
+  // This is the verified-callback path: payment status may only change
+  // there, never through updateSupabaseOrderStatus, and the callback
+  // appends a new payments row per attempt instead of overwriting.
+  await updateSupabaseOrderFromCallback(orderId, patch);
   redirect(`/orders/${orderId}?payment=${outcome}`);
 }
 

@@ -20,7 +20,9 @@ import AdminDashboard from "./AdminDashboard";
 export default async function AdminPage() {
   const [{ products, categories, configured }, users, adminOrders] = await Promise.all([
     fetchAllProducts(),
-    // Admin users list with real emails (lib/auth-server listUsers).
+    // Admin users list (lib/auth-server listUsers). Only the display
+    // name, role and join date are passed to the client dashboard —
+    // emails stay server-side (the dashboard never renders them).
     // Falls back to an empty list when Supabase is not configured or
     // the caller is not an admin.
     listUsers()
@@ -28,7 +30,6 @@ export default async function AdminPage() {
         rows.map((row) => ({
           id: row.id,
           displayName: row.display_name ?? "TechShot user",
-          email: row.email ?? "",
           role: row.role,
           createdAt: row.created_at,
         })),

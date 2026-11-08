@@ -72,6 +72,8 @@ export interface StoredOrder {
   total_poisha: number;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
+  /** How this order was cancelled, when it was cancelled from the order page: "live" means the server confirmed the live cancel (stock released), "local" means the browser copy only was cancelled. Persisted with the order — not kept in component state — because the cancel server action revalidates the order pages and that refresh remounts the order page, wiping transient notice state (proven by the Playwright mock run, 2026-11-08: the live cancel succeeded but no notice showed). Absent on orders never cancelled from the page. */
+  cancelNotice?: "live" | "local";
   /** True when the payment went through a test adapter (card / bKash / Nagad / EMI). */
   testMode: boolean;
   createdAt: string;
@@ -222,9 +224,88 @@ export function clearCouponCode(): void {
   if (isBrowser()) window.localStorage.removeItem(STORAGE_KEYS.coupon);
 }
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Orders (browser copy of the orders created at checkout)
+//
+// A crafted localStorage entry must never render as a fake order:
+// stored orders are validated against this schema when read, and
+// entries that fail validation are dropped (and the stored list is
+// repaired) before anything renders. Live Supabase orders are
+// unaffected — mergeOrders() lets the live copy win over the browser
+// copy, and listSupabaseOrders() never goes through this schema.
 // ---------------------------------------------------------------------------
+
+const orderItemSchema = z.object({
+  productId: z.string().min(1),
+  title: z.string().min(1),
+  variant: z.string().optional(),
+  price_poisha: z.number().int().nonnegative(),
+  mrp_poisha: z.number().int().nonnegative(),
+  image: z.string().optional(),
+  quantity: z.number().int().positive(),
+});
+
+const addressSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().optional(),
+  firstName: z.string(),
+  lastName: z.string(),
+  email: z.string(),
+  mobile: z.string(),
+  address: z.string(),
+  area: z.string(),
+  division: z.string(),
+  district: z.string(),
+  city: z.string(),
+  isDefault: z.boolean(),
+});
+
+/** A stored order as written by saveOrder(); anything else is not an order. */
+export const storedOrderSchema = z.object({
+  id: z.string().min(1),
+  orderNumber: z.string().min(1),
+  items: z.array(orderItemSchema),
+  address: addressSchema,
+  delivery: z.enum(["standard", "express"]),
+  paymentMethod: z.enum(["card", "bkash", "nagad", "cod", "emi"]),
+  subtotal_poisha: z.number().int().nonnegative(),
+  savings_poisha: z.number().int().nonnegative(),
+  couponCode: z.string().nullable(),
+  couponDiscount_poisha: z.number().int().nonnegative(),
+  deliveryFee_poisha: z.number().int().nonnegative(),
+  total_poisha: z.number().int().nonnegative(),
+  status: z.enum([
+    "pending_payment",
+    "confirmed",
+    "processing",
+    "shipped",
+    "delivered",
+    "cancelled",
+    "refunded",
+  ]),
+  paymentStatus: z.enum(["unpaid", "paid", "failed", "cancelled", "refunded"]),
+  cancelNotice: z.enum(["live", "local"]).optional(),
+  testMode: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+/**
+ * Validate an unknown value as a list of stored orders. Entries that
+ * fail validation are dropped; the caller (listOrders) repairs the
+ * stored list so a bad entry cannot reappear on the next read.
+ */
+export function validateStoredOrders(value: unknown): StoredOrder[] {
+  if (!Array.isArray(value)) return [];
+  const valid: StoredOrder[] = [];
+  for (const entry of value) {
+    const parsed = storedOrderSchema.safeParse(entry);
+    if (parsed.success) valid.push(parsed.data as StoredOrder);
+  }
+  return valid;
+}
 
 export function saveOrder(order: StoredOrder): void {
   const orders = listOrders();
@@ -239,13 +320,23 @@ export function getOrder(id: string): StoredOrder | null {
 }
 
 export function listOrders(): StoredOrder[] {
-  const orders = readJSON<StoredOrder[]>(STORAGE_KEYS.orders, []);
-  return [...orders].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const raw = readJSON<unknown>(STORAGE_KEYS.orders, []);
+  const orders = validateStoredOrders(raw);
+  // Repair: a crafted or corrupted entry is dropped from storage too,
+  // so it cannot reappear on the next read.
+  if (Array.isArray(raw) && orders.length !== raw.length && isBrowser()) {
+    writeJSON(STORAGE_KEYS.orders, orders);
+  }
+  return [...orders].sort((a, b) => {
+    const ta = Date.parse(a.createdAt);
+    const tb = Date.parse(b.createdAt);
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
 }
 
 export function updateOrderStatus(
   id: string,
-  patch: Partial<Pick<StoredOrder, "status" | "paymentStatus">>,
+  patch: Partial<Pick<StoredOrder, "status" | "paymentStatus" | "cancelNotice">>,
 ): StoredOrder | null {
   const order = getOrder(id);
   if (!order) return null;
