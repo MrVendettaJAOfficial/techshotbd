@@ -6,10 +6,11 @@ import { Check } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { formatBDT } from "@/lib/theme";
 import { applyPaymentOutcome, paymentQueryToOutcome } from "@/lib/orders";
-import { getOrderStatusFromServer } from "@/lib/orders-server";
+import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
 import {
   ORDER_TIMELINE_STEPS,
   getOrder,
+  saveOrder,
   updateOrderStatus,
   type StoredOrder,
 } from "@/lib/checkout-store";
@@ -67,6 +68,35 @@ function OrderDetailInner() {
 
   useEffect(() => {
     const browserOrder = getOrder(id);
+    if (!browserOrder) {
+      // No browser copy (new device/browser, or cleared data): load the
+      // live order the same way /orders does. Without this, clicking an
+      // order from the (now live) /orders list on a fresh browser landed
+      // on "Order not found". The live copy is registered in the browser
+      // store so cancel / retry / status flows below, which work on the
+      // browser copy, behave exactly as before. listSupabaseOrders
+      // returns [] when Supabase is not configured or nobody is signed
+      // in, so guests keep the "Order not found" page as before.
+      let cancelled = false;
+      void (async () => {
+        let live: StoredOrder | null = null;
+        try {
+          const orders = await listSupabaseOrders();
+          live = orders.find((o) => o.id === id) ?? null;
+        } catch {
+          live = null;
+        }
+        if (cancelled) return;
+        if (live) {
+          saveOrder(live);
+          setOrder(live);
+        }
+        setLoaded(true);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
     setOrder(browserOrder);
     setLoaded(true);
     // Reconcile with the server: a payment completed through the public

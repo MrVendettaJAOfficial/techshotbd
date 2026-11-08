@@ -89,6 +89,8 @@ The script signs in, checks the "Signed in successfully" banner and the name / e
 
 To exercise the admin orders flow against the mock instead, start the mock with `MOCK_ADMIN=1` (it seeds the signed-in user as admin), sign in, place a COD order, then open `/admin`: the order is listed from the live database and Advance moves it confirmed → processing → shipped → delivered, with the customer order page moving too.
 
+`/orders` lists the signed-in user's live Supabase orders, not just the browser's copy: `tests/e2e/orders-fresh-browser.mjs` places a COD order, then opens `/orders` in a fresh browser profile (empty localStorage) and checks the order is listed there and that `/orders/<id>` shows it with its live status. In fallback mode (no env vars) the same script checks a guest COD order is still listed from localStorage.
+
 ## Test payment instructions (TEST MODE)
 
 Checkout uses a **test payment adapter only** (`lib/payments/test-adapter.ts`, behind the `PaymentAdapter` interface in `lib/payments/index.ts`). No real money moves, and the adapter never collects or stores real card or bank details.

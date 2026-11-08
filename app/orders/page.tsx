@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatBDT } from "@/lib/theme";
-import { getOrderStatusFromServer } from "@/lib/orders-server";
+import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
+import { mergeOrders } from "@/lib/account-rules";
 import {
   listOrders,
   updateOrderStatus,
@@ -50,33 +51,52 @@ export default function OrdersPage() {
     const browserOrders = listOrders();
     setOrders(browserOrders);
     setLoaded(true);
-    // Same server reconciliation as the order detail page (see there):
-    // a payment completed through the public callback route updates the
-    // server-side record, not this browser copy. Only copies still
-    // pending payment adopt the server status.
-    const pending = browserOrders.filter((o) => o.status === "pending_payment");
-    if (pending.length === 0) return;
+    // Live orders for the signed-in user, merged over the browser list:
+    // the same order id in both places is one order and the Supabase
+    // copy wins (it is the source of truth once configured). This is
+    // the fix for a fresh browser showing "No orders yet" even though
+    // the order exists in Supabase. listSupabaseOrders returns [] when
+    // Supabase is not configured or nobody is signed in, so guests
+    // keep seeing their local orders exactly as before.
     let cancelled = false;
-    void Promise.all(
-      pending.map(async (o) => {
-        const server = await getOrderStatusFromServer(o.id).catch(() => null);
-        if (!server) return false;
-        if (
-          server.status === "pending_payment" &&
-          server.paymentStatus === o.paymentStatus
-        ) {
-          return false;
-        }
-        return (
-          updateOrderStatus(o.id, {
-            status: server.status,
-            paymentStatus: server.paymentStatus,
-          }) !== null
-        );
-      }),
-    ).then((results) => {
-      if (!cancelled && results.some(Boolean)) setOrders(listOrders());
-    });
+    void (async () => {
+      let liveOrders: StoredOrder[] = [];
+      try {
+        liveOrders = await listSupabaseOrders();
+      } catch {
+        liveOrders = [];
+      }
+      if (cancelled) return;
+      const merged = mergeOrders(browserOrders, liveOrders);
+      if (liveOrders.length > 0) setOrders(merged);
+      // Same server reconciliation as the order detail page (see there):
+      // a payment completed through the public callback route updates the
+      // server-side record, not this browser copy. Only copies still
+      // pending payment adopt the server status.
+      const pending = merged.filter((o) => o.status === "pending_payment");
+      if (pending.length === 0) return;
+      const results = await Promise.all(
+        pending.map(async (o) => {
+          const server = await getOrderStatusFromServer(o.id).catch(() => null);
+          if (!server) return false;
+          if (
+            server.status === "pending_payment" &&
+            server.paymentStatus === o.paymentStatus
+          ) {
+            return false;
+          }
+          return (
+            updateOrderStatus(o.id, {
+              status: server.status,
+              paymentStatus: server.paymentStatus,
+            }) !== null
+          );
+        }),
+      );
+      if (!cancelled && results.some(Boolean)) {
+        setOrders(mergeOrders(listOrders(), liveOrders));
+      }
+    })();
     return () => {
       cancelled = true;
     };
