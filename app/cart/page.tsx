@@ -320,7 +320,7 @@ export default function CartPage() {
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {recommendations.map((product) => (
                 <article key={product.slug} className="rounded-2xl border border-border bg-panel p-4">
-                  <ProductImage src={product.image} alt={product.title} className="h-28 w-full rounded-lg" />
+                  <ProductImage src={product.image} alt={product.title} className="w-full max-w-56 rounded-lg" />
                   <h3 className="mt-3 font-semibold text-text">{product.title}</h3>
                   <p className="text-sm text-muted">
                     <span className="font-semibold text-text">{formatBDT(product.price_poisha)}</span>

@@ -77,7 +77,7 @@ is the skeleton shown while it loads.
 | `components/admin/` | Admin dashboard shell (`dashboard-shell.tsx`) and coupons (`coupons-section.tsx`) |
 | `components/admin-orders/` | Admin orders tab: `orders-list.tsx`, `status-controls.tsx` (status selector, Advance, Cancel, Refund) |
 | `components/Header.tsx`, `Footer.tsx` | Site header (cart button + mini-cart) and footer |
-| `components/Logo.tsx` | Brand wordmark (code-built, no image): TS monogram, "TechShot" in extra-bold Montserrat + green "BD", tagline; header hides the tagline on mobile, footer always shows it |
+| `components/Logo.tsx` | Brand wordmark: owner's real TS mark file (`public/images/techshot-logo.svg`) + "TechShot" in extra-bold Montserrat + green "BD", tagline; header hides the tagline on mobile, footer always shows it |
 | `components/MiniCartDrawer.tsx` | Slide-over mini cart |
 | `components/ProductCard.tsx`, `ProductImage.tsx`, `Stars.tsx` | Product card, photo with fallback, star rating |
 | `components/AdminStats.tsx`, `AdminUsers.tsx`, `TabBar.tsx` | Admin stats cards, users tab, tab bar |
@@ -92,6 +92,8 @@ is the skeleton shown while it loads.
 | `lib/catalog-rules.ts` | Barrel for `lib/catalog/` |
 | `lib/data/catalog/` | Fallback catalogue used when Supabase is not configured: `seed-products.ts` (the products), `types.ts`, `helpers.ts` |
 | `lib/products/actions/` | Product server actions: `upload.ts` (photo upload), `create-update.ts`, `manage.ts` (status, delete), `shared.ts` (staff gate, writers) |
+| `lib/products/process-image.ts` | Upload crop: sharp-crops an uploaded photo to the universal 1200x1200 square before Storage (photos smaller than 1200 in both dimensions are kept as-is, never upscaled) |
+| `lib/products/validation/upload.ts` | `PRODUCT_IMAGE_SIZE_PX` (1200, the one universal size) + `PRODUCT_IMAGE_SIZE_NOTE` (the admin warning text, built from the constant) |
 | `lib/products/validation.ts` | Barrel for `lib/products/validation/` (`slug-money`, `image-paths`, `variants`, `upload`, `schema`) |
 | `lib/products/queries.ts`, `types.ts` | Reading products for admin, product shapes |
 | `lib/orders/server/` | Order server functions: `create.ts`, `list.ts`, `status.ts`, `callback.ts` (payment callbacks), `reviews.ts`, `shared.ts` |

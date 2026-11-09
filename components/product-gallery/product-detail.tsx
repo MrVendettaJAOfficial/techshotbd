@@ -162,9 +162,11 @@ export function ProductDetail({
   return (
     <div>
       <div className="grid gap-8 lg:grid-cols-2">
-        <ProductGallery product={product} images={images} />
+        <div className="min-w-0">
+          <ProductGallery product={product} images={images} />
+        </div>
 
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-medium text-brand">
             {product.brand} · {product.category}
           </p>
@@ -407,8 +409,8 @@ export function ProductDetail({
                 <dl className="divide-y divide-border">
                   {storedSpecifications.map((row) => (
                     <div key={row.key} className="grid grid-cols-2 gap-4 py-3 text-sm sm:grid-cols-3">
-                      <dt className="font-semibold text-text">{row.key}</dt>
-                      <dd className="col-span-1 text-muted sm:col-span-2">{row.value}</dd>
+                      <dt className="min-w-0 break-words font-semibold text-text">{row.key}</dt>
+                      <dd className="col-span-1 min-w-0 break-words text-muted sm:col-span-2">{row.value}</dd>
                     </div>
                   ))}
                 </dl>

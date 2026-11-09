@@ -9,6 +9,7 @@
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage-images";
 
 import type { ProductImageUploadResult } from "../types";
+import { processProductImage } from "../process-image";
 import {
   MAX_UPLOAD_FILES,
   slugify,
@@ -29,9 +30,14 @@ import { GENERIC_ERROR, adminClient, requireStaff } from "./shared";
  * generated server-side from the product slug + timestamp + random
  * suffix — the uploaded filename is never used, so it cannot
  * traverse out of the bucket or overwrite an existing file (upsert
- * is off as well). If one upload fails after others succeeded, the
- * uploaded files are removed again, best-effort, so a half-finished
- * upload leaves no orphans.
+ * is off as well). Before storing, each photo is cropped with sharp
+ * to the one universal size (1200 x 1200 square, see
+ * lib/products/process-image.ts) — a bigger or non-square upload
+ * lands in Storage already square, and the stored content type is
+ * the processed file's type, so it always matches the bytes. If one
+ * upload fails after others succeeded, the uploaded files are
+ * removed again, best-effort, so a half-finished upload leaves no
+ * orphans.
  *
  * The files are uploaded immediately; the product_images rows are
  * only written when the product itself is saved, so uploading
@@ -63,10 +69,22 @@ export async function uploadProductImages(formData: FormData): Promise<ProductIm
   const uploaded: string[] = [];
   try {
     for (const file of files) {
-      const path = uploadStoragePath(slug, file.type);
+      // Crop to the universal square before storing: the raw upload
+      // never reaches the bucket. The processed file keeps the input
+      // format, so the path extension and content type still come
+      // from file.type, as before.
+      const processed = await processProductImage(
+        Buffer.from(await file.arrayBuffer()),
+        file.type,
+      );
+      const path = uploadStoragePath(slug, processed.contentType);
       const { error } = await admin.storage
         .from(PRODUCT_IMAGES_BUCKET)
-        .upload(path, file, { contentType: file.type, upsert: false, cacheControl: "3600" });
+        .upload(path, processed.buffer, {
+          contentType: processed.contentType,
+          upsert: false,
+          cacheControl: "3600",
+        });
       if (error) throw new Error("upload failed");
       uploaded.push(path);
     }

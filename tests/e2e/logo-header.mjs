@@ -122,8 +122,12 @@ for (const { label, width, height, touch } of WIDTHS) {
     check(`${label}: tagline is visible on desktop/laptop`, taglineVisible);
   }
 
-  const monogram = await logo.locator("svg").count();
-  check(`${label}: monogram mark renders in the logo`, monogram === 1);
+  // The monogram is the owner's real mark file (an <img>), not the
+  // old code-drawn inline SVG — and it must have actually loaded.
+  const mark = logo.locator('img[src*="techshot-logo.svg"]');
+  check(`${label}: real mark image renders in the logo`, (await mark.count()) === 1);
+  const markLoaded = await mark.evaluate((el) => el.complete && el.naturalWidth > 0).catch(() => false);
+  check(`${label}: mark image loaded (naturalWidth > 0)`, markLoaded);
 
   // Logo fits inside the viewport and does not push the header wide.
   const logoBox = await logo.boundingBox();

@@ -80,10 +80,20 @@ export default function ProductCard({ product }: { product: Product }) {
   }
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition duration-200 hover:-translate-y-0.5 hover:border-brand/60 hover:shadow-xl">
-      <div className="relative">
+    <article className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card transition duration-200 hover:-translate-y-0.5 hover:border-brand/60 hover:shadow-xl">
+      {/* Card photo, deliberately smaller than the card: a full-width
+          square photo used to dominate the card (at desktop a ~319px
+          card showed a ~319px photo, leaving the title, price and
+          button squeezed underneath). The photo stays square
+          (1200x1200 universal size, cropped on display) but is capped
+          at 220px and centred, so the card reads as image on top with
+          room for the body below — about two-thirds of the card width
+          at desktop, three-fifths on a phone. Badges and the wishlist
+          button sit on the photo itself (top-3 lines up with the pt-3
+          image top), not the card. */}
+      <div className="relative mx-auto w-full max-w-[220px] pt-3">
         <Link href={`/product/${product.slug}`} aria-label={product.title}>
-          <ProductImage src={product.image} alt={product.title} />
+          <ProductImage src={product.image} alt={product.title} className="rounded-xl" />
         </Link>
         {pct > 0 && (
           <span className="absolute left-3 top-3 rounded-full bg-accentDark px-2.5 py-1 text-xs font-bold text-white">

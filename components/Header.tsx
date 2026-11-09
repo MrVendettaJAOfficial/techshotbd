@@ -44,7 +44,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
       </div>
 
       <div className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-shell items-center gap-3 px-4 py-3 sm:gap-6">
+        <div className="mx-auto flex max-w-shell items-center gap-2 px-3 py-3 sm:gap-6 sm:px-4">
           {/* Mobile only: the hamburger opens the slide-in nav drawer.
               The horizontal category nav row below is hidden on mobile,
               so this is the only way to the categories there. */}
@@ -56,7 +56,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             aria-expanded={navOpen}
             onClick={() => setNavOpen(true)}
             data-testid="mobile-nav-button"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text transition hover:bg-panel sm:hidden"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text transition hover:bg-panel sm:hidden sm:h-10 sm:w-10"
           >
             <Menu size={20} />
           </button>
@@ -92,17 +92,24 @@ export default function Header({ cartCount }: { cartCount?: number }) {
           </form>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0 sm:gap-2">
+            {/* The wishlist heart hides below 400px: at 360px and
+                narrower the hamburger + logo + account + cart already
+                fill the row, and the extra 40px icon forced the whole
+                page 17px wider than the viewport (scrollWidth 377 at
+                a 360px viewport — the mobile horizontal scrollbar).
+                The wishlist itself lives on /account, so nothing is
+                lost — the heart returns at 400px and up. */}
             <Link
               href="/account"
               aria-label="Wishlist"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-text transition hover:bg-panel"
+              className="hidden h-9 w-9 items-center justify-center rounded-full text-text transition hover:bg-panel min-[400px]:flex sm:h-10 sm:w-10"
             >
               <Heart size={20} />
             </Link>
             <Link
               href="/account"
               aria-label="My account"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-text transition hover:bg-panel"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-text transition hover:bg-panel sm:h-10 sm:w-10"
             >
               <User size={20} />
             </Link>
@@ -113,7 +120,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
               aria-haspopup="dialog"
               aria-expanded={cartOpen}
               onClick={() => setCartOpen(true)}
-              className="relative flex items-center gap-2 rounded-xl bg-brandDark px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker sm:px-4"
+              className="relative flex items-center gap-2 rounded-xl bg-brandDark px-2.5 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker sm:px-4"
             >
               <ShoppingCart size={18} />
               <span className="hidden sm:inline">Cart</span>

@@ -19,6 +19,9 @@ function read(rel) {
 
 // ---------------------------------------------------------------------------
 // Favicon: a text SVG the snapshot push can carry, solid colours only.
+// The favicon is the owner's TS mark (green #009F59 + light #E0E4EC)
+// on the logo navy (#00162E) — the orange bolt is gone since the
+// 2026-11-09 logo swap.
 // ---------------------------------------------------------------------------
 
 test("app/icon.svg exists and is a solid-colour SVG favicon", () => {
@@ -27,9 +30,11 @@ test("app/icon.svg exists and is a solid-colour SVG favicon", () => {
   assert.match(svg, /<svg[^>]*viewBox=/);
   assert.doesNotMatch(svg, /gradient/i);
   assert.doesNotMatch(svg, /emoji/i);
-  // TechShot palette only: logo-navy background, orange accent.
+  // The owner's TS mark on the logo navy — no orange left.
   assert.match(svg, /#00162E/);
-  assert.match(svg, /#f97316/);
+  assert.match(svg, /#009F59/);
+  assert.match(svg, /#E0E4EC/);
+  assert.doesNotMatch(svg, /#f97316/);
 });
 
 test("no binary favicon is referenced anywhere", () => {

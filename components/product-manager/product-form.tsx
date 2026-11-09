@@ -27,7 +27,7 @@ import {
   updateProduct,
   uploadProductImages,
 } from "@/lib/products/actions";
-import { MAX_PRODUCT_IMAGES, parseVariantsText } from "@/lib/products/validation";
+import { MAX_PRODUCT_IMAGES, PRODUCT_IMAGE_SIZE_NOTE, parseVariantsText } from "@/lib/products/validation";
 import type { CategoryOption, ProductListItem, ProductStatus } from "@/lib/products/types";
 import { canManageProducts } from "@/lib/roles";
 import { Button, Card, Field, Input, SectionHeading, Select } from "@/components/ui";
@@ -384,6 +384,9 @@ export default function ProductForm({ products, categories, canPublish, configur
                   </div>
                 ))}
               </div>
+              <p className="mt-2 text-xs text-muted" data-testid="photo-size-note">
+                {PRODUCT_IMAGE_SIZE_NOTE}
+              </p>
             </Field>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button
@@ -408,6 +411,9 @@ export default function ProductForm({ products, categories, canPublish, configur
                 {configured
                   ? "JPG, PNG or WebP, up to 5 MB each, at most 10 at a time. The filenames are filled in above automatically — no need to open the Supabase dashboard."
                   : "Upload is unavailable until Supabase is connected."}
+              </p>
+              <p className="mt-1.5 text-xs text-muted" data-testid="photo-upload-size-note">
+                {PRODUCT_IMAGE_SIZE_NOTE}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input

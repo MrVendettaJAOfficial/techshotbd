@@ -1,14 +1,17 @@
-// Code-built logo wordmark tests — TechShot.
+// Logo wordmark tests — TechShot.
 //
 // 2026-11-09: the header and footer used a blue rounded square with
 // a Zap icon and "TechShot." text. The owner asked for the wordmark
-// rebuilt in code to match his own logo (shared as an SVG on
-// 2026-11-09): TS monogram, "TechShot" in extra-bold geometric sans,
-// smaller green "BD", tagline "A Shot of Tech, You Can Trust" —
-// navy #00162E, green #0F9A70, white #F1F7FE, flat, no gradients.
-// The logo lives in components/Logo.tsx (no image files); the green
-// is a named token in lib/theme.ts, and the site's blue/orange
-// accents are untouched. These tests pin the lockup down.
+// rebuilt to match his own logo (shared as an SVG on 2026-11-09):
+// TS monogram, "TechShot" in extra-bold geometric sans, smaller
+// green "BD", tagline "A Shot of Tech, You Can Trust" — navy
+// #00162E, green #0F9A70, white #F1F7FE, flat, no gradients. The
+// wordmark text is built in code; the monogram itself is the owner's
+// real SVG file (public/images/techshot-logo.svg, uploaded by him
+// 2026-11-09), and the favicon is the same mark on the logo navy.
+// The logo lives in components/Logo.tsx; the green is a named token
+// in lib/theme.ts, and the site's blue/orange accents are untouched.
+// These tests pin the lockup down.
 //
 // Run: npm test  (node --test tests/*.test.mjs)
 
@@ -48,17 +51,21 @@ test("tailwind maps the logo tokens to classes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Logo component: the lockup, in code, no image files.
+// Logo component: the lockup — the owner's real mark file + code wordmark.
 // ---------------------------------------------------------------------------
 
-test("components/Logo.tsx exists and renders the full lockup", () => {
-  assert.equal(existsSync(new URL("../components/Logo.tsx", import.meta.url)), true);
+test("components/Logo.tsx renders the full lockup with the owner's real mark", () => {
+  // The mark is the owner's SVG file (uploaded by him 2026-11-09),
+  // not a code-drawn approximation.
+  assert.equal(existsSync(new URL("../public/images/techshot-logo.svg", import.meta.url)), true);
+  const mark = read("public/images/techshot-logo.svg");
+  assert.match(mark, /viewBox="0 0 500 548"/);
+  assert.match(mark, /fill="#009F59"/);
+  assert.match(mark, /fill="#E0E4EC"/);
+  assert.doesNotMatch(mark, /gradient/i);
   const logo = read("components/Logo.tsx");
-  // Monogram: an inline SVG with a T over an S and a circuit trace.
-  assert.match(logo, /<svg[^>]*viewBox="0 0 48 48"/);
-  assert.match(logo, /<polyline/);
-  assert.match(logo, /<text[^>]*>\s*S\s*<\/text>/);
-  assert.match(logo, /<text[^>]*>\s*T\s*<\/text>/);
+  assert.match(logo, /from "next\/image"/);
+  assert.match(logo, /src="\/images\/techshot-logo\.svg"/);
   // Wordmark + BD + tagline, exactly as the owner's logo.
   assert.match(logo, />TechShot</);
   assert.match(logo, />BD</);
@@ -66,6 +73,15 @@ test("components/Logo.tsx exists and renders the full lockup", () => {
   // The whole lockup links home.
   assert.match(logo, /href="\/"/);
   assert.match(logo, /aria-label="TechShot home"/);
+});
+
+test("the favicon is the owner's mark on the logo navy", () => {
+  const icon = read("app/icon.svg");
+  assert.match(icon, /viewBox="0 0 64 64"/);
+  assert.match(icon, /fill="#00162E"/);
+  assert.match(icon, /fill="#009F59"/);
+  assert.match(icon, /fill="#E0E4EC"/);
+  assert.doesNotMatch(icon, /f97316/);
 });
 
 test("the logo uses Montserrat extra-bold for the wordmark", () => {

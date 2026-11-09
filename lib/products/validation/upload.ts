@@ -10,6 +10,24 @@ import { slugify } from "./slug-money";
 /** Largest single photo upload: 5 MB. */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+/**
+ * The one universal product-image size, in pixels: every product
+ * photo is displayed as a 1200 x 1200 square (Daraz-style) and every
+ * upload is cropped to exactly this size before it reaches Storage
+ * (see lib/products/process-image.ts). Never hard-code 1200 anywhere
+ * else — import this constant, so the display size, the upload crop
+ * and the admin warning can never drift apart.
+ */
+export const PRODUCT_IMAGE_SIZE_PX = 1200;
+
+/**
+ * The admin-form note about the universal size, built from the
+ * constant above so the text and the crop always agree. Shown next
+ * to the photo-path list and next to the upload control in the admin
+ * product form.
+ */
+export const PRODUCT_IMAGE_SIZE_NOTE = `Recommended size: ${PRODUCT_IMAGE_SIZE_PX} x ${PRODUCT_IMAGE_SIZE_PX} px (square). Larger images are cropped to this size automatically.`;
+
 /** Most photos in one upload: 10. */
 export const MAX_UPLOAD_FILES = 10;
 

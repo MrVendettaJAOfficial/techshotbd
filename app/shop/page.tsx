@@ -306,8 +306,10 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
           </form>
         </FilterDrawer>
 
-        {/* Results */}
-        <div>
+        {/* Results — min-w-0 so a long unbreakable string in a card
+            can never force this grid column wider than the viewport
+            (grid items default to min-width auto). */}
+        <div className="min-w-0">
           {pageItems.length === 0 ? (
             <div className="flex flex-col items-center rounded-2xl border border-border bg-panel px-6 py-16 text-center">
               <SearchX size={40} className="text-muted" />
