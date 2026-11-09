@@ -2,9 +2,10 @@
 //
 // The storefront reads products from Supabase (see
 // lib/supabase/catalog.ts), and the visibility + mapping rules live in
-// lib/catalog-rules.ts, a pure module with no imports. Node 24 strips
-// the erasable TypeScript types in that file, so these tests import it
-// directly — the rules tested here are the exact rules the server
+// lib/catalog-rules.ts, a pure module whose single import is
+// lib/storage-images.ts (pure, no imports of its own). Node 24 strips
+// the erasable TypeScript types in those files, so these tests import
+// them directly — the rules tested here are the exact rules the server
 // code runs, not a copy.
 //
 // What is proven here:

@@ -4,16 +4,20 @@
 // public-visibility rule: ONLY status = 'active' products are ever shown
 // to shoppers. A paused / draft / deleted product must not appear.
 //
-// This file has NO imports on purpose: it is pure logic, so it can be
-// imported directly by `node --test` (Node strips the erasable TypeScript
-// types) and by the server-side catalogue loader in lib/supabase/catalog.ts.
-// Only erasable TypeScript is used here (interfaces + type annotations) —
-// no enums, namespaces or parameter properties — so Node's type stripping
-// can load this file as-is.
+// This file has almost no imports on purpose: it is pure logic, so it
+// can be imported directly by `node --test` (Node strips the erasable
+// TypeScript types) and by the server-side catalogue loader in
+// lib/supabase/catalog.ts. Its single import is lib/storage-images.ts,
+// which follows the same rule (pure, no imports of its own), so the
+// file stays directly loadable. Only erasable TypeScript is used here
+// (interfaces + type annotations) — no enums, namespaces or parameter
+// properties — so Node's type stripping can load this file as-is.
 //
 // Money is integer poisha everywhere (100 poisha = 1 BDT). Prices are
 // copied from the database untouched: never converted, rounded or
 // re-derived here.
+
+import { resolveProductImageSrc } from "./storage-images";
 
 /** A product_images row, as read from Supabase. */
 export interface DbProductImageRow {
@@ -309,7 +313,18 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
   const images = [...(row.product_images ?? [])].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
   );
-  const image = images[0]?.storage_path ?? `/images/products/${row.slug}.jpg`;
+  // Product photos live in the public `product-images` bucket in
+  // Supabase Storage: a stored local path /images/products/<file>.jpg
+  // or a bare filename resolves to its Storage URL, a full https URL
+  // passes through, and the local path is kept when Supabase is not
+  // configured (see lib/storage-images.ts). The slug fallback goes
+  // through the same resolution, so a product with no image rows still
+  // gets its Storage photo; an empty resolution falls back to the
+  // local slug image, exactly as before.
+  const stored = images[0]?.storage_path ?? `/images/products/${row.slug}.jpg`;
+  const image =
+    resolveProductImageSrc(stored, process.env.NEXT_PUBLIC_SUPABASE_URL) ||
+    `/images/products/${row.slug}.jpg`;
 
   const variants = row.product_variants ?? [];
   const storageOptions = variants

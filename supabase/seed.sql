@@ -161,8 +161,18 @@ values
 on conflict (slug) do nothing;
 
 -- ---------------------------------------------------------------------------
--- Product images — one image per product. The files live at
--- public/images/products/<slug>.jpg in the Next.js app.
+-- Product images — one image per product. Product photos live in the
+-- public `product-images` bucket in Supabase Storage (create the
+-- bucket in the dashboard and upload the JPEGs there, flat at the
+-- bucket root, keeping their filenames). The storage_path values below
+-- are the legacy local paths (/images/products/<slug>.jpg); the
+-- storefront maps those — and bare filenames such as <slug>.jpg — to
+-- their public Storage URL (see lib/storage-images.ts), so no
+-- migration is needed to switch existing rows to Storage. When
+-- Supabase is not configured the same values resolve to the bundled
+-- files in public/images/products/ instead. A new product's image can
+-- be set in /admin to a Storage filename, a local path, or an https
+-- URL; it is never a Figma link.
 -- ---------------------------------------------------------------------------
 insert into public.product_images (product_id, storage_path, alt_text, sort_order)
 select id, '/images/products/' || slug || '.jpg', title, 0

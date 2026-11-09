@@ -25,6 +25,30 @@ const connectSrc = ["'self'", "https://*.supabase.co", "wss://*.supabase.co", su
   .filter(Boolean)
   .join(" ");
 
+// Product photos live in the public `product-images` bucket in
+// Supabase Storage (see lib/storage-images.ts), so the configured
+// Supabase origin must be allowed to serve images too — both by
+// next/image (remotePatterns) and by the Content-Security-Policy
+// (img-src). The default allows the hosted *.supabase.co origins; a
+// non-supabase.co origin (the local mock Supabase, a self-hosted
+// instance) is added exactly, the same way as connect-src. Without
+// this, remote product photos are rejected and every card falls back
+// to its solid-colour initial.
+/** @type {Array<{ protocol: string; hostname: string }>} */
+const remotePatterns = [];
+try {
+  const parsed = new URL(supabaseUrl);
+  remotePatterns.push({
+    protocol: parsed.protocol.replace(/:$/, "") || "https",
+    hostname: parsed.hostname,
+  });
+} catch {
+  // Unconfigured or invalid URL: no remote images; local photos only.
+}
+const imgSrc = ["'self'", "data:", "blob:", "https://*.supabase.co", supabaseOrigin]
+  .filter(Boolean)
+  .join(" ");
+
 // Development only: Next.js dev mode evaluates modules with eval
 // (webpack devtool), which the production CSP below blocks — with
 // 'unsafe-eval' missing, every page throws EvalError and client-side
@@ -38,7 +62,7 @@ const scriptSrc =
 
 const nextConfig = {
   images: {
-    remotePatterns: [],
+    remotePatterns,
     formats: ["image/avif", "image/webp"],
   },
   async headers() {
@@ -52,7 +76,7 @@ const nextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+              `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src ${imgSrc}; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
           },
         ],
       },

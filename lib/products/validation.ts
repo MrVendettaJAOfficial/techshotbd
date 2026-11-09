@@ -65,6 +65,13 @@ export function isSafeImagePath(value: string): boolean {
       return false;
     }
   }
+  // A bare Supabase Storage filename, e.g. "apple-iphone-16-pro.jpg":
+  // it resolves into the public product-images bucket (see
+  // lib/storage-images.ts). One path segment only, with an image
+  // extension; ".." and subdirectories are rejected.
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*\.(jpg|jpeg|png|webp|avif|gif)$/i.test(trimmed)) {
+    return !trimmed.includes("..");
+  }
   return false;
 }
 
@@ -152,7 +159,7 @@ export const productInputSchema = z.object({
     .default("")
     .refine(
       (value) => value === "" || isSafeImagePath(value),
-      "Image must be a storage path (e.g. /images/products/<slug>.jpg) or an https URL — never a Figma link.",
+      "Image must be a Supabase Storage filename (e.g. <slug>.jpg), a storage path (e.g. /images/products/<slug>.jpg) or an https URL — never a Figma link.",
     ),
   variants: z.array(productVariantInputSchema).max(20, "A product can have at most 20 variants.").optional().default([]),
 });

@@ -231,7 +231,7 @@ export default function ProductManager({ products, categories, canPublish, confi
             <Field
               label="Image path"
               htmlFor="product-image"
-              hint="A storage path such as /images/products/<slug>.jpg, or an https URL. Never a Figma link."
+              hint="A Supabase Storage filename such as <slug>.jpg, a storage path such as /images/products/<slug>.jpg, or an https URL. Never a Figma link."
             >
               <Input id="product-image" value={imagePath} onChange={(e) => setImagePath(e.target.value)} placeholder="/images/products/example.jpg" disabled={formDisabled} />
             </Field>
