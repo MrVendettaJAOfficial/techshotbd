@@ -65,6 +65,31 @@ function read(rel) {
   return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
 }
 
+// Since the cleanup, the gallery and the admin form live in focused
+// modules; read them joined so the markers below are still pinned to
+// the code that runs them. Assertions are unchanged.
+function readAll(rels) {
+  return rels.map((rel) => read(rel)).join("\n");
+}
+
+const GALLERY_FILES = [
+  "components/product-gallery/gallery.tsx",
+  "components/product-gallery/photo-viewer.tsx",
+  "components/product-gallery/product-detail.tsx",
+  "components/product-gallery/review-form.tsx",
+];
+const MANAGER_FILES = [
+  "components/product-manager/product-form.tsx",
+  "components/product-manager/product-list.tsx",
+  "components/product-manager/helpers.ts",
+];
+const PRODUCT_ACTION_FILES = [
+  "lib/products/actions/shared.ts",
+  "lib/products/actions/upload.ts",
+  "lib/products/actions/create-update.ts",
+  "lib/products/actions/manage.ts",
+];
+
 function row(overrides = {}) {
   return {
     id: "00000000-0000-0000-0000-000000000001",
@@ -344,7 +369,7 @@ test("the mock serves the iPhone's extra angles and accepts Storage uploads", ()
 });
 
 test("the gallery wires the slider, hover arrows, swipe, pinch and viewer", () => {
-  const gallery = read("components/ProductGallery.tsx");
+  const gallery = readAll(GALLERY_FILES);
   assert.match(gallery, /GALLERY_AUTO_SLIDE_MS/);
   assert.match(gallery, /hover: hover/);
   assert.match(gallery, /prefers-reduced-motion/);
@@ -359,12 +384,12 @@ test("the gallery wires the slider, hover arrows, swipe, pinch and viewer", () =
 });
 
 test("the admin form has a photo list with upload, and the actions write one row per photo", () => {
-  const manager = read("components/ProductManager.tsx");
+  const manager = readAll(MANAGER_FILES);
   assert.match(manager, /data-testid=\{`product-photo-\$\{index\}`\}/);
   assert.match(manager, /data-testid="add-photo-row"/);
   assert.match(manager, /data-testid="photo-upload-input"/);
   assert.match(manager, /uploadProductImages/);
-  const actions = read("lib/products/actions.ts");
+  const actions = readAll(PRODUCT_ACTION_FILES);
   assert.match(actions, /export async function uploadProductImages/);
   assert.match(actions, /sort_order: index/);
   assert.match(actions, /mergeImagePaths\(input\)/);
@@ -379,7 +404,7 @@ test("the save confirmation survives router.refresh() via a module-scope pending
   // once by the next mount's initial state. The e2e run proves the
   // notice actually appears after a save; this test pins the
   // mechanism in place so a later edit cannot silently drop it.
-  const manager = read("components/ProductManager.tsx");
+  const manager = readAll(MANAGER_FILES);
   assert.match(manager, /let pendingSaveNotice: string \| null = null/);
   assert.match(manager, /pendingSaveNotice = notice/);
   assert.match(manager, /const notice = pendingSaveNotice;\s*\n\s*pendingSaveNotice = null;/);
@@ -392,6 +417,6 @@ test("the gallery thumbnail row wraps instead of overflowing on a phone", () => 
   // the wrap the page's layout viewport expands to fit the row and
   // the whole page — including the fixed viewer — renders wider than
   // the screen. Pinned by tests/e2e/responsive-gallery.mjs.
-  const gallery = read("components/ProductGallery.tsx");
+  const gallery = readAll(GALLERY_FILES);
   assert.match(gallery, /mt-3 flex flex-wrap gap-3/);
 });

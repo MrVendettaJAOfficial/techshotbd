@@ -50,6 +50,34 @@ function readSource(path) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+// Since the cleanup, the order actions and the order server live in
+// focused modules. Read each folder joined (shared first, so the
+// ordering assertions below — refund before update, update before
+// audit/restore — still read the code in its real order).
+// Assertions are unchanged.
+function readActions() {
+  return [
+    "../lib/orders/actions/shared.ts",
+    "../lib/orders/actions/status.ts",
+    "../lib/orders/actions/cancel.ts",
+  ]
+    .map((path) => readSource(path))
+    .join("\n");
+}
+
+function readOrderServer() {
+  return [
+    "../lib/orders/server/shared.ts",
+    "../lib/orders/server/create.ts",
+    "../lib/orders/server/list.ts",
+    "../lib/orders/server/status.ts",
+    "../lib/orders/server/callback.ts",
+    "../lib/orders/server/reviews.ts",
+  ]
+    .map((path) => readSource(path))
+    .join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Fix #12 — mergeOrders comparator
 // ---------------------------------------------------------------------------
@@ -348,7 +376,7 @@ test("restoreOrderStock: a line that cannot be attributed to a stock row is skip
 // ---------------------------------------------------------------------------
 
 test("admin status change is a conditional update (0 rows = already changed, audit only on success)", () => {
-  const src = readSource("../lib/orders/actions.ts");
+  const src = readActions();
   assert.ok(src.includes('.eq("status", order.status)'), "update is conditional on the read status");
   assert.ok(src.includes('.select("id")'), "affected-row count is read back");
   assert.ok(src.includes("ALREADY_CHANGED_ERROR"), "0 rows affected is reported as already changed");
@@ -359,7 +387,7 @@ test("admin status change is a conditional update (0 rows = already changed, aud
 });
 
 test("admin refund calls the payment adapter FIRST and only then marks the order refunded", () => {
-  const src = readSource("../lib/orders/actions.ts");
+  const src = readActions();
   assert.ok(src.includes("testAdapter.refund(paidPayment.id, paidPayment.amount_poisha)"));
   assert.ok(src.includes("loadLatestPaidPayment"), "refund uses the latest PAID payment attempt");
   const refundAt = src.indexOf("testAdapter.refund(");
@@ -371,7 +399,7 @@ test("admin refund calls the payment adapter FIRST and only then marks the order
 });
 
 test("cancel / refund restore stock only after the conditional update succeeds", () => {
-  const src = readSource("../lib/orders/actions.ts");
+  const src = readActions();
   assert.ok(src.includes("restoreStockAfterStatusChange"), "stock restore is wired into status changes");
   assert.ok(src.includes('if (target === "cancelled" || target === "refunded" || target === "returned")'), "cancel, refund and returned all restore stock");
   const updateAt = src.indexOf('.eq("status", order.status)');
@@ -380,7 +408,7 @@ test("cancel / refund restore stock only after the conditional update succeeds",
 });
 
 test("customer cancel is a server action with owner + state checks (fix #3)", () => {
-  const src = readSource("../lib/orders/actions.ts");
+  const src = readActions();
   assert.ok(src.includes("export async function cancelMyOrder"), "dedicated customer cancel action exists");
   assert.ok(src.includes("order.userId !== user.id"), "owner check");
   assert.ok(src.includes('order.status !== "pending_payment" && order.status !== "confirmed"'), "state check");
@@ -398,29 +426,31 @@ test("customer cancel is a server action with owner + state checks (fix #3)", ()
 });
 
 test("payment sync appends attempt rows and never overwrites a payment row (fix #6)", () => {
-  const src = readSource("../lib/orders-server.ts");
+  const src = readOrderServer();
   assert.ok(!src.includes('.update({ status: paymentStatus })'), "no payments-row status overwrite remains");
   assert.ok(src.includes("from(\"payments\").insert"), "callback inserts a new attempt row");
 });
 
 test("payment-status changes are rejected from the owner sync path (fix #7)", () => {
-  const src = readSource("../lib/orders-server.ts");
+  const src = readOrderServer();
   assert.ok(src.includes("isLegalOrderTransition(currentStatus, patch.status, currentPayment)"));
   assert.ok(src.includes('patch.paymentStatus !== undefined && patch.paymentStatus !== "unpaid"'));
   assert.ok(src.includes('patch.status === "delivered" || patch.status === "refunded"'), "delivered/refunded are admin-only there");
 });
 
 test("payment callbacks and status syncs write audit rows (fix #8)", () => {
-  const src = readSource("../lib/orders-server.ts");
+  const src = readOrderServer();
   assert.ok(src.includes("writeOrderAudit"), "audit helper exists for the sync paths");
   assert.ok(src.includes('"payment-callback"'), "callback audit rows are labelled");
   assert.ok(src.includes('"status-sync"'), "status-sync audit rows are labelled");
 });
 
 test("latest-payment lookups carry the id tiebreaker (fix #11)", () => {
-  for (const file of ["../lib/orders-server.ts", "../lib/orders/actions.ts"]) {
-    const src = readSource(file);
-    assert.ok(src.includes('.order("id", { ascending: false })'), `${file} orders latest payments by id desc too`);
+  for (const [label, src] of [
+    ["orders-server", readOrderServer()],
+    ["orders/actions", readActions()],
+  ]) {
+    assert.ok(src.includes('.order("id", { ascending: false })'), `${label} orders latest payments by id desc too`);
   }
 });
 
@@ -437,13 +467,23 @@ test("admin order buttons are disabled while their server action is in flight (f
   // split into tabs (2026-11-09): it lives in
   // components/AdminOrders.tsx now, not in the tab shell
   // (app/admin/AdminDashboard.tsx). The behaviour is unchanged.
-  const src = readSource("../components/AdminOrders.tsx");
+  // components/AdminOrders.tsx is now a re-export barrel: the list
+  // lives in components/admin-orders/orders-list.tsx and the
+  // per-order controls in components/admin-orders/status-controls.tsx.
+  const src = ["../components/admin-orders/orders-list.tsx", "../components/admin-orders/status-controls.tsx"]
+    .map((path) => readSource(path))
+    .join("\n");
   assert.ok(src.includes("pendingOrderId"), "pending order id is tracked in state");
   assert.ok(src.includes("disabled={pendingOrderId === order.id}"), "buttons disable while pending");
 });
 
 test("admin double-click guard is a synchronous ref, not state alone (fix #1 follow-up)", () => {
-  const src = readSource("../components/AdminOrders.tsx");
+  // components/AdminOrders.tsx is now a re-export barrel: the list
+  // lives in components/admin-orders/orders-list.tsx and the
+  // per-order controls in components/admin-orders/status-controls.tsx.
+  const src = ["../components/admin-orders/orders-list.tsx", "../components/admin-orders/status-controls.tsx"]
+    .map((path) => readSource(path))
+    .join("\n");
   // 2026-11-08: two clicks in the same task both read stale state
   // (null) and both reached the server, moving two steps — the
   // server's conditional update cannot stop the second one, because
@@ -456,7 +496,7 @@ test("admin double-click guard is a synchronous ref, not state alone (fix #1 fol
   assert.ok(src.includes("pendingOrderIdsRef.current.add(orderId)"), "handler claims the order synchronously");
   assert.ok(src.includes("pendingOrderIdsRef.current.delete(orderId)"), "order is released when the action settles");
   assert.ok(src.includes("if (!beginOrderAction(order.id)) return;"), "both handlers go through the ref guard");
-  const actions = readSource("../lib/orders/actions.ts");
+  const actions = readActions();
   assert.ok(
     !actions.includes("A double-clicked Advance can therefore never skip a step"),
     "server comment no longer claims the conditional update alone stops a double-click",
@@ -492,7 +532,7 @@ test("cancel confirmation survives the order-page remount (fix #3 follow-up)", (
 });
 
 test("audit failures are visible server-side, never swallowed silently (fix #9)", () => {
-  const src = readSource("../lib/orders/actions.ts");
+  const src = readActions();
   assert.ok(src.includes('console.error("TechShot audit_log insert failed:"'), "audit insert failure is logged server-side");
 });
 
@@ -519,10 +559,16 @@ test("review submit shows the review without a refresh remount", () => {
   // the review just written, even though the row was saved. The form
   // now hands the saved review to the parent, which appends it from
   // local state; the next navigation loads the server copy.
-  const gallery = readSource("../components/ProductGallery.tsx");
-  const form = gallery.slice(gallery.indexOf("function ReviewForm"));
+  // ReviewForm now lives in components/product-gallery/review-form.tsx
+  // and the parent handler in product-detail.tsx (cleanup split of
+  // components/ProductGallery.tsx). Slice from the function itself, as
+  // before, so the doc comment above it (which names router.refresh()
+  // to say the form does NOT call it) is not mistaken for a call.
+  const formSrc = readSource("../components/product-gallery/review-form.tsx");
+  const form = formSrc.slice(formSrc.indexOf("export function ReviewForm"));
   assert.equal(/router\.refresh\(\)/.test(form), false);
   assert.match(form, /onReviewSaved\?\.\(/);
-  assert.match(gallery, /function handleReviewSaved/);
-  assert.match(gallery, /setShownReviews/);
+  const detail = readSource("../components/product-gallery/product-detail.tsx");
+  assert.match(detail, /function handleReviewSaved/);
+  assert.match(detail, /setShownReviews/);
 });

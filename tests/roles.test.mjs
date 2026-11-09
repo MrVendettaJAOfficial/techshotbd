@@ -151,7 +151,9 @@ test("staff order listing admits every staff role, not just the Owner", () => {
   // /admin. The change gate (owner / co-admin only) lives in
   // lib/orders/actions.ts; this listing is the read side, so any
   // staff role may use it.
-  const server = read("lib/orders-server.ts");
+  // listAdminOrders now lives in lib/orders/server/list.ts (cleanup
+  // split of lib/orders-server.ts).
+  const server = read("lib/orders/server/list.ts");
   assert.match(server, /if \(!isStaff\(caller\?\.role\)\) return \[\];/);
   assert.equal(/if \(caller\?\.role !== "admin"\) return \[\];/.test(server), false);
 });

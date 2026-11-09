@@ -97,7 +97,12 @@ test("customer order page treats returned as a terminal state", () => {
   // The 5-step tracker on app/orders/[id] must not show a returned
   // order as mid-flow: returned is terminal, like cancelled and
   // refunded, with its own message (not the cancelled one).
-  const page = readFileSync(new URL("../app/orders/[id]/page.tsx", import.meta.url), "utf8");
+  // app/orders/[id]/page.tsx is now the thin composition: the
+  // presentational summary / timeline live in
+  // components/order-detail/{summary, timeline}.tsx.
+  const page = ["../app/orders/[id]/page.tsx", "../components/order-detail/summary.tsx", "../components/order-detail/timeline.tsx"]
+    .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+    .join("\n");
   assert.match(page, /returned: "Returned"/);
   assert.match(
     page,
@@ -115,7 +120,10 @@ test("getOrderStatusFromServer reads the database row before the in-memory recor
   // wins in the merge) already showed the new status. The database
   // row is now the source of truth; the in-memory record is only the
   // fallback for orders with no database row.
-  const server = readFileSync(new URL("../lib/orders-server.ts", import.meta.url), "utf8");
+  // getOrderStatusFromServer now lives in lib/orders/server/status.ts
+  // (cleanup split of lib/orders-server.ts); the function itself is
+  // unchanged.
+  const server = readFileSync(new URL("../lib/orders/server/status.ts", import.meta.url), "utf8");
   const fn = server.slice(server.indexOf("export async function getOrderStatusFromServer"));
   const dbFirst = fn.indexOf('.from("orders")');
   const memFallback = fn.indexOf("getOrderRecord(orderId)");
@@ -127,7 +135,12 @@ test("customer order page adopts forward and terminal server moves", () => {
   // The detail page used to reconcile only while the browser copy
   // was still pending payment, so an admin advance / return / refund
   // never showed in the browser that placed the order.
-  const page = readFileSync(new URL("../app/orders/[id]/page.tsx", import.meta.url), "utf8");
+  // app/orders/[id]/page.tsx is now the thin composition: the
+  // presentational summary / timeline live in
+  // components/order-detail/{summary, timeline}.tsx.
+  const page = ["../app/orders/[id]/page.tsx", "../components/order-detail/summary.tsx", "../components/order-detail/timeline.tsx"]
+    .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+    .join("\n");
   assert.equal(page.includes('if (browserOrder && browserOrder.status === "pending_payment")'), false);
   assert.match(page, /const serverAhead = flow\.indexOf\(server\.status\) > flow\.indexOf\(browserOrder\.status\)/);
   assert.match(page, /const serverTerminal =/);

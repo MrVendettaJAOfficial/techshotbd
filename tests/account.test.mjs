@@ -220,11 +220,24 @@ test("validateAddressInput passes a valid address and flags a bad one", () => {
 // same way tests/profile.test.mjs asserts on migration 0002.
 // ---------------------------------------------------------------------------
 
-const accountPage = readSource("../app/account/page.tsx");
+const accountPage = [
+  "../app/account/page.tsx",
+  "../components/account/profile-section.tsx",
+  "../components/account/addresses-section.tsx",
+  "../components/account/orders-section.tsx",
+  "../components/account/wishlist-section.tsx",
+]
+  .map((path) => readSource(path))
+  .join("\n");
 const signInPage = readSource("../app/auth/sign-in/page.tsx");
 const signUpPage = readSource("../app/auth/sign-up/page.tsx");
 const callbackPage = readSource("../app/auth/callback/page.tsx");
-const authServer = readSource("../lib/auth-server.ts");
+// lib/auth-server.ts is now a re-export barrel: the code lives in
+// lib/auth-server/{session, profile, admin-users}.ts. Read the three
+// modules together so these assertions still cover the whole module.
+const authServer = ["session", "profile", "admin-users"]
+  .map((part) => readSource(`../lib/auth-server/${part}.ts`))
+  .join("\n");
 const authClient = readSource("../lib/auth.ts");
 const accountServer = readSource("../lib/account-server.ts");
 

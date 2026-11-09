@@ -335,8 +335,12 @@ for (const { label, width, height, touch } of WIDTHS) {
   check(`${label}: viewer is closed afterwards`, (await page.locator('[data-testid="photo-viewer"]').count()) === 0);
 
   // --- D. Admin multi-photo form layout ---
+  // The admin is tabbed (?tab=overview|products|orders|users) since
+  // the roles build: the product form lives on the Products tab, so
+  // open that tab directly — plain /admin shows the Overview tab and
+  // the form is not rendered there at all.
   await signIn(page);
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/admin?tab=products`, { waitUntil: "networkidle" });
   await sleep(1500);
   ov = await pageOverflow(page, width);
   check(`${label}: admin page has no horizontal overflow`, !ov.overflow, `scrollW=${ov.scrollW} innerW=${ov.innerW}`);

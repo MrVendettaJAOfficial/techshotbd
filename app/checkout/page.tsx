@@ -1,3 +1,11 @@
+// Checkout page (server component).
+//
+// Renders the checkout form (./CheckoutForm) with the placeOrder
+// server action: validates the address, recomputes totals from the
+// catalogue, validates stock and creates the order, then sends
+// online payments to the test payment page and COD orders straight
+// to the order page.
+
 import Link from "next/link";
 import {
   addressSchema,

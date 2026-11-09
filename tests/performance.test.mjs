@@ -90,16 +90,20 @@ test("admin: categories + extras and images + variants fetched in parallel", () 
 });
 
 test("getUser() is deduped per request with React cache()", () => {
-  for (const file of ["lib/auth-server.ts", "lib/orders-server.ts", "lib/cart-server.ts"]) {
+  // lib/auth-server.ts, lib/orders-server.ts and lib/cart-server.ts
+  // are now re-export barrels: the cached session reads live in
+  // lib/auth-server/session.ts, lib/orders/server/shared.ts and
+  // lib/cart/server/shared.ts.
+  for (const file of ["lib/auth-server/session.ts", "lib/orders/server/shared.ts", "lib/cart/server/shared.ts"]) {
     const src = root(file);
     assert.match(src, /import \{ cache \} from "react"/, `${file}: imports React cache()`);
     assert.match(src, /cache\(async/, `${file}: session read is wrapped in cache()`);
   }
   // The cached helpers are still reached through the same names.
-  assert.match(root("lib/auth-server.ts"), /export async function getCurrentUser/, "auth: getCurrentUser still exported");
-  assert.match(root("lib/orders-server.ts"), /async function getSignedInUserId/, "orders: getSignedInUserId still present");
-  assert.match(root("lib/orders-server.ts"), /async function getSignedInUser/, "orders: getSignedInUser still present");
-  assert.match(root("lib/cart-server.ts"), /async function getSignedInUserId/, "cart: getSignedInUserId still present");
+  assert.match(root("lib/auth-server/session.ts"), /export async function getCurrentUser/, "auth: getCurrentUser still exported");
+  assert.match(root("lib/orders/server/shared.ts"), /async function getSignedInUserId/, "orders: getSignedInUserId still present");
+  assert.match(root("lib/orders/server/shared.ts"), /async function getSignedInUser/, "orders: getSignedInUser still present");
+  assert.match(root("lib/cart/server/shared.ts"), /async function getSignedInUserId/, "cart: getSignedInUserId still present");
 });
 
 test("images: sharp installed and optimised-image cache is one day", () => {

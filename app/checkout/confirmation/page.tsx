@@ -1,3 +1,10 @@
+// Order confirmation page (server component).
+//
+// Reads the just-placed order from the server-side in-memory store
+// (lib/orders) and shows its items, price breakdown and delivery
+// address, with links to track the order or keep shopping. An
+// unknown order reference reports "Order not found" honestly.
+
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { formatBDT } from "@/lib/theme";

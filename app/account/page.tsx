@@ -16,13 +16,16 @@
 //
 // A signed-out visitor sees a sign-in prompt at the top and the
 // local sections below; a signed-in user gets a Sign out button.
+//
+// The four sections live in components/account/ (profile, addresses,
+// orders, wishlist); this page keeps the account state, the data
+// loading and the save / delete handlers, and composes the sections.
 
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { formatBDT } from "@/lib/theme";
 import { useCart } from "@/lib/cart-store";
 import { AuthProvider, useAuth, type AppUser } from "@/lib/auth";
 import {
@@ -34,8 +37,6 @@ import {
 } from "@/lib/account-server";
 import { mergeOrders } from "@/lib/account-rules";
 import {
-  DIVISIONS,
-  DISTRICTS,
   addAddress,
   deleteAddress,
   getAddresses,
@@ -50,17 +51,13 @@ import {
   type StoredOrder,
   type WishlistItem,
 } from "@/lib/checkout-store";
+import { btnGhost, btnPrimary } from "@/components/account/account-ui";
+import ProfileSection from "@/components/account/profile-section";
+import AddressesSection, { type AddressFormState } from "@/components/account/addresses-section";
+import OrdersSection from "@/components/account/orders-section";
+import WishlistSection from "@/components/account/wishlist-section";
 
-const inputCls =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-text outline-none focus:border-brand";
-const labelCls = "mb-1 block text-sm font-medium text-text";
-const errCls = "mt-1 text-sm text-red-400";
-const btnPrimary =
-  "inline-flex items-center justify-center rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600 disabled:opacity-50";
-const btnGhost =
-  "inline-flex items-center justify-center rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text hover:border-brand";
-
-const emptyAddressForm = {
+const emptyAddressForm: AddressFormState = {
   label: "",
   firstName: "",
   lastName: "",
@@ -72,28 +69,6 @@ const emptyAddressForm = {
   district: "",
   city: "",
 };
-
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Pending payment",
-  confirmed: "Confirmed",
-  processing: "Processing",
-  shipped: "Shipped",
-  delivered: "Delivered",
-  cancelled: "Cancelled",
-  refunded: "Refunded",
-};
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 function roleLabel(role: AppUser["role"]): string {
   return role === "admin" ? "Admin" : "Customer";
@@ -364,9 +339,7 @@ function AccountPageInner() {
     );
   }
 
-  const districts = addressForm.division ? DISTRICTS[addressForm.division] ?? [] : [];
   const displayUser = accountUser ?? user;
-  const recentOrders = orders.slice(0, 5);
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-10">
@@ -417,251 +390,39 @@ function AccountPageInner() {
           : "Profile, addresses and wishlist — saved in your browser."}
       </p>
 
-      {/* Profile */}
-      <section className="mt-8 rounded-2xl border border-border bg-panel p-5" aria-label="Profile">
-        <h2 className="text-lg font-bold text-text">Profile</h2>
-        <form onSubmit={handleSaveProfile} className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="displayName" className={labelCls}>Display name</label>
-            <input
-              id="displayName"
-              value={profile.displayName}
-              onChange={(e) => setProfile({ ...profile, displayName: e.target.value })}
-              placeholder="Your name"
-              className={inputCls}
-              autoComplete="name"
-            />
-          </div>
-          <div>
-            <label htmlFor="phone" className={labelCls}>Phone</label>
-            <input
-              id="phone"
-              type="tel"
-              value={profile.phone}
-              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-              placeholder="01XXXXXXXXX"
-              className={inputCls}
-              autoComplete="tel"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label htmlFor="profileEmail" className={labelCls}>Email</label>
-            <input
-              id="profileEmail"
-              type="email"
-              value={profile.email}
-              onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-              placeholder="you@example.com"
-              className={inputCls}
-              autoComplete="email"
-              readOnly={!!user}
-              aria-readonly={!!user}
-            />
-            {user && (
-              <p className="mt-1 text-xs text-muted">Your sign-in email cannot be changed here.</p>
-            )}
-          </div>
-          {profileError && <p role="alert" className="text-sm text-red-400 sm:col-span-2">{profileError}</p>}
-          {profileSaved && <p role="status" className="text-sm text-success sm:col-span-2">Profile saved.</p>}
-          <div className="sm:col-span-2">
-            <button type="submit" className={btnPrimary}>Save profile</button>
-          </div>
-        </form>
-      </section>
+      <ProfileSection
+        profile={profile}
+        onProfileChange={setProfile}
+        user={user}
+        saved={profileSaved}
+        error={profileError}
+        onSave={handleSaveProfile}
+      />
 
-      {/* Addresses */}
-      <section className="mt-6 rounded-2xl border border-border bg-panel p-5" aria-label="Addresses">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-text">Addresses</h2>
-          <button type="button" className={btnGhost} onClick={openNewAddress}>Add address</button>
-        </div>
-        {addressNotice && <p role="status" className="mt-3 text-sm text-success">{addressNotice}</p>}
-        {addressErrors.form && <p role="alert" className="mt-3 text-sm text-red-400">{addressErrors.form}</p>}
+      <AddressesSection
+        addresses={addresses}
+        addressForm={addressForm}
+        onAddressFormChange={setAddressForm}
+        addressErrors={addressErrors}
+        addressNotice={addressNotice}
+        showAddressForm={showAddressForm}
+        editingId={editingId}
+        onNewAddress={openNewAddress}
+        onEditAddress={openEditAddress}
+        onSaveAddress={(e) => { void handleSaveAddress(e); }}
+        onDeleteAddress={(id) => { void handleDeleteAddress(id); }}
+        onSetDefaultAddress={(address) => { void handleSetDefaultAddress(address); }}
+        onCancelForm={() => { setShowAddressForm(false); setEditingId(null); }}
+      />
 
-        {addresses.length === 0 && !showAddressForm && (
-          <p className="mt-3 text-sm text-muted">No addresses yet. Add your delivery address here.</p>
-        )}
+      <WishlistSection
+        wishlist={wishlist}
+        notice={wishlistNotice}
+        onMoveToCart={(item) => { void moveWishlistToCart(item); }}
+        onRemove={(productId) => { void handleRemoveWishlist(productId); }}
+      />
 
-        <ul className="mt-4 space-y-3">
-          {addresses.map((address) => (
-            <li key={address.id} className="rounded-xl border border-border bg-surface p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="text-sm text-text">
-                  <p className="font-semibold">
-                    {address.label ? `${address.label} — ` : ""}
-                    {address.firstName} {address.lastName}
-                    {address.isDefault && (
-                      <span className="ml-2 rounded-full bg-success/20 px-2 py-0.5 text-xs font-bold text-emerald-300">Default</span>
-                    )}
-                  </p>
-                  <p className="mt-1 text-muted">
-                    {address.address}, {address.area}
-                    <br />
-                    {address.city}, {address.district}, {address.division}
-                    <br />
-                    {address.mobile} · {address.email}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {!address.isDefault && (
-                    <button type="button" className={btnGhost} onClick={() => { void handleSetDefaultAddress(address); }}>
-                      Set as default
-                    </button>
-                  )}
-                  <button type="button" className={btnGhost} onClick={() => openEditAddress(address)}>Edit</button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-red-400 hover:border-red-400"
-                    onClick={() => { void handleDeleteAddress(address.id); }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        {showAddressForm && (
-          <form onSubmit={(e) => { void handleSaveAddress(e); }} className="mt-5 grid gap-4 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="addrLabel" className={labelCls}>Label (optional, e.g. Home)</label>
-              <input id="addrLabel" value={addressForm.label} onChange={(e) => setAddressForm({ ...addressForm, label: e.target.value })} className={inputCls} />
-            </div>
-            <div>
-              <label htmlFor="addrFirstName" className={labelCls}>First name</label>
-              <input id="addrFirstName" value={addressForm.firstName} onChange={(e) => setAddressForm({ ...addressForm, firstName: e.target.value })} className={inputCls} />
-              {addressErrors.firstName && <p className={errCls}>{addressErrors.firstName}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrLastName" className={labelCls}>Last name</label>
-              <input id="addrLastName" value={addressForm.lastName} onChange={(e) => setAddressForm({ ...addressForm, lastName: e.target.value })} className={inputCls} />
-              {addressErrors.lastName && <p className={errCls}>{addressErrors.lastName}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrEmail" className={labelCls}>Email</label>
-              <input id="addrEmail" type="email" value={addressForm.email} onChange={(e) => setAddressForm({ ...addressForm, email: e.target.value })} className={inputCls} />
-              {addressErrors.email && <p className={errCls}>{addressErrors.email}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrMobile" className={labelCls}>Mobile (+880)</label>
-              <input id="addrMobile" type="tel" value={addressForm.mobile} onChange={(e) => setAddressForm({ ...addressForm, mobile: e.target.value })} placeholder="01XXXXXXXXX" className={inputCls} />
-              {addressErrors.mobile && <p className={errCls}>{addressErrors.mobile}</p>}
-            </div>
-            <div className="sm:col-span-2">
-              <label htmlFor="addrStreet" className={labelCls}>Street address</label>
-              <input id="addrStreet" value={addressForm.address} onChange={(e) => setAddressForm({ ...addressForm, address: e.target.value })} placeholder="House, road, building" className={inputCls} />
-              {addressErrors.address && <p className={errCls}>{addressErrors.address}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrArea" className={labelCls}>Area / locality</label>
-              <input id="addrArea" value={addressForm.area} onChange={(e) => setAddressForm({ ...addressForm, area: e.target.value })} placeholder="e.g. Dhanmondi" className={inputCls} />
-              {addressErrors.area && <p className={errCls}>{addressErrors.area}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrDivision" className={labelCls}>Division</label>
-              <select
-                id="addrDivision"
-                value={addressForm.division}
-                onChange={(e) => setAddressForm({ ...addressForm, division: e.target.value, district: "" })}
-                className={inputCls}
-              >
-                <option value="">Select division</option>
-                {DIVISIONS.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-              {addressErrors.division && <p className={errCls}>{addressErrors.division}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrDistrict" className={labelCls}>District</label>
-              <select
-                id="addrDistrict"
-                value={addressForm.district}
-                onChange={(e) => setAddressForm({ ...addressForm, district: e.target.value })}
-                className={inputCls}
-                disabled={!addressForm.division}
-              >
-                <option value="">{addressForm.division ? "Select district" : "Select division first"}</option>
-                {districts.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-              {addressErrors.district && <p className={errCls}>{addressErrors.district}</p>}
-            </div>
-            <div>
-              <label htmlFor="addrCity" className={labelCls}>City</label>
-              <input id="addrCity" value={addressForm.city} onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })} placeholder="e.g. Dhaka" className={inputCls} />
-              {addressErrors.city && <p className={errCls}>{addressErrors.city}</p>}
-            </div>
-            <div className="flex gap-2 sm:col-span-2">
-              <button type="submit" className={btnPrimary}>{editingId ? "Update address" : "Add address"}</button>
-              <button type="button" className={btnGhost} onClick={() => { setShowAddressForm(false); setEditingId(null); }}>Cancel</button>
-            </div>
-          </form>
-        )}
-      </section>
-
-      {/* Wishlist */}
-      <section className="mt-6 rounded-2xl border border-border bg-panel p-5" aria-label="Wishlist">
-        <h2 className="text-lg font-bold text-text">Wishlist</h2>
-        {wishlistNotice && <p role="status" className="mt-3 text-sm text-success">{wishlistNotice}</p>}
-        {wishlist.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">Your wishlist is empty. Items you save will appear here.</p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {wishlist.map((item) => (
-              <li key={item.productId} className="flex items-center gap-4 rounded-xl border border-border bg-surface p-4">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-panel font-bold text-brand">
-                  {item.title.charAt(0)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-text">{item.title}</span>
-                  <span className="text-sm text-muted">{formatBDT(item.price_poisha)}</span>
-                </span>
-                <button type="button" className={btnGhost} onClick={() => { void moveWishlistToCart(item); }}>
-                  Move to cart
-                </button>
-                <button
-                  type="button"
-                  className="text-sm text-muted hover:text-text"
-                  onClick={() => { void handleRemoveWishlist(item.productId); }}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Order history */}
-      <section className="mt-6 rounded-2xl border border-border bg-panel p-5" aria-label="Order history">
-        <h2 className="text-lg font-bold text-text">Order history</h2>
-        {recentOrders.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">No orders yet. Orders you place will show up here with their status and totals.</p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {recentOrders.map((order) => (
-              <li key={order.id}>
-                <Link
-                  href={`/orders/${order.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4 hover:border-brand"
-                >
-                  <span>
-                    <span className="block font-semibold text-text">{order.orderNumber}</span>
-                    <span className="block text-sm text-muted">
-                      {formatDate(order.createdAt)} · {ORDER_STATUS_LABELS[order.status] ?? order.status}
-                    </span>
-                  </span>
-                  <span className="font-bold text-text">{formatBDT(order.total_poisha)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-        <Link href="/orders" className={`${btnPrimary} mt-4`}>View my orders</Link>
-      </section>
+      <OrdersSection orders={orders} />
     </main>
   );
 }

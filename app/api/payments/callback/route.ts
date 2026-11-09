@@ -1,3 +1,9 @@
+// Test-gateway payment callback route (POST /api/payments/callback).
+//
+// Verifies the signed callback, applies the payment outcome to the
+// order and appends a payments attempt row. Verification fails
+// closed when the signing secret is not configured.
+
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

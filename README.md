@@ -262,17 +262,29 @@ Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_it
 
 ## Project structure
 
+How the code is organised (2026-11-09 cleanup) — the full map lives in
+[`CODEBASE.md`](./CODEBASE.md), read that first when you are new here.
+
+Rules: **one file, one job** (a file past ~300 lines or doing a second
+job is split into focused modules in a folder named after it);
+**every file carries a short header** saying what it does; when code
+moves, the original file stays as a thin re-export **barrel** so every
+existing import path keeps working. Server actions keep `"use server"`
+in the files where they are defined — never in a barrel (Next.js
+forbids re-exports from a `"use server"` file, so a barrel with the
+directive fails the production build).
+
 ```
 app/
   (storefront)        Home page
   shop/               Product listing, search, category filters
   product/[slug]/     Product detail
-  cart/               Cart
-  checkout/           Checkout, test payment page
-  orders/             Order list and detail
-  account/            Customer account
+  cart/               Cart page (thin composition; pieces in components/cart/)
+  checkout/           Checkout, test payment page (form in components/checkout/)
+  orders/             Order list and detail (pieces in components/order-detail/)
+  account/            Customer account (pieces in components/account/)
   auth/               Sign in, sign up, auth callback
-  admin/              Admin dashboard (product moderation, orders, coupons, users)
+  admin/              Admin dashboard tabs: Overview, Products, Orders, Users
   error.tsx           Generic error boundary
   loading.tsx         Loading skeleton (home; also the fallback for routes without their own file)
   shop/loading.tsx    Shop skeleton (filters + grid)
@@ -285,22 +297,35 @@ components/
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
   MiniCartDrawer.tsx  Slide-over mini cart (header cart button; same cart store as /cart)
-  ProductManager.tsx  Admin product form + list (server actions)
+  product-gallery/    Product photos: gallery (slider), photo-viewer (fullscreen zoom), product-detail, review-form
+  product-manager/    Admin product form + list + helpers (ProductManager.tsx is the barrel)
+  cart/               Cart page pieces: cart-summary, coupon-box
+  checkout/           Checkout steps: checkout-form, address-step, payment-step
+  order-detail/       Order page pieces: summary, timeline, items
+  account/            Account page pieces: profile, addresses, orders, wishlist
+  admin/              Admin dashboard shell + coupons section
+  admin-orders/       Admin orders tab: orders-list, status-controls
   Header.tsx / Footer.tsx
 lib/
   theme.ts            Design tokens, formatBDT, pricing constants
-  data/catalog.ts     Local seed catalogue (fallback when Supabase is not configured)
-  catalog-rules.ts    Pure catalogue visibility/mapping rules (public = active only)
+  data/catalog/       Local seed catalogue (fallback when Supabase is not configured)
+  catalog/            Pure catalogue rules: db-types, brands-variants, mapping, specs-gallery
   supabase/catalog.ts Live catalogue reads from Supabase
-  products/           Product server actions, validation, server reads
+  products/           Product server actions (upload, create-update, manage), validation, server reads
   cart-store.ts       Cart state (Supabase when signed in, localStorage fallback)
-  checkout-store.ts   Cart/checkout/orders/account state: listOrders, updateOrderStatus
-  cart-server.ts      Server cart sync (Supabase carts/cart_items)
-  orders-server.ts    Server order creation from live DB prices, order status, reviews
-  auth-server.ts      Server auth helpers (profile, listUsers, code exchange)
+  checkout/           Checkout browser store: types, storage (localStorage), validation
+  cart/server/        Server cart sync (Supabase carts/cart_items)
+  orders/server/      Server order creation from live DB prices, order status, callbacks, reviews
+  orders/actions/     Order server actions: status (Advance / set), cancel, shared engine
+  orders/checkout/    Checkout maths: totals, coupons, validation, in-memory order store
+  orders/             transitions.ts (legal status moves), stock.ts (stock guards)
+  auth-server/        Server auth helpers: session, profile, admin-users
   account-server.ts   Server account data (profile, addresses, orders, wishlist)
   profile-rules.ts    Pure profile creation rules (role never admin, never overwrite)
   account-rules.ts    Pure account mapping/merge/validation rules (DB <-> browser shapes)
+  roles.ts            Roles: Owner / Co-admin / Manager / Customer and what each may do
+  reviews.ts          Review rules (real reviews only; login + delivered order to write)
+  admin/stats.ts      Admin overview numbers
   pricing.ts          Delivery + coupon + totals (pure functions, poisha)
   payments/           PaymentAdapter interface + test adapter
   supabase/           Supabase browser/server clients and types
@@ -310,11 +335,15 @@ supabase/
   migrations/0001_initial_schema.sql
   migrations/0002_profile_trigger.sql  Creates profiles rows on sign-up + backfills missing ones
   migrations/0003_order_items_variant.sql  Records which variant row each order line decremented (cancel / refund stock restore)
+  migrations/0004_drop_seller_order_policy.sql  Drops orders_select_seller (fixed RLS infinite recursion)
   migrations/0005_product_variant_image.sql  Adds image_path to product_variants (one photo per variant)
+  migrations/0006_roles.sql  Roles: co_admin + manager (Owner stays role "admin")
+  migrations/0007_order_returned.sql  Adds "returned" order status (customer did not take the order)
+  migrations/0008_product_warranty_specs.sql  Adds warranty + specifications to products
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/
-  ts-hooks.mjs        Module hooks so node --test can import the real TS modules
+  ts-hooks.mjs        Module hooks so node --test can import the real TS modules (resolves real files only, never directories)
   register-ts-loader.mjs  Registers ts-hooks.mjs (see package.json "test")
   pricing.test.mjs    Pricing rule-table tests (node:test)
   payments.test.mjs   Test-payment adapter tests (node:test, real adapter)
@@ -327,8 +356,12 @@ tests/
   products-actions.test.mjs  Product slug/validation helpers
   profile.test.mjs    Profile creation rules (sign-in creates a missing profile, never admin, never overwrite)
   account.test.mjs    Account dashboard rules (address/wishlist mapping, order merge, sign-in banner + dashboard wiring)
+  roles.test.mjs      Roles + admin tabs + order-status rules (node:test)
+  order-status.test.mjs  Order status transitions incl. returned, manual set
+  gallery.test.mjs    Gallery slider / viewer / multi-photo rules
   e2e/                Mock Supabase + Playwright click-through (see "End-to-end checks")
 middleware.ts         Supabase session + role check for /admin
+CODEBASE.md           Beginner's map of the whole codebase: rules, folders, where to find things
 ```
 
 ## Contributing

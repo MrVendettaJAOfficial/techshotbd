@@ -1,3 +1,6 @@
+// Root layout — site header, footer and cart provider around
+// every page, plus the site title and description metadata.
+
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Header from "../components/Header";

@@ -1,5 +1,12 @@
 "use client";
 
+// My orders page.
+//
+// Lists the signed-in user's orders (live Supabase orders merged
+// over the browser-local ones, newest first) with status tabs, or
+// "No orders yet" when there are none. Each order links to its
+// detail page.
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatBDT } from "@/lib/theme";

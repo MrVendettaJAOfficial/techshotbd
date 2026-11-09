@@ -11,11 +11,24 @@
 // imports (zod, node:...) and node: builtins pass through untouched.
 //
 // Registered by tests/register-ts-loader.mjs (see package.json "test").
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SOURCE_ROOT = path.resolve(import.meta.dirname, "..");
+
+// A candidate only counts when it is a real file. Since the cleanup,
+// several modules live next to a same-named directory (e.g. the
+// `lib/orders/actions.ts` barrel beside `lib/orders/actions/`), and a
+// bare `existsSync` would return the directory and make Node throw
+// EISDIR on an extensionless import.
+function isFile(candidate) {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
 
 function probeFile(base) {
   if (base.endsWith(".css")) return null;
@@ -28,7 +41,7 @@ function probeFile(base) {
     path.join(base, "index.ts"),
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+    if (isFile(candidate)) return candidate;
   }
   return null;
 }

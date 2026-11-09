@@ -1,5 +1,10 @@
 "use client";
 
+// Cart page for TechShot. One job: compose the cart — items,
+// saved-for-later and recommendations — with the order summary
+// sidebar in components/cart/cart-summary.tsx (coupon box in
+// components/cart/coupon-box.tsx).
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatBDT, FREE_DELIVERY_THRESHOLD_POISHA } from "@/lib/theme";
@@ -7,6 +12,7 @@ import { PRODUCTS, getProductForCartSlug } from "@/lib/data/catalog";
 import { computeTotals, validateCoupon } from "@/lib/orders";
 import { useCart, usePricedCartLines } from "@/lib/cart-store";
 import ProductImage from "@/components/ProductImage";
+import CartSummary from "@/components/cart/cart-summary";
 import {
   getCouponCode,
   getDefaultAddress,
@@ -17,12 +23,8 @@ import {
   type SavedItem,
 } from "@/lib/checkout-store";
 
-const inputCls =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-text outline-none focus:border-brand";
 const btnPrimary =
   "inline-flex items-center justify-center rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600";
-const btnAccent =
-  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-5 py-3 font-semibold text-white hover:bg-orange-600";
 const btnGhost =
   "inline-flex items-center justify-center rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text hover:border-brand";
 
@@ -343,78 +345,18 @@ export default function CartPage() {
           </section>
         </section>
 
-        <aside aria-label="Order summary" className="h-fit rounded-2xl border border-border bg-panel p-5 lg:sticky lg:top-4">
-          <h2 className="text-lg font-bold text-text">Order summary</h2>
-
-          <div className="mt-4">
-            <label htmlFor="coupon" className="mb-1 block text-sm font-medium text-text">Coupon code</label>
-            {appliedCoupon ? (
-              <div className="flex items-center justify-between rounded-lg border border-success bg-surface px-3 py-2">
-                <span className="text-sm font-semibold text-success">{appliedCoupon} applied</span>
-                <button type="button" className="text-sm text-muted hover:text-text" onClick={removeCoupon}>
-                  Remove
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <input
-                  id="coupon"
-                  value={couponInput}
-                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                  placeholder="FIRST2000"
-                  className={inputCls}
-                />
-                <button type="button" className={btnGhost} onClick={applyCoupon}>Apply</button>
-              </div>
-            )}
-            {couponMessage && (
-              <p className={`mt-2 text-sm ${couponResult.error ? "text-red-400" : "text-success"}`}>
-                {couponMessage}
-              </p>
-            )}
-            {couponResult.error && <p className="mt-1 text-sm text-red-400">{couponResult.error}</p>}
-            <p className="mt-2 text-xs text-muted">FIRST2000: ৳2,000 off on a first order above ৳50,000.</p>
-          </div>
-
-          <dl className="mt-5 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted">Subtotal (MRP)</dt>
-              <dd className="text-text">{formatBDT(mrpTotal_poisha)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">Product savings</dt>
-              <dd className="text-success">− {formatBDT(summary.savings_poisha)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">Coupon {appliedCoupon ? `(${appliedCoupon})` : ""}</dt>
-              <dd className="text-success">− {formatBDT(couponResult.discount_poisha)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">Delivery</dt>
-              <dd className="text-text">
-                {summary.deliveryFee_poisha === 0 ? "FREE" : formatBDT(summary.deliveryFee_poisha)}
-                {summary.deliveryFee_poisha !== 0 && (
-                  <span className="ml-1 text-xs text-muted">(standard ৳60)</span>
-                )}
-              </dd>
-            </div>
-            <div className="flex justify-between border-t border-border pt-3 text-base font-bold">
-              <dt className="text-text">Total payable</dt>
-              <dd className="text-text">{formatBDT(summary.total_poisha)}</dd>
-            </div>
-          </dl>
-
-          <p className="mt-3 rounded-lg bg-surface px-3 py-2 text-sm text-success">
-            You are saving {formatBDT(summary.savings_poisha + couponResult.discount_poisha)} on this order.
-          </p>
-
-          <Link href="/checkout" className={`${btnAccent} mt-4`}>
-            Proceed to Checkout
-          </Link>
-          <Link href="/" className="mt-3 block text-center text-sm text-brand hover:underline">
-            Continue shopping
-          </Link>
-        </aside>
+        <CartSummary
+          mrpTotal_poisha={mrpTotal_poisha}
+          summary={summary}
+          appliedCoupon={appliedCoupon}
+          couponDiscount_poisha={couponResult.discount_poisha}
+          couponError={couponResult.error}
+          couponMessage={couponMessage}
+          couponInput={couponInput}
+          onCouponInputChange={setCouponInput}
+          onApplyCoupon={applyCoupon}
+          onRemoveCoupon={removeCoupon}
+        />
       </div>
     </main>
   );

@@ -152,7 +152,12 @@ test("the e2e smoke test's cart-badge selector follows the button change", () =>
 });
 
 test("/cart page is untouched in behaviour", () => {
-  const cart = read("app/cart/page.tsx");
+  // The page is now a thin composition: the summary sidebar (with the
+  // checkout link) lives in components/cart/cart-summary.tsx. Read
+  // both, so the page is still pinned to the same behaviour.
+  const cart = ["app/cart/page.tsx", "components/cart/cart-summary.tsx"]
+    .map((rel) => read(rel))
+    .join("\n");
   // Still the full cart page: empty state, checkout link, same
   // priced-line rules the drawer mirrors.
   assert.match(cart, /Your cart is empty/);

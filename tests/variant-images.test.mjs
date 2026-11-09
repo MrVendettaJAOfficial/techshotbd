@@ -47,6 +47,26 @@ function read(rel) {
   return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
 }
 
+// Since the cleanup, the gallery, the admin form and the catalogue
+// rules live in focused modules; read them joined so the markers
+// below are still pinned to the code that runs them. Assertions are
+// unchanged.
+function readAll(rels) {
+  return rels.map((rel) => read(rel)).join("\n");
+}
+
+const GALLERY_FILES = [
+  "components/product-gallery/gallery.tsx",
+  "components/product-gallery/photo-viewer.tsx",
+  "components/product-gallery/product-detail.tsx",
+  "components/product-gallery/review-form.tsx",
+];
+const MANAGER_FILES = [
+  "components/product-manager/product-form.tsx",
+  "components/product-manager/product-list.tsx",
+  "components/product-manager/helpers.ts",
+];
+
 function row(overrides = {}) {
   return {
     id: "00000000-0000-0000-0000-000000000001",
@@ -230,9 +250,9 @@ test("loader fetches image_path and the gallery switches on it", () => {
   // The detail page builds its photo list through buildGalleryList:
   // the selected variant's photo first, then every photo for the
   // product in sort_order (the multi-angle gallery, 2026-11-09).
-  const gallery = read("components/ProductGallery.tsx");
+  const gallery = readAll(GALLERY_FILES);
   assert.match(gallery, /buildGalleryList\(product, colour, storage\?\.label\)/);
-  const rules = read("lib/catalog-rules.ts");
+  const rules = read("lib/catalog/specs-gallery.ts");
   assert.match(rules, /export function buildGalleryList/);
   assert.match(rules, /variantImage \? \[variantImage, \.\.\.base\] : base/);
   // Switching the variant resets the gallery to its first image.
@@ -240,13 +260,13 @@ test("loader fetches image_path and the gallery switches on it", () => {
 });
 
 test("admin form sets a variant photo and round-trips it", () => {
-  const manager = read("components/ProductManager.tsx");
+  const manager = readAll(MANAGER_FILES);
   assert.match(manager, /variant\.imagePath \? `\$\{base\}:\$\{variant\.imagePath\}` : base/);
   assert.match(manager, /Black Titanium::5:iphone-black\.jpg/);
   assert.match(manager, /photo set/);
   // The server action writes image_path (migration 0005 column).
   assert.match(
-    read("lib/products/actions.ts"),
+    read("lib/products/actions/shared.ts"),
     /image_path: variant\.imagePath \? variant\.imagePath : null/,
   );
   assert.match(

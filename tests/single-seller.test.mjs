@@ -51,7 +51,12 @@ test("sign-up schema only accepts role customer (lib/auth.ts)", () => {
 });
 
 test("auth-server only ever creates customer profiles, no seller verification", () => {
-  const server = read("lib/auth-server.ts");
+  // lib/auth-server.ts is now a re-export barrel: the code lives in
+  // lib/auth-server/{session, profile, admin-users}.ts. Read the
+  // three modules together so this still covers the whole module.
+  const server = ["lib/auth-server/session.ts", "lib/auth-server/profile.ts", "lib/auth-server/admin-users.ts"]
+    .map((rel) => read(rel))
+    .join("\n");
   assert.equal(/getSellerVerified/.test(server), false);
   assert.equal(/"seller"/.test(stripComments(server)), false);
   assert.match(server, /role:\s*"customer"/);
@@ -101,7 +106,17 @@ test("no seller links in header, footer or auth pages", () => {
 });
 
 test("product actions require staff roles and never mention a seller", () => {
-  const actions = read("lib/products/actions.ts");
+  // lib/products/actions.ts is now a re-export barrel: the actions
+  // live in lib/products/actions/{shared, upload, create-update,
+  // manage}.ts. Read them joined; assertions are unchanged.
+  const actions = [
+    "lib/products/actions/shared.ts",
+    "lib/products/actions/upload.ts",
+    "lib/products/actions/create-update.ts",
+    "lib/products/actions/manage.ts",
+  ]
+    .map((rel) => read(rel))
+    .join("\n");
   // The Owner-only requireAdmin gate became the staff gate with the
   // roles build (migration 0006): create / delete / upload is any
   // staff role, edit / pause is owner and co-admin only, enforced

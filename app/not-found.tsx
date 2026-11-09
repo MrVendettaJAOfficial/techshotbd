@@ -1,3 +1,6 @@
+// 404 page — generic "this page could not be found" with links
+// back home and to the shop. No internals are leaked.
+
 import Link from "next/link";
 import { Button } from "@/components/ui";
 

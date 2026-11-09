@@ -1,3 +1,10 @@
+// Test payment page (server component).
+//
+// Simulates the test gateway for an unpaid order: choose success,
+// failed or cancelled and the outcome is applied to the order. No
+// real money moves and no card or wallet details are ever collected
+// here.
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatBDT } from "@/lib/theme";
