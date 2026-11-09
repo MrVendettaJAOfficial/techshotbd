@@ -39,11 +39,15 @@ try {
   try {
     ({ chromium } = require("playwright"));
   } catch {
-    console.error(
-      "Playwright is not installed. Install it once:\n" +
-        "  npm i -D playwright-core && npx playwright install chromium",
-    );
-    process.exit(2);
+    try {
+      ({ chromium } = require("/home/hatch/workspace/tools/playwright-mcp/node_modules/playwright-core"));
+    } catch {
+      console.error(
+        "Playwright is not installed. Install it once:\n" +
+          "  npm i -D playwright-core && npx playwright install chromium",
+      );
+      process.exit(2);
+    }
   }
 }
 

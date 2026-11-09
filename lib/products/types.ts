@@ -32,6 +32,12 @@ export interface ProductListItem {
   sellerId: string | null;
   /** First product image path, or null when there is none. */
   imagePath: string | null;
+  /**
+   * Every product image path, in display order (product_images
+   * sort_order) — the first entry is `imagePath`. The admin form
+   * edits this list; the storefront gallery shows it.
+   */
+  imagePaths: string[];
   variants: ProductVariantItem[];
   createdAt: string;
 }
@@ -44,3 +50,17 @@ export interface CategoryOption {
 /** What every product server action returns. Errors are generic on
  *  purpose: never a stack trace, SQL, or table name. */
 export type ProductActionResult = { ok: true; slug: string } | { ok: false; error: string };
+
+/**
+ * What the photo-upload server action returns. On success, `files`
+ * are the Storage filenames that were uploaded (flat at the bucket
+ * root) — the admin form fills them into the product's photo list.
+ * The files are uploaded immediately; the product_images rows are
+ * only written when the product itself is saved, so uploading
+ * without saving leaves unreferenced files in the bucket (harmless,
+ * and never deleted automatically — a file may be referenced by
+ * another product).
+ */
+export type ProductImageUploadResult =
+  | { ok: true; files: string[] }
+  | { ok: false; error: string };

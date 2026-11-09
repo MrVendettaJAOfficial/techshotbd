@@ -85,7 +85,46 @@ const ADMIN_MODE = process.env.MOCK_ADMIN === "1";
 const db = {
   categories: CATS,
   products: PRODUCTS,
-  product_images: [],
+  product_images: [
+    // The iPhone's photos: the main shot plus its three extra angles
+    // (apple-iphone-16-pro-2/3/4.jpg), all already in the public
+    // `product-images` bucket. Real per-product shots, not colour
+    // photos. The gallery Playwright check
+    // (tests/e2e/gallery.mjs) uses these rows to prove the slider,
+    // thumbnails, swipe and viewer work with several photos. All
+    // other products have one photo each — the seed writes one row
+    // per product (see supabase/seed.sql) — so they are left out
+    // here and the gallery falls back to the slug photo, exactly
+    // like the live storefront does for a single-photo product.
+    {
+      id: "img-iphone-1",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      storage_path: "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg",
+      alt_text: "Apple iPhone 16 Pro 256GB Natural Titanium",
+      sort_order: 0,
+    },
+    {
+      id: "img-iphone-2",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      storage_path: "/images/products/apple-iphone-16-pro-2.jpg",
+      alt_text: "Apple iPhone 16 Pro 256GB Natural Titanium — angle 2",
+      sort_order: 1,
+    },
+    {
+      id: "img-iphone-3",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      storage_path: "/images/products/apple-iphone-16-pro-3.jpg",
+      alt_text: "Apple iPhone 16 Pro 256GB Natural Titanium — angle 3",
+      sort_order: 2,
+    },
+    {
+      id: "img-iphone-4",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      storage_path: "/images/products/apple-iphone-16-pro-4.jpg",
+      alt_text: "Apple iPhone 16 Pro 256GB Natural Titanium — angle 4",
+      sort_order: 3,
+    },
+  ],
   product_variants: [
     // Variant-photo test rows for the iPhone (migration 0005):
     // "Natural Titanium" has no photo (gallery falls back to the
@@ -323,6 +362,30 @@ async function handle(req, res) {
     });
     res.end();
     return;
+  }
+
+  // --- Storage upload (admin product-photo upload) ---
+  // POST /storage/v1/object/product-images/<path> — the /admin form
+  // uploads straight to Storage (lib/products/actions.ts
+  // uploadProductImages). The mock accepts any upload and answers
+  // like the real bucket (200 { Key }), so the upload server action
+  // can be exercised end to end. Nothing is stored: the GET handler
+  // below serves a solid PNG for any file, so an uploaded photo
+  // "loads" immediately afterwards. Filenames with ".." are
+  // rejected, like the real bucket. The multipart body is consumed
+  // and discarded — the mock never parses it.
+  if (path.startsWith("/storage/v1/object/product-images/") && req.method === "POST") {
+    const file = path.slice("/storage/v1/object/product-images/".length);
+    await new Promise((resolve) => {
+      req.on("data", () => {});
+      req.on("end", resolve);
+    });
+    if (!file || file.includes("..")) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "mock storage: bad file" }));
+      return;
+    }
+    return send(res, 200, { Key: `product-images/${file}` });
   }
 
   // --- Storage (public product-images bucket) ---

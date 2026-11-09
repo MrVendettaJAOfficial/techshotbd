@@ -26,10 +26,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth-server";
+import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage-images";
 
 import type { AppUser } from "@/lib/auth";
-import type { ProductActionResult } from "./types";
-import { dedupeSlug, productInputSchema, productStatusSchema, slugify, takaToPoisha, type ProductInput } from "./validation";
+import type { ProductActionResult, ProductImageUploadResult } from "./types";
+import {
+  MAX_UPLOAD_FILES,
+  dedupeSlug,
+  mergeImagePaths,
+  productInputSchema,
+  productStatusSchema,
+  slugify,
+  takaToPoisha,
+  uploadStoragePath,
+  validateUploadFile,
+  type ProductInput,
+} from "./validation";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 const NOT_SIGNED_IN = "You must be signed in to manage products.";
@@ -102,18 +114,96 @@ function revalidateProductPages(slug: string, oldSlug?: string): void {
   if (oldSlug && oldSlug !== slug) revalidatePath(`/product/${oldSlug}`);
 }
 
-async function writeImages(admin: AdminClient, productId: string, imagePath: string, title: string): Promise<void> {
-  if (!imagePath) return;
+async function writeImages(
+  admin: AdminClient,
+  productId: string,
+  imagePaths: string[],
+  title: string,
+): Promise<void> {
+  // One product_images row per photo, sort_order 0, 1, 2, … — the
+  // first is the main photo and the gallery shows the rest in this
+  // order. Empty entries are dropped; duplicates were already
+  // removed by mergeImagePaths.
+  const paths = imagePaths.map((path) => path.trim()).filter((path) => path !== "");
+  if (paths.length === 0) return;
   try {
-    await admin.from("product_images").insert({
-      product_id: productId,
-      storage_path: imagePath,
-      alt_text: title,
-      sort_order: 0,
-    });
+    await admin.from("product_images").insert(
+      paths.map((storage_path, index) => ({
+        product_id: productId,
+        storage_path,
+        alt_text: title,
+        sort_order: index,
+      })),
+    );
   } catch {
     // A failed image row must not fail the product write.
   }
+}
+
+/**
+ * Upload product photos straight to the public `product-images`
+ * bucket, from the /admin form. Admin only, exactly like the other
+ * product actions: the service-role client bypasses RLS, so the
+ * role check above is the enforcement point, and the service-role
+ * key never leaves the server.
+ *
+ * Each file is validated before anything is uploaded (JPEG / PNG /
+ * WebP only, 5 MB max, at most 10 files at once). Filenames are
+ * generated server-side from the product slug + timestamp + random
+ * suffix — the uploaded filename is never used, so it cannot
+ * traverse out of the bucket or overwrite an existing file (upsert
+ * is off as well). If one upload fails after others succeeded, the
+ * uploaded files are removed again, best-effort, so a half-finished
+ * upload leaves no orphans.
+ *
+ * The files are uploaded immediately; the product_images rows are
+ * only written when the product itself is saved, so uploading
+ * without saving leaves unreferenced files in the bucket. Those are
+ * harmless and are never deleted automatically — a file may be
+ * referenced by another product.
+ */
+export async function uploadProductImages(formData: FormData): Promise<ProductImageUploadResult> {
+  const actor = await requireAdmin();
+  if ("error" in actor) return { ok: false, error: actor.error };
+
+  const admin = adminClient();
+  if (!admin) return { ok: false, error: GENERIC_ERROR };
+
+  const title = typeof formData.get("title") === "string" ? (formData.get("title") as string) : "";
+  const files = formData
+    .getAll("photos")
+    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  if (files.length === 0) return { ok: false, error: "Choose at least one photo to upload." };
+  if (files.length > MAX_UPLOAD_FILES) {
+    return { ok: false, error: `Upload at most ${MAX_UPLOAD_FILES} photos at a time.` };
+  }
+  for (const file of files) {
+    const problem = validateUploadFile(file);
+    if (problem) return { ok: false, error: problem };
+  }
+
+  const slug = slugify(title);
+  const uploaded: string[] = [];
+  try {
+    for (const file of files) {
+      const path = uploadStoragePath(slug, file.type);
+      const { error } = await admin.storage
+        .from(PRODUCT_IMAGES_BUCKET)
+        .upload(path, file, { contentType: file.type, upsert: false, cacheControl: "3600" });
+      if (error) throw new Error("upload failed");
+      uploaded.push(path);
+    }
+  } catch {
+    if (uploaded.length > 0) {
+      try {
+        await admin.storage.from(PRODUCT_IMAGES_BUCKET).remove(uploaded);
+      } catch {
+        // Cleanup is best-effort; an orphaned file is harmless.
+      }
+    }
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  return { ok: true, files: uploaded };
 }
 
 async function writeVariants(admin: AdminClient, productId: string, variants: ProductInput["variants"]): Promise<void> {
@@ -172,7 +262,7 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
     .single();
   if (error || !data) return { ok: false, error: GENERIC_ERROR };
 
-  await writeImages(admin, data.id, input.imagePath, input.title);
+  await writeImages(admin, data.id, mergeImagePaths(input), input.title);
   await writeVariants(admin, data.id, input.variants);
   await writeAudit(admin, user.id, "product.create", data.id);
 
@@ -230,7 +320,7 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
   if (error) return { ok: false, error: GENERIC_ERROR };
 
   await admin.from("product_images").delete().eq("product_id", existing.id);
-  await writeImages(admin, existing.id, input.imagePath, input.title);
+  await writeImages(admin, existing.id, mergeImagePaths(input), input.title);
   await admin.from("product_variants").delete().eq("product_id", existing.id);
   await writeVariants(admin, existing.id, input.variants);
   await writeAudit(admin, user.id, "product.update", existing.id);

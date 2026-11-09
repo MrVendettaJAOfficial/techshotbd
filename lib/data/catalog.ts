@@ -34,6 +34,15 @@ export type Product = {
   flash?: boolean;
   condition: "New" | "Refurbished";
   image: string;
+  /**
+   * Every photo for this product, in display order. The first entry
+   * is always `image`; the gallery shows the whole list. Only
+   * products with more than one photo set this — a single-photo
+   * product leaves it unset and the gallery falls back to `image`.
+   * (The live catalogue fills it from product_images rows; see
+   * lib/catalog-rules.ts mapDbProductToCatalog.)
+   */
+  gallery?: string[];
   description: string;
   specs: Record<string, string>;
   colours?: string[];
@@ -82,6 +91,16 @@ export const PRODUCTS: Product[] = [
     flash: true,
     condition: "New",
     image: "/images/products/apple-iphone-16-pro.jpg",
+    // The extra angles are real per-product shots already in the
+    // public `product-images` bucket (apple-iphone-16-pro-2/3/4.jpg)
+    // — not colour photos. The gallery shows them as thumbnails and
+    // slider frames after the main shot.
+    gallery: [
+      "/images/products/apple-iphone-16-pro.jpg",
+      "/images/products/apple-iphone-16-pro-2.jpg",
+      "/images/products/apple-iphone-16-pro-3.jpg",
+      "/images/products/apple-iphone-16-pro-4.jpg",
+    ],
     description:
       "The iPhone 16 Pro pairs the A18 Pro chip with a titanium design and a pro camera system. Built for photography, gaming and all-day work, with official Apple warranty in Bangladesh.",
     specs: {

@@ -63,11 +63,12 @@ interface CategoryRow {
 function toListItems(
   rows: ProductRow[],
   categoriesById: Map<string, CategoryRow>,
-  imagesByProduct: Map<string, string>,
+  imagesByProduct: Map<string, string[]>,
   variantsByProduct: Map<string, ProductVariantItem[]>,
 ): ProductListItem[] {
   return rows.map((row) => {
     const category = row.category_id ? categoriesById.get(row.category_id) : undefined;
+    const imagePaths = imagesByProduct.get(row.id) ?? [];
     return {
       id: row.id,
       title: row.title,
@@ -80,7 +81,8 @@ function toListItems(
       categorySlug: category?.slug ?? null,
       categoryName: category?.name ?? "General",
       sellerId: row.seller_id,
-      imagePath: imagesByProduct.get(row.id) ?? null,
+      imagePath: imagePaths[0] ?? null,
+      imagePaths,
       variants: variantsByProduct.get(row.id) ?? [],
       createdAt: row.created_at,
     };
@@ -91,10 +93,10 @@ async function loadExtras(
   admin: SupabaseClient,
   productIds: string[],
 ): Promise<{
-  imagesByProduct: Map<string, string>;
+  imagesByProduct: Map<string, string[]>;
   variantsByProduct: Map<string, ProductVariantItem[]>;
 }> {
-  const imagesByProduct = new Map<string, string>();
+  const imagesByProduct = new Map<string, string[]>();
   const variantsByProduct = new Map<string, ProductVariantItem[]>();
   if (productIds.length === 0) return { imagesByProduct, variantsByProduct };
 
@@ -111,10 +113,12 @@ async function loadExtras(
       .select("product_id, name, price_override_poisha, stock, image_path")
       .in("product_id", productIds),
   ]);
+  // Every photo per product, in sort_order — the first is the main
+  // photo; the admin form edits the whole list.
   for (const image of (images ?? []) as Array<{ product_id: string; storage_path: string }>) {
-    if (!imagesByProduct.has(image.product_id)) {
-      imagesByProduct.set(image.product_id, image.storage_path);
-    }
+    const list = imagesByProduct.get(image.product_id) ?? [];
+    list.push(image.storage_path);
+    imagesByProduct.set(image.product_id, list);
   }
 
   for (const variant of (variants ?? []) as Array<{

@@ -227,9 +227,14 @@ test("loader fetches image_path and the gallery switches on it", () => {
     read("lib/supabase/catalog.ts"),
     /product_variants\(name, price_override_poisha, stock, image_path\)/,
   );
+  // The detail page builds its photo list through buildGalleryList:
+  // the selected variant's photo first, then every photo for the
+  // product in sort_order (the multi-angle gallery, 2026-11-09).
   const gallery = read("components/ProductGallery.tsx");
-  assert.match(gallery, /resolveVariantImage\(product, colour, storage\?\.label\)/);
-  assert.match(gallery, /variantImage \? \[variantImage, product\.image\] : \[product\.image\]/);
+  assert.match(gallery, /buildGalleryList\(product, colour, storage\?\.label\)/);
+  const rules = read("lib/catalog-rules.ts");
+  assert.match(rules, /export function buildGalleryList/);
+  assert.match(rules, /variantImage \? \[variantImage, \.\.\.base\] : base/);
   // Switching the variant resets the gallery to its first image.
   assert.match(gallery, /useEffect\(\(\) => \{\s*setActive\(0\);?\s*\}, \[images\]\)/s);
 });

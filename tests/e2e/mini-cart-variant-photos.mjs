@@ -180,9 +180,12 @@ async function main() {
   let src = await mainGallerySrc(page);
   check("default colour shows the product photo", src.includes(IPHONE_PHOTO), src.slice(0, 160));
   check("default colour photo loads", await mainGalleryLoaded(page));
+  // The iPhone now has a 4-photo gallery (extra angles seeded in
+  // mock + seed.sql), so the default colour shows 4 thumbnails and
+  // picking a colour adds its photo first, making 5.
   check(
-    "default colour shows no thumbnails (single photo)",
-    (await page.getByRole("button", { name: /^View image/ }).count()) === 0,
+    "default colour shows 4 thumbnails (the iPhone's 4 photos)",
+    (await page.locator('[data-testid^="gallery-thumb-"]').count()) === 4,
   );
 
   await page.getByRole("button", { name: "Black Titanium" }).click();
@@ -195,8 +198,8 @@ async function main() {
   );
   check("variant photo loads", await mainGalleryLoaded(page));
   check(
-    "variant photo adds a second thumbnail (variant + product photo)",
-    (await page.getByRole("button", { name: /^View image/ }).count()) === 2,
+    "variant photo adds a fifth thumbnail (variant first, then the 4 product photos)",
+    (await page.locator('[data-testid^="gallery-thumb-"]').count()) === 5,
   );
 
   await page.getByRole("button", { name: "Natural Titanium" }).click();

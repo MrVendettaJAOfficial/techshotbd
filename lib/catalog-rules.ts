@@ -87,6 +87,16 @@ export interface MappedProduct {
   flash?: boolean;
   condition: "New" | "Refurbished";
   image: string;
+  /**
+   * Every photo for this product, in display order (product_images
+   * sort_order), resolved to the URL the storefront renders. The
+   * first entry is always `image` — cards, the cart and orders keep
+   * using `image` alone, while the product gallery shows the whole
+   * list (main photo, thumbnails, slider). A product with one photo
+   * has a one-entry gallery; a product with no image rows falls back
+   * to the slug image, exactly like `image` does.
+   */
+  gallery?: string[];
   description: string;
   specs: Record<string, string>;
   colours?: string[];
@@ -333,11 +343,24 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
   // configured (see lib/storage-images.ts). The slug fallback goes
   // through the same resolution, so a product with no image rows still
   // gets its Storage photo; an empty resolution falls back to the
-  // local slug image, exactly as before.
-  const stored = images[0]?.storage_path ?? `/images/products/${row.slug}.jpg`;
+  // local slug image, exactly as before. `gallery` is every resolved
+  // photo in sort_order (the first is `image`); the gallery shows
+  // the whole list, cards and the cart keep using `image` alone.
+  const resolvedImages = images
+    .map((row) =>
+      resolveProductImageSrc(row.storage_path, process.env.NEXT_PUBLIC_SUPABASE_URL),
+    )
+    .filter((src) => src !== "");
+  // The slug fallback goes through the same resolution, so a product
+  // with no image rows still gets its Storage photo when configured
+  // (and the local slug image when not).
   const image =
-    resolveProductImageSrc(stored, process.env.NEXT_PUBLIC_SUPABASE_URL) ||
-    `/images/products/${row.slug}.jpg`;
+    resolvedImages[0] ??
+    (resolveProductImageSrc(
+      `/images/products/${row.slug}.jpg`,
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+    ) || `/images/products/${row.slug}.jpg`);
+  const gallery = [...new Set([image, ...resolvedImages.slice(1)])];
 
   const variants = row.product_variants ?? [];
   const storageOptions = variants
@@ -380,6 +403,7 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
     flash,
     condition: "New",
     image,
+    gallery,
     description,
     specs: {
       Description: description || row.title,
@@ -413,6 +437,31 @@ export function resolveVariantImage(
   if (colour && images[colour]) return images[colour];
   if (storageLabel && images[storageLabel]) return images[storageLabel];
   return undefined;
+}
+
+/**
+ * The photo list the gallery shows for the current selection, in
+ * order: the selected variant's photo first when one is set (a
+ * colour's photo is what a photo shows; a storage size rarely has
+ * its own shot), then every photo for the product in sort_order.
+ * A product with no gallery falls back to its single photo, so the
+ * list always has at least one entry. Duplicates are removed — a
+ * variant photo that is also the main photo appears once.
+ */
+export function buildGalleryList(
+  product: {
+    image: string;
+    gallery?: string[];
+    variantImages?: Record<string, string>;
+  },
+  colour?: string | null,
+  storageLabel?: string | null,
+): string[] {
+  const variantImage = resolveVariantImage(product, colour, storageLabel);
+  const base =
+    product.gallery && product.gallery.length > 0 ? product.gallery : [product.image];
+  const list = variantImage ? [variantImage, ...base] : base;
+  return [...new Set(list)];
 }
 
 /** Map one database category row to the storefront Category shape. */

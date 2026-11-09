@@ -161,18 +161,24 @@ values
 on conflict (slug) do nothing;
 
 -- ---------------------------------------------------------------------------
--- Product images — one image per product. Product photos live in the
--- public `product-images` bucket in Supabase Storage (create the
--- bucket in the dashboard and upload the JPEGs there, flat at the
--- bucket root, keeping their filenames). The storage_path values below
--- are the legacy local paths (/images/products/<slug>.jpg); the
--- storefront maps those — and bare filenames such as <slug>.jpg — to
--- their public Storage URL (see lib/storage-images.ts), so no
--- migration is needed to switch existing rows to Storage. When
--- Supabase is not configured the same values resolve to the bundled
--- files in public/images/products/ instead. A new product's image can
--- be set in /admin to a Storage filename, a local path, or an https
--- URL; it is never a Figma link.
+-- Product images — one image per product, plus the iPhone's extra
+-- angles. Product photos live in the public `product-images` bucket
+-- in Supabase Storage (create the bucket in the dashboard and upload
+-- the JPEGs there, flat at the bucket root, keeping their filenames).
+-- The storage_path values below are the legacy local paths
+-- (/images/products/<slug>.jpg); the storefront maps those — and bare
+-- filenames such as <slug>.jpg — to their public Storage URL (see
+-- lib/storage-images.ts), so no migration is needed to switch
+-- existing rows to Storage. When Supabase is not configured the same
+-- values resolve to the bundled files in public/images/products/
+-- instead. A product's photos can be managed in /admin (several
+-- photos per product, with direct upload to Storage); it is never a
+-- Figma link.
+--
+-- NOTE: this file only affects a fresh seed. The live database was
+-- seeded before the iPhone angle rows below existed, so live
+-- products gain extra angles through /admin, not by re-running this
+-- file.
 -- ---------------------------------------------------------------------------
 insert into public.product_images (product_id, storage_path, alt_text, sort_order)
 select id, '/images/products/' || slug || '.jpg', title, 0
@@ -191,4 +197,22 @@ where slug in (
   'amazon-prime-1-year',
   'youtube-premium-1-month'
 )
+on conflict (product_id, storage_path) do nothing;
+
+-- Extra angles for the iPhone 16 Pro: the 2nd / 3rd / 4th shots
+-- already in the bucket (apple-iphone-16-pro-2/3/4.jpg). They are
+-- real per-product photos, not colour photos — the gallery shows
+-- them as thumbnails and slider frames after the main shot.
+insert into public.product_images (product_id, storage_path, alt_text, sort_order)
+select id, '/images/products/apple-iphone-16-pro-2.jpg', title || ' — angle 2', 1
+from public.products
+where slug = 'apple-iphone-16-pro-256gb-natural-titanium'
+union all
+select id, '/images/products/apple-iphone-16-pro-3.jpg', title || ' — angle 3', 2
+from public.products
+where slug = 'apple-iphone-16-pro-256gb-natural-titanium'
+union all
+select id, '/images/products/apple-iphone-16-pro-4.jpg', title || ' — angle 4', 3
+from public.products
+where slug = 'apple-iphone-16-pro-256gb-natural-titanium'
 on conflict (product_id, storage_path) do nothing;

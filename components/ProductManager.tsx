@@ -12,17 +12,36 @@
 
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 
-import { createProduct, deleteProduct, setProductStatus, updateProduct } from "@/lib/products/actions";
-import { parseVariantsText } from "@/lib/products/validation";
+import {
+  createProduct,
+  deleteProduct,
+  setProductStatus,
+  updateProduct,
+  uploadProductImages,
+} from "@/lib/products/actions";
+import { MAX_PRODUCT_IMAGES, parseVariantsText } from "@/lib/products/validation";
 import type { CategoryOption, ProductListItem, ProductStatus } from "@/lib/products/types";
 import { formatBDT } from "@/lib/theme";
 import { Badge, Button, Card, EmptyState, Field, Input, SectionHeading, Select } from "@/components/ui";
 
 const inputBase =
   "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:border-brand disabled:opacity-50";
+
+// The save confirmation must survive router.refresh(): refreshing the
+// admin page re-renders the server tree and this form's state is
+// reset — typed text is lost too (verified by probing: typing a
+// title, then Pause/Activate on another product, clears the title).
+// That is pre-existing behaviour, not caused by this form. The
+// notice is therefore kept in module scope, which survives the
+// remount, and is consumed once by the next mount's initial state —
+// so the confirmation is still there after the product list
+// refreshes. It is cleared on read, so navigating away and back
+// never shows a stale notice.
+let pendingSaveNotice: string | null = null;
 
 function variantsToText(product: ProductListItem): string {
   return product.variants
@@ -70,12 +89,28 @@ export default function ProductManager({ products, categories, canPublish, confi
   const [compareAtTaka, setCompareAtTaka] = useState("");
   const [stock, setStock] = useState("");
   const [status, setStatus] = useState<ProductStatus>("draft");
-  const [imagePath, setImagePath] = useState("");
+  // Every photo for the product, in display order — the first is the
+  // main photo. One row per photo; rows can be added, removed and
+  // reordered, and photos can be uploaded straight to Storage (the
+  // filenames are filled in automatically). Always at least one row,
+  // even if it is empty: a product with no photos is allowed.
+  const [imagePaths, setImagePaths] = useState<string[]>([""]);
   const [variantsText, setVariantsText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [formNotice, setFormNotice] = useState<string | null>(null);
+  // Initial state consumes a save notice left by the previous mount
+  // (see pendingSaveNotice above): after a save + refresh the form
+  // remounts, and this is what makes the confirmation visible.
+  const [formNotice, setFormNotice] = useState<string | null>(() => {
+    const notice = pendingSaveNotice;
+    pendingSaveNotice = null;
+    return notice;
+  });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -91,10 +126,12 @@ export default function ProductManager({ products, categories, canPublish, confi
     setCompareAtTaka("");
     setStock("");
     setStatus("draft");
-    setImagePath("");
+    setImagePaths([""]);
     setVariantsText("");
     setEditingId(null);
     setFormError(null);
+    setUploadError(null);
+    setUploadNotice(null);
   }
 
   function startEdit(product: ProductListItem): void {
@@ -106,10 +143,84 @@ export default function ProductManager({ products, categories, canPublish, confi
     setCompareAtTaka(product.compareAtPoisha === null ? "" : String(product.compareAtPoisha / 100));
     setStock(String(product.stock));
     setStatus(product.status);
-    setImagePath(product.imagePath ?? "");
+    // The whole photo list, in display order; a product saved before
+    // multi-photo support has one photo in `imagePath` only.
+    setImagePaths(
+      product.imagePaths.length > 0
+        ? [...product.imagePaths]
+        : product.imagePath
+          ? [product.imagePath]
+          : [""],
+    );
     setVariantsText(variantsToText(product));
     setFormError(null);
     setFormNotice(null);
+    setUploadError(null);
+    setUploadNotice(null);
+  }
+
+  function setPhoto(index: number, value: string): void {
+    setImagePaths((current) => current.map((path, i) => (i === index ? value : path)));
+  }
+
+  function addPhotoRow(): void {
+    setImagePaths((current) =>
+      current.length >= MAX_PRODUCT_IMAGES ? current : [...current, ""],
+    );
+  }
+
+  function removePhoto(index: number): void {
+    setImagePaths((current) => {
+      const next = current.filter((_, i) => i !== index);
+      return next.length === 0 ? [""] : next;
+    });
+  }
+
+  function movePhoto(index: number, direction: -1 | 1): void {
+    setImagePaths((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      if (moved === undefined) return current;
+      next.splice(target, 0, moved);
+      return next;
+    });
+  }
+
+  /** Upload the chosen files straight to Storage and fill the
+   *  returned filenames into the photo list. The files are uploaded
+   *  immediately; the product_images rows are only written when the
+   *  product itself is saved, so uploading without saving leaves
+   *  unreferenced files in the bucket (harmless — never deleted
+   *  automatically). */
+  async function handleUpload(): Promise<void> {
+    const input = fileInputRef.current;
+    const files = input?.files;
+    if (!files || files.length === 0) {
+      setUploadError("Choose photos to upload first.");
+      return;
+    }
+    setUploadError(null);
+    setUploadNotice(null);
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("title", title);
+    for (const file of Array.from(files)) formData.append("photos", file);
+    const result = await uploadProductImages(formData);
+    setUploading(false);
+    if (!result.ok) {
+      setUploadError(result.error);
+      return;
+    }
+    setImagePaths((current) => {
+      const existing = current.map((path) => path.trim()).filter((path) => path !== "");
+      return [...new Set([...existing, ...result.files])];
+    });
+    setUploadNotice(
+      `Uploaded ${result.files.length} photo${result.files.length === 1 ? "" : "s"}. Save the product to keep them.`,
+    );
+    if (input) input.value = "";
   }
 
   async function handleSubmit(event: FormEvent): Promise<void> {
@@ -131,7 +242,10 @@ export default function ProductManager({ products, categories, canPublish, confi
       compareAtTaka: compareAtTaka.trim() === "" ? null : Number(compareAtTaka),
       stock: Number(stock),
       status,
-      imagePath,
+      // The whole photo list, in display order — the first is the
+      // main photo. Empty rows are dropped; duplicates are removed
+      // server-side by mergeImagePaths.
+      imagePaths: imagePaths.map((path) => path.trim()).filter((path) => path !== ""),
       variants,
     };
     setSaving(true);
@@ -142,12 +256,15 @@ export default function ProductManager({ products, categories, canPublish, confi
       return;
     }
     const savedTitle = input.title;
+    const notice = editingId
+      ? `"${savedTitle}" was updated.`
+      : `"${savedTitle}" was added. It is now live in the shop when its status is Live.`;
     resetForm();
-    setFormNotice(
-      editingId
-        ? `"${savedTitle}" was updated.`
-        : `"${savedTitle}" was added. It is now live in the shop when its status is Live.`,
-    );
+    // Stored outside React state as well as in it: the refresh below
+    // resets this form's state, so the notice would otherwise never
+    // be seen (see pendingSaveNotice above).
+    pendingSaveNotice = notice;
+    setFormNotice(notice);
     router.refresh();
   }
 
@@ -235,12 +352,114 @@ export default function ProductManager({ products, categories, canPublish, confi
           </div>
           <div className="sm:col-span-2">
             <Field
-              label="Image path"
-              htmlFor="product-image"
-              hint="A Supabase Storage filename such as <slug>.jpg, a storage path such as /images/products/<slug>.jpg, or an https URL. Never a Figma link."
+              label="Photos"
+              htmlFor="product-photo-0"
+              hint="One row per photo, in display order — the first is the main photo. Each row takes a Supabase Storage filename such as <slug>.jpg, a storage path such as /images/products/<slug>.jpg, or an https URL. Never a Figma link."
             >
-              <Input id="product-image" value={imagePath} onChange={(e) => setImagePath(e.target.value)} placeholder="/images/products/example.jpg" disabled={formDisabled} />
+              <div className="space-y-2">
+                {imagePaths.map((path, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      id={`product-photo-${index}`}
+                      value={path}
+                      onChange={(e) => setPhoto(index, e.target.value)}
+                      placeholder={
+                        index === 0
+                          ? "Main photo — e.g. apple-iphone-16-pro.jpg"
+                          : `Photo ${index + 1} — e.g. apple-iphone-16-pro-2.jpg`
+                      }
+                      disabled={formDisabled}
+                      aria-label={index === 0 ? "Main photo" : `Photo ${index + 1}`}
+                      data-testid={`product-photo-${index}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => movePhoto(index, -1)}
+                      disabled={formDisabled || index === 0}
+                      aria-label={`Move photo ${index + 1} up`}
+                      title="Move up"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => movePhoto(index, 1)}
+                      disabled={formDisabled || index === imagePaths.length - 1}
+                      aria-label={`Move photo ${index + 1} down`}
+                      title="Move down"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(index)}
+                      disabled={formDisabled}
+                      aria-label={`Remove photo ${index + 1}`}
+                      title="Remove photo"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </Field>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addPhotoRow}
+                disabled={formDisabled || imagePaths.length >= MAX_PRODUCT_IMAGES}
+                data-testid="add-photo-row"
+              >
+                Add another photo
+              </Button>
+              <span className="text-xs text-muted">
+                {imagePaths.length >= MAX_PRODUCT_IMAGES
+                  ? `At most ${MAX_PRODUCT_IMAGES} photos per product.`
+                  : `${imagePaths.filter((path) => path.trim() !== "").length} photo${imagePaths.filter((path) => path.trim() !== "").length === 1 ? "" : "s"} set.`}
+              </span>
+            </div>
+            <div className="mt-3 rounded-xl border border-border bg-surface p-3">
+              <p className="text-sm font-medium text-text">Upload photos to Storage</p>
+              <p className="mt-0.5 text-xs text-muted">
+                {configured
+                  ? "JPG, PNG or WebP, up to 5 MB each, at most 10 at a time. The filenames are filled in above automatically — no need to open the Supabase dashboard."
+                  : "Upload is unavailable until Supabase is connected."}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  disabled={formDisabled || uploading}
+                  aria-label="Choose photos to upload"
+                  data-testid="photo-upload-input"
+                  className="max-w-full text-sm text-text file:mr-2 file:rounded-lg file:border file:border-border file:bg-panel file:px-3 file:py-2 file:text-sm file:font-medium file:text-text hover:file:border-brand disabled:opacity-50"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleUpload()}
+                  disabled={formDisabled || uploading}
+                  data-testid="photo-upload-button"
+                >
+                  <Upload size={15} className="mr-1.5" />
+                  {uploading ? "Uploading…" : "Upload photos"}
+                </Button>
+              </div>
+              {uploadError ? (
+                <p role="alert" className="mt-2 text-sm text-[#f87171]">{uploadError}</p>
+              ) : null}
+              {uploadNotice ? (
+                <p role="status" className="mt-2 text-sm text-success">{uploadNotice}</p>
+              ) : null}
+            </div>
           </div>
           <div className="sm:col-span-2">
             <Field
