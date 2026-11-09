@@ -34,6 +34,7 @@
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "./supabase/server";
+import { isStaff } from "./roles";
 import { getProductForCartSlug } from "./data/catalog";
 import { normalizeVariantLabel, variantMatchesOption } from "./catalog-rules";
 import { computeTotals as pricingComputeTotals } from "./pricing";
@@ -648,9 +649,12 @@ function toStoredOrder(
 }
 
 /**
- * Every Supabase order, newest first, for the admin dashboard. Admin
- * only: the caller must be signed in with role "admin", otherwise
- * this returns []. Empty when Supabase is not configured. The
+ * Every Supabase order, newest first, for the admin dashboard. Staff
+ * only: the caller must be signed in with a staff role (owner,
+ * co-admin or manager — lib/roles.ts isStaff), otherwise this
+ * returns []. Managers are read-only on orders, but they still need
+ * to SEE them: the change gate lives in lib/orders/actions.ts, not
+ * here. Empty when Supabase is not configured. The
  * payment status comes from each order's latest payments row, so the
  * admin page can offer a refund only for paid orders.
  */
@@ -669,7 +673,7 @@ export async function listAdminOrders(): Promise<StoredOrder[]> {
     .select("role")
     .eq("id", userId)
     .maybeSingle();
-  if (caller?.role !== "admin") return [];
+  if (!isStaff(caller?.role)) return [];
   const { data: rows, error } = await admin
     .from("orders")
     .select(ORDER_COLUMNS)
@@ -919,16 +923,21 @@ export async function updateSupabaseOrderFromCallback(
  * detail page calls this after loading the browser copy and adopts the
  * server status when the browser copy is still pending payment.
  *
- * Order of sources: the in-memory record first (same server process —
- * checkout, test-pay and the callback all register there), then the
- * Supabase order owned by the caller (payment status from the latest
- * payments row; no row means unpaid). Returns null when the order is
- * not found anywhere the caller may see it. BOTH branches require a
- * signed-in session and the same owner-or-admin check: the in-memory
- * record carries no owner id, so ownership there is the checkout
- * email on the record matching the signed-in user's email (admins may
- * see any order). A guest's browser copy is unaffected — this only
- * gates the server-side status read.
+ * Order of sources: the Supabase row first (it is the source of
+ * truth — admin moves such as advance, return, refund and cancel
+ * write the database, never the in-memory record — so returning the
+ * in-memory snapshot first would freeze the order at its checkout
+ * status in the browser that placed it, even though /orders, where
+ * the live copy wins the merge, already shows the new status), then
+ * the in-memory record (same server process — checkout, test-pay
+ * and the callback all register there) for orders with no database
+ * row. Returns null when the order is not found anywhere the caller
+ * may see it. BOTH branches require a signed-in session and the same
+ * owner-or-admin check: the in-memory record carries no owner id, so
+ * ownership there is the checkout email on the record matching the
+ * signed-in user's email (admins may see any order). A guest's
+ * browser copy is unaffected — this only gates the server-side
+ * status read.
  */
 export async function getOrderStatusFromServer(
   orderId: string,
@@ -936,6 +945,55 @@ export async function getOrderStatusFromServer(
   status: StoredOrder["status"];
   paymentStatus: StoredOrder["paymentStatus"];
 } | null> {
+  // The database row first, when Supabase is configured: it is the
+  // only copy admin moves ever update. A row the caller may see
+  // answers the question outright; a row that exists but belongs to
+  // someone else answers it with null (no falling through to the
+  // in-memory record for an order the caller may not see). Only when
+  // there is no database row at all does the in-memory record below
+  // get a say.
+  if (isConfigured()) {
+    const userId = await getSignedInUserId();
+    if (userId) {
+      let admin: SupabaseClient | null = null;
+      try {
+        admin = untyped(createAdminClient());
+      } catch {
+        admin = null;
+      }
+      if (admin) {
+        const { data: order } = await admin
+          .from("orders")
+          .select("id, user_id, status, payment_method")
+          .eq("id", orderId)
+          .maybeSingle();
+        if (order) {
+          const { data: caller } = await admin
+            .from("profiles")
+            .select("role")
+            .eq("id", userId)
+            .maybeSingle();
+          if (order.user_id !== userId && caller?.role !== "admin") return null;
+          let paymentStatus: StoredOrder["paymentStatus"] = "unpaid";
+          const { data: payment } = await admin
+            .from("payments")
+            .select("status")
+            .eq("order_id", orderId)
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (payment?.status === "paid") paymentStatus = "paid";
+          else if (payment?.status === "failed") paymentStatus = "failed";
+          else if (payment?.status === "refunded") paymentStatus = "refunded";
+          return {
+            status: order.status as StoredOrder["status"],
+            paymentStatus,
+          };
+        }
+      }
+    }
+  }
   const local = getOrderRecord(orderId);
   if (local) {
     const user = await getSignedInUser();
@@ -946,43 +1004,7 @@ export async function getOrderStatusFromServer(
     }
     return { status: local.status, paymentStatus: local.paymentStatus };
   }
-  if (!isConfigured()) return null;
-  const userId = await getSignedInUserId();
-  if (!userId) return null;
-  let admin: SupabaseClient;
-  try {
-    admin = untyped(createAdminClient());
-  } catch {
-    return null;
-  }
-  const { data: order } = await admin
-    .from("orders")
-    .select("id, user_id, status, payment_method")
-    .eq("id", orderId)
-    .maybeSingle();
-  if (!order) return null;
-  const { data: caller } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .maybeSingle();
-  if (order.user_id !== userId && caller?.role !== "admin") return null;
-  let paymentStatus: StoredOrder["paymentStatus"] = "unpaid";
-  const { data: payment } = await admin
-    .from("payments")
-    .select("status")
-    .eq("order_id", orderId)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (payment?.status === "paid") paymentStatus = "paid";
-  else if (payment?.status === "failed") paymentStatus = "failed";
-  else if (payment?.status === "refunded") paymentStatus = "refunded";
-  return {
-    status: order.status as StoredOrder["status"],
-    paymentStatus,
-  };
+  return null;
 }
 export async function submitSupabaseReview(input: {
   productSlug: string;

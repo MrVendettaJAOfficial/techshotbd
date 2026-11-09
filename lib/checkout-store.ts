@@ -29,7 +29,8 @@ export type OrderStatus =
   | "shipped"
   | "delivered"
   | "cancelled"
-  | "refunded";
+  | "refunded"
+  | "returned";
 export type PaymentStatus = "unpaid" | "paid" | "failed" | "cancelled" | "refunded";
 
 export interface OrderItem {
@@ -284,6 +285,7 @@ export const storedOrderSchema = z.object({
     "delivered",
     "cancelled",
     "refunded",
+    "returned",
   ]),
   paymentStatus: z.enum(["unpaid", "paid", "failed", "cancelled", "refunded"]),
   cancelNotice: z.enum(["live", "local"]).optional(),

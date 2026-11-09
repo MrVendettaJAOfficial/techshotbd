@@ -5,6 +5,13 @@
 import type { ProductStatus } from "./validation";
 
 export type { ProductStatus };
+export type { ProductSpecification } from "./validation";
+
+/** One product specification (products.specifications jsonb, migration 0008). */
+export interface ProductSpecificationItem {
+  key: string;
+  value: string;
+}
 
 export interface ProductVariantItem {
   name: string;
@@ -39,6 +46,10 @@ export interface ProductListItem {
    */
   imagePaths: string[];
   variants: ProductVariantItem[];
+  /** Warranty text (products.warranty, migration 0008), or null when none is set. */
+  warranty: string | null;
+  /** Specifications (products.specifications jsonb, migration 0008). */
+  specifications: ProductSpecificationItem[];
   createdAt: string;
 }
 

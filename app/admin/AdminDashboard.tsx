@@ -1,18 +1,20 @@
-// Admin dashboard (client component).
+// Admin dashboard (client component) — tab shell.
+//
+// The dashboard is split into tabs driven by the ?tab= search param
+// (Overview / Products / Orders / Users), so tabs are shareable and
+// survive refresh. The server page fetches only what the active tab
+// needs. Which tabs exist for the caller depends on their role:
+// Owner sees all four, co-admin and manager see everything except
+// Users, and the Users tab is Owner-only — a non-owner who navigates
+// to ?tab=users directly gets an access-denied message, not the
+// content. Role helpers come from lib/roles.ts.
 //
 // Product management lives in components/ProductManager.tsx and is
 // backed by Supabase through lib/products/actions.ts — the shop
-// reflects every change there. The users list is also live now
-// (profiles rows, passed in as props from the server page), and so
-// is the orders list: when Supabase is configured, orders come from
-// the live database (lib/orders-server.ts listAdminOrders) and the
-// Advance / Cancel / Refund buttons call the admin-only server
-// actions in lib/orders/actions.ts, which validate the transition,
-// write an audit_log row and revalidate the order pages — the
-// customer order page moves as soon as the admin advances it. When
-// Supabase is not configured, the orders section falls back to the
-// local demo store (lib/checkout-store), exactly like the storefront
-// catalogue fallback.
+// reflects every change there. Orders live in
+// components/AdminOrders.tsx (status tabs + manual status selector,
+// server actions in lib/orders/actions.ts). Users live in
+// components/AdminUsers.tsx (Owner-only role changes + removal).
 //
 // Coupons are still stored locally in the demo (lib/demo-store).
 // There is no seller-approval section any more: TechShot is
@@ -22,12 +24,12 @@
 // demo auth store (lib/auth.ts no longer exports signInAsDemoAdmin
 // or listDemoUsers), so the "Sign in as demo admin" button cannot
 // work any more and is gone from this page. Admins sign in with a
-// real Supabase account that has the admin role (granted manually in
+// real Supabase account that has a staff role (granted manually in
 // the database). The header no longer says "DEMO ADMIN".
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
@@ -40,42 +42,18 @@ import {
   type AdminCoupon,
 } from "@/lib/demo-store";
 import { formatBDT } from "@/lib/theme";
-import { listOrders, updateOrderStatus, type StoredOrder } from "@/lib/checkout-store";
-import { advanceOrderStatus, setOrderStatus } from "@/lib/orders/actions";
+import { isOwner, isStaff } from "@/lib/roles";
 import { Badge, Button, Card, EmptyState, Field, Input, SectionHeading } from "@/components/ui";
 import ProductManager from "@/components/ProductManager";
+import AdminOrders, { type ListedOrder } from "@/components/AdminOrders";
+import AdminStats from "@/components/AdminStats";
+import type { AdminStats as AdminStatsData } from "@/lib/admin/stats";
+import AdminUsers from "@/components/AdminUsers";
+import TabBar from "@/components/TabBar";
+import { ADMIN_TABS, visibleAdminTabs, type AdminTabId } from "@/components/admin-helpers";
 
 import type { CategoryOption, ProductListItem } from "@/lib/products/types";
 import type { AdminUserItem } from "@/lib/products/queries";
-
-interface ListedOrder {
-  id: string;
-  orderNumber: string;
-  status: string;
-  /** Latest payment status ("paid" gates the Refund button). */
-  paymentStatus?: string;
-  totalPoisha: number;
-  createdAt?: string;
-  items: Array<{ title?: string; quantity?: number; pricePoisha?: number }>;
-}
-
-/** Map a stored checkout order (lib/checkout-store) to the shape this
- *  page renders. Stored orders are store orders (no per-account split). */
-function fromStoredOrder(order: StoredOrder): ListedOrder {
-  return {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    status: order.status,
-    paymentStatus: order.paymentStatus,
-    totalPoisha: order.total_poisha,
-    createdAt: order.createdAt,
-    items: order.items.map((item) => ({
-      title: item.title,
-      quantity: item.quantity,
-      pricePoisha: item.price_poisha,
-    })),
-  };
-}
 
 const couponSchema = z.object({
   code: z
@@ -89,51 +67,37 @@ const couponSchema = z.object({
 });
 
 interface AdminDashboardProps {
+  /** Active tab from the ?tab= search param (validated server-side). */
+  tab: AdminTabId;
+  /** The signed-in caller's role, from getCallerRole() (server). */
+  callerRole: string | null;
+  /** The signed-in caller's user id, for the Users tab self-row. */
+  currentUserId: string | null;
+  /** Overview figures from getAdminStats(); null when unavailable. */
+  stats: AdminStatsData | null;
   products: ProductListItem[];
   categories: CategoryOption[];
   configured: boolean;
-  /** Live profiles rows (admin users list). Empty when Supabase is not configured. */
+  /** Live profiles rows (admin users list). Only fetched for the Users tab. */
   users: AdminUserItem[];
-  /** Live Supabase orders for the admin list. Empty when Supabase is not configured. */
+  /** Live Supabase orders for the admin list. Only fetched for the Orders tab. */
   initialOrders: ListedOrder[];
 }
 
-export default function AdminDashboard({ products, categories, configured, users, initialOrders }: AdminDashboardProps) {
+export default function AdminDashboard({
+  tab,
+  callerRole,
+  currentUserId,
+  stats,
+  products,
+  categories,
+  configured,
+  users,
+  initialOrders,
+}: AdminDashboardProps) {
   const router = useRouter();
   const { user, loading, signOutUser } = useAuth();
-  const [orders, setOrders] = useState<ListedOrder[]>(initialOrders);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
-  const [orderError, setOrderError] = useState<string | null>(null);
-  // Id of the order whose server action is in flight, if any. While
-  // set, that order's Advance / Cancel / Refund buttons are disabled.
-  // This state alone cannot stop a double-click: React state updates
-  // are async, so two clicks dispatched in the same task both read
-  // the stale value (null) and both reach the server — and the
-  // server's conditional update cannot stop the second one either,
-  // because by the time it runs the first advance has legitimately
-  // landed and "advance from the new status" is a legal next step.
-  // The ref below is the real guard: it mutates synchronously, so
-  // the second invocation in the same task sees the order already
-  // in flight and returns before any state update or server call.
-  // (Proven by the Playwright mock run, 2026-11-08: two synchronous
-  // clicks moved confirmed -> processing -> shipped, 2 audit rows.)
-  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
-  const pendingOrderIdsRef = useRef<Set<string>>(new Set());
-
-  /** Synchronously claim an order for one action; false when it is already in flight. */
-  function beginOrderAction(orderId: string): boolean {
-    if (pendingOrderIdsRef.current.has(orderId)) return false;
-    pendingOrderIdsRef.current.add(orderId);
-    setPendingOrderId(orderId);
-    setOrderError(null);
-    return true;
-  }
-
-  /** Release an order after its action settles. */
-  function endOrderAction(orderId: string): void {
-    pendingOrderIdsRef.current.delete(orderId);
-    setPendingOrderId((current) => (current === orderId ? null : current));
-  }
 
   const [couponCode, setCouponCode] = useState("");
   const [couponValue, setCouponValue] = useState("");
@@ -147,14 +111,7 @@ export default function AdminDashboard({ products, categories, configured, users
 
   useEffect(() => {
     refreshAll();
-    // Live orders when Supabase is configured; the local demo store
-    // is only the fallback for an unconfigured install.
-    if (configured) {
-      setOrders(initialOrders);
-    } else {
-      setOrders(listOrders().map(fromStoredOrder));
-    }
-  }, [refreshAll, configured, initialOrders]);
+  }, [refreshAll]);
 
   if (loading) {
     return (
@@ -164,7 +121,7 @@ export default function AdminDashboard({ products, categories, configured, users
     );
   }
 
-  if (!user || user.role !== "admin") {
+  if (!user) {
     return (
       <main className="mx-auto w-full max-w-md px-4 py-12">
         <SectionHeading
@@ -173,7 +130,7 @@ export default function AdminDashboard({ products, categories, configured, users
         />
         <Card>
           <p className="text-sm text-muted">
-            Sign in with an admin account to manage products, orders, coupons and users.
+            Sign in with a staff account to manage products, orders, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
             <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
@@ -185,56 +142,32 @@ export default function AdminDashboard({ products, categories, configured, users
     );
   }
 
-  const ordersWithStatus = orders;
-  const totalRevenue = ordersWithStatus.reduce((sum, o) => sum + o.totalPoisha, 0);
+  // The server-side role (getCallerRole) is authoritative. The
+  // client session role is only a fallback for the transitional
+  // moment when the server role is unavailable but the session
+  // already proves the caller is the owner ("admin" role value).
+  const effectiveRole = callerRole ?? (user.role === "admin" ? "admin" : null);
 
-  /** Advance one order via the live server action (or the local demo
-   *  store when Supabase is not configured). The server validates the
-   *  transition, writes the audit row and revalidates the order pages,
-   *  so the customer order page moves too. */
-  async function handleAdvanceOrder(order: ListedOrder) {
-    if (!beginOrderAction(order.id)) return;
-    try {
-      if (configured) {
-        const result = await advanceOrderStatus(order.id);
-        if (!result.ok) {
-          setOrderError(result.error);
-          return;
-        }
-        setOrders((prev) =>
-          prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
-        );
-        router.refresh();
-        return;
-      }
-      const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
-      const index = flow.indexOf(order.status);
-      const next = index >= 0 && index < flow.length - 1 ? flow[index + 1] : "delivered";
-      updateOrderStatus(order.id, { status: next as StoredOrder["status"] });
-      setOrders(listOrders().map(fromStoredOrder));
-    } finally {
-      endOrderAction(order.id);
-    }
+  if (!isStaff(effectiveRole)) {
+    return (
+      <main className="mx-auto w-full max-w-md px-4 py-12">
+        <SectionHeading title="Admin dashboard" description="This area is for store staff." />
+        <Card>
+          <p className="text-sm text-muted">
+            This account does not have admin access. Sign in with a staff account to manage
+            products, orders, coupons and users.
+          </p>
+          <p className="mt-4 text-center text-sm text-muted">
+            <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </Card>
+      </main>
+    );
   }
 
-  /** Cancel / refund via the live server action (configured only —
-   *  the demo store has no cancel or refund path). */
-  async function handleSetOrderStatus(order: ListedOrder, target: "cancelled" | "refunded") {
-    if (!beginOrderAction(order.id)) return;
-    try {
-      const result = await setOrderStatus(order.id, target);
-      if (!result.ok) {
-        setOrderError(result.error);
-        return;
-      }
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: result.newStatus } : o)),
-      );
-      router.refresh();
-    } finally {
-      endOrderAction(order.id);
-    }
-  }
+  const visibleTabs = visibleAdminTabs(effectiveRole);
 
   function handleAddCoupon(event: FormEvent) {
     event.preventDefault();
@@ -288,178 +221,119 @@ export default function AdminDashboard({ products, categories, configured, users
         </Button>
       </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <Card>
-          <p className="text-sm text-muted">Products</p>
-          <p className="mt-1 text-2xl font-bold text-text">{products.length}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted">Orders</p>
-          <p className="mt-1 text-2xl font-bold text-text">{ordersWithStatus.length}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted">Order revenue</p>
-          <p className="mt-1 text-2xl font-bold text-text">{formatBDT(totalRevenue)}</p>
-        </Card>
-      </div>
-
-      <ProductManager
-        products={products}
-        categories={categories}
-        canPublish
-        configured={configured}
+      <TabBar
+        tabs={ADMIN_TABS.filter((adminTab) => visibleTabs.includes(adminTab.id)).map(
+          (adminTab) => ({ ...adminTab, href: `/admin?tab=${adminTab.id}` }),
+        )}
+        activeId={tab}
+        ariaLabel="Admin sections"
       />
 
-      <div className="mt-10">
-        <SectionHeading title="Orders" description="Advance an order through pending payment, confirmed, processing, shipped, delivered." />
-        {orderError ? (
-          <p role="alert" className="mb-4 text-sm text-[#f87171]">{orderError}</p>
-        ) : null}
-        {ordersWithStatus.length === 0 ? (
-          <EmptyState
-            title="No orders yet"
-            description={
-              configured
-                ? "Orders placed on the shop appear here."
-                : "Orders appear here once checkout stores them locally."
-            }
-            className="mb-10"
-          />
-        ) : (
-          <div className="mb-10 space-y-3">
-            {ordersWithStatus.map((order) => (
-              <Card key={order.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-text">Order {order.orderNumber || order.id}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {formatBDT(order.totalPoisha)} · {order.items.length} item(s)
-                      {order.createdAt ? ` · ${new Date(order.createdAt).toLocaleDateString("en-GB")}` : ""}
-                    </p>
-                    <ul className="mt-2 list-inside list-disc text-sm text-muted">
-                      {order.items.map((item, index) => (
-                        <li key={`${order.id}-item-${index}`}>
-                          {item.title ?? "Item"} × {item.quantity ?? 1}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone="brand">{order.status}</Badge>
-                    {order.status !== "delivered" &&
-                    order.status !== "cancelled" &&
-                    order.status !== "refunded" ? (
-                      <Button variant="outline" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleAdvanceOrder(order)}>
-                        Advance status
-                      </Button>
+      <div className="mt-8">
+        {tab === "overview" && (
+          <div>
+            <SectionHeading title="Overview" description="Store totals from live orders and products." />
+            {stats ? (
+              <AdminStats stats={stats} />
+            ) : (
+              <EmptyState
+                title="Statistics are not available"
+                description="Live statistics could not be loaded. Try refreshing the page."
+              />
+            )}
+
+            <div className="mt-10">
+              <SectionHeading title="Coupons" description="Coupons are stored locally in the demo. FIRST2000 is the launch coupon: ৳2,000 off orders of ৳50,000 or more." />
+              <div className="mb-10 space-y-3">
+                {coupons.map((coupon) => (
+                  <Card key={coupon.code}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-text">
+                          {coupon.code} {coupon.active ? <Badge tone="success">Active</Badge> : <Badge tone="muted">Inactive</Badge>}
+                        </p>
+                        <p className="mt-1 text-sm text-muted">
+                          {formatBDT(coupon.valuePoisha)} off orders of {formatBDT(coupon.minPoisha)} or more
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            toggleCoupon(coupon.code);
+                            refreshAll();
+                          }}
+                        >
+                          {coupon.active ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            deleteCoupon(coupon.code);
+                            refreshAll();
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+                <Card>
+                  <form onSubmit={handleAddCoupon} noValidate className="grid gap-3 sm:grid-cols-4">
+                    <Field label="Code" htmlFor="coupon-code" required>
+                      <Input id="coupon-code" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="e.g. EID500" />
+                    </Field>
+                    <Field label="Discount (৳)" htmlFor="coupon-value" required>
+                      <Input id="coupon-value" type="number" min="0" step="1" value={couponValue} onChange={(e) => setCouponValue(e.target.value)} placeholder="500" />
+                    </Field>
+                    <Field label="Minimum order (৳)" htmlFor="coupon-min" required>
+                      <Input id="coupon-min" type="number" min="0" step="1" value={couponMin} onChange={(e) => setCouponMin(e.target.value)} placeholder="5000" />
+                    </Field>
+                    <div className="flex items-end">
+                      <Button type="submit">Add coupon</Button>
+                    </div>
+                    {couponError ? (
+                      <p role="alert" className="text-sm text-[#f87171] sm:col-span-4">{couponError}</p>
                     ) : null}
-                    {(order.status === "pending_payment" || order.status === "confirmed") &&
-                    configured ? (
-                      <Button variant="danger" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleSetOrderStatus(order, "cancelled")}>
-                        Cancel
-                      </Button>
+                    {couponNotice ? (
+                      <p role="status" className="text-sm text-success sm:col-span-4">{couponNotice}</p>
                     ) : null}
-                    {order.paymentStatus === "paid" &&
-                    order.status !== "cancelled" &&
-                    order.status !== "refunded" &&
-                    configured ? (
-                      <Button variant="outline" size="sm" disabled={pendingOrderId === order.id} onClick={() => handleSetOrderStatus(order, "refunded")}>
-                        Refund
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </Card>
-            ))}
+                  </form>
+                </Card>
+              </div>
+            </div>
           </div>
         )}
-      </div>
 
-      <SectionHeading title="Coupons" description="Coupons are stored locally in the demo. FIRST2000 is the launch coupon: ৳2,000 off orders of ৳50,000 or more." />
-      <div className="mb-10 space-y-3">
-        {coupons.map((coupon) => (
-          <Card key={coupon.code}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-semibold text-text">
-                  {coupon.code} {coupon.active ? <Badge tone="success">Active</Badge> : <Badge tone="muted">Inactive</Badge>}
-                </p>
-                <p className="mt-1 text-sm text-muted">
-                  {formatBDT(coupon.valuePoisha)} off orders of {formatBDT(coupon.minPoisha)} or more
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    toggleCoupon(coupon.code);
-                    refreshAll();
-                  }}
-                >
-                  {coupon.active ? "Deactivate" : "Activate"}
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => {
-                    deleteCoupon(coupon.code);
-                    refreshAll();
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
-        <Card>
-          <form onSubmit={handleAddCoupon} noValidate className="grid gap-3 sm:grid-cols-4">
-            <Field label="Code" htmlFor="coupon-code" required>
-              <Input id="coupon-code" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="e.g. EID500" />
-            </Field>
-            <Field label="Discount (৳)" htmlFor="coupon-value" required>
-              <Input id="coupon-value" type="number" min="0" step="1" value={couponValue} onChange={(e) => setCouponValue(e.target.value)} placeholder="500" />
-            </Field>
-            <Field label="Minimum order (৳)" htmlFor="coupon-min" required>
-              <Input id="coupon-min" type="number" min="0" step="1" value={couponMin} onChange={(e) => setCouponMin(e.target.value)} placeholder="5000" />
-            </Field>
-            <div className="flex items-end">
-              <Button type="submit">Add coupon</Button>
-            </div>
-            {couponError ? (
-              <p role="alert" className="text-sm text-[#f87171] sm:col-span-4">{couponError}</p>
-            ) : null}
-            {couponNotice ? (
-              <p role="status" className="text-sm text-success sm:col-span-4">{couponNotice}</p>
-            ) : null}
-          </form>
-        </Card>
-      </div>
+        {tab === "products" && (
+          <ProductManager
+            products={products}
+            categories={categories}
+            canPublish
+            configured={configured}
+            callerRole={effectiveRole}
+          />
+        )}
 
-      <SectionHeading title="Users" description="Registered accounts (profiles). Emails live in Supabase Auth, not in profiles, so only the display name and role are shown here." />
-      {users.length === 0 ? (
-        <EmptyState
-          title="No registered users yet"
-          description={configured ? "Customers who sign up appear here." : "Live user data is not configured yet, so no users can be listed here."}
-        />
-      ) : (
-        <div className="space-y-3">
-          {users.map((account) => (
-            <Card key={account.id}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-text">{account.displayName}</p>
-                  <p className="text-sm text-muted">
-                    Joined {new Date(account.createdAt).toLocaleDateString("en-GB")}
-                  </p>
-                </div>
-                <Badge tone={account.role === "admin" ? "warning" : "default"}>{account.role}</Badge>
-              </div>
-            </Card>
+        {tab === "orders" && (
+          <AdminOrders initialOrders={initialOrders} configured={configured} callerRole={effectiveRole} />
+        )}
+
+        {tab === "users" &&
+          (isOwner(effectiveRole) ? (
+            <AdminUsers users={users} currentUserId={currentUserId} callerRole={effectiveRole} />
+          ) : (
+            <div>
+              <SectionHeading title="Users" description="Registered accounts (profiles)." />
+              <p role="alert" className="rounded-xl border border-border bg-panel px-4 py-3 text-sm text-muted">
+                Only the owner can view and manage users.
+              </p>
+            </div>
           ))}
-        </div>
-      )}
+      </div>
 
       <p className="mt-8 text-sm">
         <Link href="/shop" className="font-medium text-brand hover:underline">

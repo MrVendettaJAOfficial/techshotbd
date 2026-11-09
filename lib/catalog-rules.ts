@@ -62,13 +62,57 @@ export interface DbProductRow {
   compare_at_poisha?: number | null;
   stock?: number | null;
   status: string;
+  /**
+   * IGNORED by the mapper: the seeded products.rating /
+   * review_count columns are fabricated numbers, not real reviews.
+   * Rating and review count come only from the reviews table (see
+   * ReviewStats / mapDbProductToCatalog's second argument and
+   * lib/supabase/catalog.ts). Kept on the row type because the
+   * columns still exist in the database.
+   */
   rating?: number | string | null;
   review_count?: number | null;
+  /** Warranty text (products.warranty, migration 0008), or null. */
+  warranty?: string | null;
+  /** Specifications (products.specifications jsonb, migration 0008). */
+  specifications?: Array<{ key: string; value: string }> | null;
   is_flash_deal?: boolean | null;
   flash_ends_at?: string | null;
   product_images?: DbProductImageRow[] | null;
   product_variants?: DbProductVariantRow[] | null;
   categories?: { slug: string; name?: string } | Array<{ slug: string; name?: string }> | null;
+}
+
+/** Real review figures for one product, aggregated from the reviews table. */
+export interface ReviewStats {
+  rating: number;
+  review_count: number;
+}
+
+/**
+ * Aggregate raw review rows ({ product_id, rating }) into per-product
+ * figures: the average rating rounded to 1 decimal, and the count.
+ * Pure, so it is unit-testable without a database.
+ */
+export function aggregateReviewStats(
+  rows: Array<{ product_id: string; rating: number }>,
+): Map<string, ReviewStats> {
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const row of rows ?? []) {
+    if (!row || typeof row.product_id !== "string" || !Number.isFinite(row.rating)) continue;
+    const entry = sums.get(row.product_id) ?? { total: 0, count: 0 };
+    entry.total += row.rating;
+    entry.count += 1;
+    sums.set(row.product_id, entry);
+  }
+  const stats = new Map<string, ReviewStats>();
+  for (const [productId, entry] of sums) {
+    stats.set(productId, {
+      rating: entry.count === 0 ? 0 : Math.round((entry.total / entry.count) * 10) / 10,
+      review_count: entry.count,
+    });
+  }
+  return stats;
 }
 
 /** The storefront Product shape (mirrors lib/data/catalog.ts Product). */
@@ -314,20 +358,61 @@ function toNonNegativeInt(value: number | string | null | undefined, fallback: n
 }
 
 /**
+ * The specs record for a mapped product: Description, then Warranty
+ * (the product's own warranty column when set, otherwise the
+ * long-standing default), then the product's specifications column
+ * merged in — a specification never overwrites Description or
+ * Warranty, and duplicate keys (case-insensitive) are dropped.
+ */
+export function buildSpecs(
+  row: DbProductRow,
+  description: string,
+  isSubscription: boolean,
+): Record<string, string> {
+  const specs: Record<string, string> = {
+    Description: description || row.title,
+    Warranty:
+      (row.warranty ?? "").trim() !== ""
+        ? (row.warranty as string).trim()
+        : isSubscription
+          ? "Full validity guaranteed"
+          : "1-year official warranty",
+  };
+  const seen = new Set(Object.keys(specs).map((key) => key.toLowerCase()));
+  for (const spec of row.specifications ?? []) {
+    const key = (spec?.key ?? "").trim();
+    const value = (spec?.value ?? "").trim();
+    if (key === "" || seen.has(key.toLowerCase())) continue;
+    seen.add(key.toLowerCase());
+    specs[key] = value;
+  }
+  return specs;
+}
+
+/**
  * Map one database product row to the storefront Product shape.
  * Prices are preserved exactly as stored (integer poisha). The caller
  * is responsible for the visibility rule — map only rows that passed
  * isPublicProduct / filterPublicProducts.
+ *
+ * Rating and review count come ONLY from real reviews: pass the
+ * product's aggregated figures (from aggregateReviewStats over the
+ * reviews table) as `reviewStats`. When none are passed the product
+ * has rating 0 and review_count 0 — the row's own rating /
+ * review_count columns are NEVER read (they are fabricated seed
+ * numbers). The warranty text comes from the product's own warranty
+ * column when set; specifications from the column are merged into
+ * the specs record.
  */
-export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
+export function mapDbProductToCatalog(row: DbProductRow, reviewStats?: ReviewStats): MappedProduct {
   const pricePoisha = toNonNegativeInt(row.price_poisha, 0);
   const compareAtPoisha = toNonNegativeInt(
     row.compare_at_poisha ?? row.price_poisha,
     pricePoisha,
   );
-  const reviewCount = toNonNegativeInt(row.review_count, 0);
+  const reviewCount = toNonNegativeInt(reviewStats?.review_count, 0);
   const stock = toNonNegativeInt(row.stock, 0);
-  const rating = Number(row.rating ?? 0);
+  const rating = Number(reviewStats?.rating ?? 0);
   const category = categorySlugForRow(row);
   const isSubscription = category === "subscriptions";
   const description = (row.description ?? "").trim();
@@ -405,10 +490,7 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
     image,
     gallery,
     description,
-    specs: {
-      Description: description || row.title,
-      Warranty: isSubscription ? "Full validity guaranteed" : "1-year official warranty",
-    },
+    specs: buildSpecs(row, description, isSubscription),
   };
 
   if (reviewCount >= 900) product.badge = "BESTSELLER";
@@ -497,9 +579,18 @@ export function mapDbProductToSubscription(product: MappedProduct): MappedSubscr
  * Apply the visibility rule and map in one step: the public catalogue
  * for a set of database rows. Adding a product (status 'active') makes
  * it appear; pausing / drafting / deleting it makes it disappear.
+ * Pass the aggregated review stats (aggregateReviewStats over the
+ * reviews table) so ratings are real; without them every product
+ * maps with rating 0 / review_count 0 — the fabricated row columns
+ * are never used.
  */
-export function publicProductsToCatalog(rows: DbProductRow[]): MappedProduct[] {
-  return filterPublicProducts(rows).map(mapDbProductToCatalog);
+export function publicProductsToCatalog(
+  rows: DbProductRow[],
+  statsByProductId?: Map<string, ReviewStats>,
+): MappedProduct[] {
+  return filterPublicProducts(rows).map((row) =>
+    mapDbProductToCatalog(row, row.id ? statsByProductId?.get(row.id) : undefined),
+  );
 }
 
 /**

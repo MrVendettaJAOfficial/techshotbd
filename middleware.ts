@@ -3,14 +3,17 @@
 // Reads the Supabase session from the request cookies (via
 // @supabase/ssr) and refreshes it, then:
 //   - no session on /admin/*  -> redirect to /auth/sign-in
-//   - signed in but not an admin on /admin/* -> redirect to /
-// The admin role check reads the caller's `profiles` row with the
-// request-scoped client (RLS allows a user to read their own row).
-// Page-level checks in the admin page still apply; this is the
-// server-side gate, and Row Level Security is the real boundary
-// for data. There is no /seller route any more (single-seller store:
-// the owner manages products in /admin), so it is not guarded here
-// and requests to it fall through to the 404 page.
+//   - signed in but not staff on /admin/* -> redirect to /
+// Staff is owner, co-admin or manager (profiles.role in
+// "admin" / "co_admin" / "manager", migration 0006); customers
+// still go to /. The admin role check reads the caller's `profiles`
+// row with the request-scoped client (RLS allows a user to read
+// their own row). Page-level checks in the admin page still apply;
+// this is the server-side gate, and Row Level Security is the real
+// boundary for data. There is no /seller route any more
+// (single-seller store: the owner manages products in /admin), so
+// it is not guarded here and requests to it fall through to the
+// 404 page.
 //
 // UNCONFIGURED MODE: when the Supabase env vars are missing, this
 // middleware falls back to NextResponse.next() and locks nobody out —
@@ -20,6 +23,8 @@
 // Security headers live in next.config.mjs, not here.
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+
+import { isStaff as isStaffRole } from "@/lib/roles";
 
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -73,7 +78,7 @@ export async function middleware(request: NextRequest) {
       .select("role")
       .eq("id", user.id)
       .maybeSingle()) as { data: { role: string } | null };
-    if (profile?.role !== "admin") {
+    if (!isStaffRole(profile?.role)) {
       const homeUrl = request.nextUrl.clone();
       homeUrl.pathname = "/";
       homeUrl.search = "";

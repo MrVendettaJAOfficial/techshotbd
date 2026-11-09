@@ -1,8 +1,13 @@
-// TechShot marketplace — product server actions (admin only).
+// TechShot marketplace — product server actions (staff only).
 //
 // Single-seller store: the owner (role "admin", granted manually in
 // the database) is the only seller and manages every product in
-// /admin. There are no seller accounts and no seller approval flow.
+// /admin, together with co-admins (role "co_admin") and managers
+// (role "manager"). There are no seller accounts and no seller
+// approval flow. Who may do what (lib/roles.ts):
+//   * create / delete / upload photos — owner, co-admin, manager
+//   * update / pause (edit) — owner and co-admin ONLY. A manager
+//     attempting an edit gets an error, never a silent success.
 //
 // "use server": these run on the server only and are the enforcement
 // point for product writes. The service-role client bypasses RLS, so
@@ -10,7 +15,9 @@
 // anything:
 //
 //   * Unauthenticated -> generic error.
-//   * role must be "admin" (customers cannot manage products).
+//   * role must allow the action (see the header note): managers
+//     cannot edit or pause a product, customers cannot manage
+//     products at all.
 //   * Every product is store-owned: seller_id is always null on
 //     create, and updates never change it.
 //
@@ -25,7 +32,8 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth-server";
+import { getCallerRole, getCurrentUser } from "@/lib/auth-server";
+import { canEditProducts, canManageProducts } from "@/lib/roles";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage-images";
 
 import type { AppUser } from "@/lib/auth";
@@ -63,10 +71,22 @@ interface Actor {
   user: AppUser;
 }
 
-async function requireAdmin(): Promise<Actor | { error: string }> {
+/**
+ * Staff gate for product writes. "manage" covers create / delete /
+ * photo upload (owner, co-admin, manager); "edit" covers update /
+ * pause (owner and co-admin only — a manager attempting an edit
+ * gets an error, never a silent success). The role is re-read from
+ * the caller's profiles row (never from the browser) via
+ * getCallerRole; a missing row is treated as a customer.
+ */
+async function requireStaff(
+  action: "manage" | "edit",
+): Promise<Actor | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: NOT_SIGNED_IN };
-  if (user.role !== "admin") return { error: NO_PERMISSION };
+  const role = (await getCallerRole()) ?? user.role;
+  const allowed = action === "edit" ? canEditProducts(role) : canManageProducts(role);
+  if (!allowed) return { error: NO_PERMISSION };
   return { user };
 }
 
@@ -163,7 +183,7 @@ async function writeImages(
  * referenced by another product.
  */
 export async function uploadProductImages(formData: FormData): Promise<ProductImageUploadResult> {
-  const actor = await requireAdmin();
+  const actor = await requireStaff("manage");
   if ("error" in actor) return { ok: false, error: actor.error };
 
   const admin = adminClient();
@@ -223,7 +243,7 @@ async function writeVariants(admin: AdminClient, productId: string, variants: Pr
   }
 }
 
-/** Create a product. All products are store-owned (seller_id null). */
+/** Create a product. All products are store-owned (seller_id null). Staff with the manage gate (owner / co-admin / manager). */
 export async function createProduct(rawInput: unknown): Promise<ProductActionResult> {
   const parsed = productInputSchema.safeParse(rawInput);
   if (!parsed.success) {
@@ -231,7 +251,7 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
   }
   const input = parsed.data;
 
-  const actor = await requireAdmin();
+  const actor = await requireStaff("manage");
   if ("error" in actor) return { ok: false, error: actor.error };
   const { user } = actor;
 
@@ -256,6 +276,8 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
       compare_at_poisha: input.compareAtTaka === undefined || input.compareAtTaka === null ? null : takaToPoisha(input.compareAtTaka),
       stock: input.stock,
       status: input.status,
+      warranty: input.warranty === "" ? null : input.warranty,
+      specifications: input.specifications,
       search_text: searchText,
     })
     .select("id, slug")
@@ -270,7 +292,7 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
   return { ok: true, slug: data.slug };
 }
 
-/** Update a product (admin only). */
+/** Update a product (owner / co-admin only — managers may not edit). */
 export async function updateProduct(id: string, rawInput: unknown): Promise<ProductActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: GENERIC_ERROR };
@@ -281,7 +303,7 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
   }
   const input = parsed.data;
 
-  const actor = await requireAdmin();
+  const actor = await requireStaff("edit");
   if ("error" in actor) return { ok: false, error: actor.error };
   const { user } = actor;
 
@@ -314,6 +336,8 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
       compare_at_poisha: input.compareAtTaka === undefined || input.compareAtTaka === null ? null : takaToPoisha(input.compareAtTaka),
       stock: input.stock,
       status: input.status,
+      warranty: input.warranty === "" ? null : input.warranty,
+      specifications: input.specifications,
       search_text: searchText,
     })
     .eq("id", existing.id);
@@ -329,7 +353,7 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
   return { ok: true, slug };
 }
 
-/** Pause (hide from shoppers) or re-activate a product. */
+/** Pause (hide from shoppers) or re-activate a product. Owner / co-admin only. */
 export async function setProductStatus(id: string, rawStatus: unknown): Promise<ProductActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: GENERIC_ERROR };
@@ -340,7 +364,7 @@ export async function setProductStatus(id: string, rawStatus: unknown): Promise<
   }
   const status = parsed.data;
 
-  const actor = await requireAdmin();
+  const actor = await requireStaff("edit");
   if ("error" in actor) return { ok: false, error: actor.error };
   const { user } = actor;
 
@@ -364,13 +388,13 @@ export async function setProductStatus(id: string, rawStatus: unknown): Promise<
   return { ok: true, slug: existing.slug };
 }
 
-/** Delete a product (images and variants cascade in the database). */
+/** Delete a product (images and variants cascade in the database). Owner / co-admin / manager. */
 export async function deleteProduct(id: string): Promise<ProductActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: GENERIC_ERROR };
   }
 
-  const actor = await requireAdmin();
+  const actor = await requireStaff("manage");
   if ("error" in actor) return { ok: false, error: actor.error };
   const { user } = actor;
 

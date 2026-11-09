@@ -263,6 +263,48 @@ export const productVariantInputSchema = z.object({
     ),
 });
 
+/** Longest warranty text, in characters (products.warranty, migration 0008). */
+export const MAX_WARRANTY_CHARS = 200;
+
+/** Most specification entries per product (products.specifications, migration 0008). */
+export const MAX_SPECIFICATIONS = 30;
+
+/** Longest specification key / value, in characters. */
+export const MAX_SPEC_KEY_CHARS = 80;
+export const MAX_SPEC_VALUE_CHARS = 200;
+
+/** One product specification: a trimmed key/value pair. */
+export const productSpecificationSchema = z.object({
+  key: z.string().trim().min(1, "Each specification needs a key.").max(MAX_SPEC_KEY_CHARS, "Specification keys must be 80 characters or fewer."),
+  value: z.string().trim().max(MAX_SPEC_VALUE_CHARS, "Specification values must be 200 characters or fewer."),
+});
+
+export type ProductSpecification = z.infer<typeof productSpecificationSchema>;
+
+/**
+ * A product's specifications: at most 30 entries, with no duplicate
+ * keys (compared trimmed and case-insensitively — "Display" and
+ * "display" are the same key). Stored as jsonb in
+ * products.specifications (migration 0008, default '[]').
+ */
+export const productSpecificationsSchema = z
+  .array(productSpecificationSchema)
+  .max(MAX_SPECIFICATIONS, "A product can have at most 30 specifications.")
+  .superRefine((specs, ctx) => {
+    const seen = new Set<string>();
+    for (const spec of specs) {
+      const key = spec.key.trim().toLowerCase();
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Specification "${spec.key}" is listed more than once.`,
+        });
+        return;
+      }
+      seen.add(key);
+    }
+  });
+
 /** Server-side validation for create / update product input. */
 export const productInputSchema = z.object({
   title: z.string().trim().min(2, "Title must be at least 2 characters.").max(200, "Title must be 200 characters or fewer."),
@@ -318,6 +360,18 @@ export const productInputSchema = z.object({
     .optional()
     .default([]),
   variants: z.array(productVariantInputSchema).max(20, "A product can have at most 20 variants.").optional().default([]),
+  /**
+   * Warranty text (products.warranty, migration 0008), e.g. "1 year
+   * official warranty". Free text, at most 200 characters. Empty
+   * means no warranty text — the admin action stores null.
+   */
+  warranty: z.string().trim().max(MAX_WARRANTY_CHARS, "Warranty must be 200 characters or fewer.").optional().default(""),
+  /**
+   * Specifications (products.specifications, migration 0008):
+   * key/value pairs, at most 30, no duplicate keys. Stored as
+   * jsonb; an empty list stores as [] (the column default).
+   */
+  specifications: productSpecificationsSchema.optional().default([]),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;

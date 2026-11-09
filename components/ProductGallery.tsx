@@ -62,6 +62,7 @@ import {
 import { formatBDT } from "../lib/theme";
 import { FIRST2000_MIN_POISHA, FIRST2000_VALUE_POISHA } from "../lib/theme";
 import { useCart } from "../lib/cart-store";
+import { submitReview, type ProductReviewItem, type ProductReviews } from "../lib/reviews";
 import ProductImage from "./ProductImage";
 import { RatingStars } from "./ProductCard";
 
@@ -591,7 +592,154 @@ export function ProductGallery({
   );
 }
 
-export function ProductDetail({ product }: { product: Product }) {
+/**
+ * Warranty + specifications as stored for a product. The live
+ * catalogue merges them into product.specs (lib/catalog-rules.ts
+ * buildSpecs), so a dedicated `specifications` list is only read
+ * when a future catalogue mapping carries one.
+ */
+type ProductWithDetails = Product & {
+  warranty?: string | null;
+  specifications?: Array<{ key: string; value: string }> | null;
+};
+
+/** Average rating rounded to 1 decimal, 0 when there are no reviews. */
+function averageOf(reviews: ProductReviewItem[]): number {
+  if (reviews.length === 0) return 0;
+  const sum = reviews.reduce((total, review) => total + review.rating, 0);
+  return Math.round((sum / reviews.length) * 10) / 10;
+}
+
+/** Write-a-review form, shown only to signed-in users. Anyone can
+ *  read reviews; writing one requires login — and a delivered order
+ *  containing the product (enforced server-side by submitReview).
+ *  A rating on its own is a review: the comment is optional. On
+ *  success the new review is handed to the parent through
+ *  onReviewSaved, which shows it immediately from local state — the
+ *  form deliberately does NOT call router.refresh(): the refresh
+ *  remounts this component, which wipes the thank-you notice and
+ *  resets the tab to Description, hiding the review just written
+ *  (proven by the Playwright run, 2026-11-09). The next navigation
+ *  loads the server copy, which includes the saved row. */
+function ReviewForm({
+  productSlug,
+  onReviewSaved,
+}: {
+  productSlug: string;
+  onReviewSaved?: (review: ProductReviewItem) => void;
+}) {
+  const [rating, setRating] = useState("5");
+  const [comment, setComment] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setNotice(null);
+    setSubmitting(true);
+    let result: Awaited<ReturnType<typeof submitReview>>;
+    try {
+      result = await submitReview(productSlug, Number(rating), comment.trim());
+    } catch {
+      setError("Could not save your review. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const savedComment = comment.trim();
+    setComment("");
+    setNotice("Thank you — your review was saved.");
+    onReviewSaved?.({
+      // A local id: the server row's id is only known on the next
+      // load, and this entry is replaced by it then.
+      id: `local-${Date.now()}`,
+      // The author name resolves server-side on the next load; until
+      // then the reviewer sees their own review as their own.
+      authorName: "You",
+      rating: Number(rating),
+      comment: savedComment,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate className="mt-8 rounded-2xl border border-border bg-surface p-5">
+      <h3 className="text-base font-semibold text-text">Write a review</h3>
+      <p className="mt-1 text-sm text-muted">
+        You can review products from an order that was delivered.
+      </p>
+      <div className="mt-4 space-y-4">
+        <div className="space-y-1.5">
+          <label htmlFor="review-rating" className="block text-sm font-medium text-text">
+            Your rating
+          </label>
+          <select
+            id="review-rating"
+            value={rating}
+            onChange={(e) => setRating(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+          >
+            <option value="5">5 stars — Excellent</option>
+            <option value="4">4 stars — Good</option>
+            <option value="3">3 stars — Average</option>
+            <option value="2">2 stars — Poor</option>
+            <option value="1">1 star — Very poor</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="review-comment" className="block text-sm font-medium text-text">
+            Your review (optional)
+          </label>
+          <textarea
+            id="review-comment"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="What did you think of this product?"
+            disabled={submitting}
+            rows={4}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+          />
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-[#f87171]">{error}</p>
+        ) : null}
+        {notice ? (
+          <p role="status" className="text-sm text-success">{notice}</p>
+        ) : null}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2f6fe0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {submitting ? "Saving…" : "Submit review"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export function ProductDetail({
+  product,
+  initialReviews,
+  signedIn,
+}: {
+  product: Product;
+  /** Real reviews, fetched server-side by the product page
+   *  (listProductReviews): the average and count are computed from
+   *  real review rows, never from seeded numbers. Null when the
+   *  fetch failed — the page then shows "No reviews yet" rather
+   *  than invented numbers. */
+  initialReviews?: ProductReviews | null;
+  /** True when a user is signed in (checked server-side). */
+  signedIn?: boolean;
+}) {
   const { add } = useCart();
   const router = useRouter();
   const [colour, setColour] = useState(product.colours?.[0] ?? "");
@@ -631,22 +779,65 @@ export function ProductDetail({ product }: { product: Product }) {
     router.push("/cart");
   }
 
+  // Only real reviews are ever shown: the average and count come
+  // from the reviews table (listProductReviews), never from the
+  // seeded catalog numbers. No reviews means no rating shown.
+  // The list lives in local state, seeded from the server prop, so
+  // a review just submitted (see ReviewForm) appears immediately
+  // without a refresh — the refresh would remount this component
+  // and reset the tab. The effect below re-seeds it when the server
+  // data changes (navigating to another product).
+  const [shownReviews, setShownReviews] = useState<ProductReviews | null>(initialReviews ?? null);
+  useEffect(() => {
+    setShownReviews(initialReviews ?? null);
+  }, [initialReviews]);
+  const reviewCount = shownReviews?.count ?? 0;
+  const reviewAverage = shownReviews?.rating ?? 0;
+  const reviewList = shownReviews?.reviews ?? [];
+
+  /** Append a just-submitted review to the shown list (see
+   *  ReviewForm): the count and average update from the same rows,
+   *  and the new review tops the list until the next navigation
+   *  loads the server copy. */
+  function handleReviewSaved(review: ProductReviewItem): void {
+    setShownReviews((current) => {
+      const reviews = [review, ...(current?.reviews ?? [])];
+      return {
+        rating: averageOf(reviews),
+        count: reviews.length,
+        reviews,
+      };
+    });
+  }
+
+  // Stored specifications + warranty for this product, as key/value
+  // rows. The live catalogue merges the stored list into
+  // product.specs (lib/catalog-rules.ts buildSpecs): Description and
+  // Warranty are injected there, and every other entry is a stored
+  // specification. A product with no stored specs has neither — the
+  // specs tab then says so instead of inventing any. The warranty
+  // text is the stored warranty when set, otherwise the catalogue's
+  // Warranty entry.
+  const storedSpecifications: Array<{ key: string; value: string }> = (() => {
+    const direct = (product as ProductWithDetails).specifications;
+    if (direct && direct.length > 0) {
+      return direct.map((row) => ({ key: row.key, value: row.value }));
+    }
+    return Object.entries(product.specs ?? {})
+      .filter(([key]) => {
+        const lower = key.toLowerCase();
+        return lower !== "description" && lower !== "warranty";
+      })
+      .map(([key, value]) => ({ key, value }));
+  })();
+  const storedWarranty =
+    (product as ProductWithDetails).warranty ?? product.specs?.["Warranty"] ?? null;
+
   const tabs: { id: Tab; label: string }[] = [
     { id: "description", label: "Description" },
     { id: "specs", label: "Specifications" },
-    { id: "reviews", label: `Reviews (${product.review_count.toLocaleString("en-IN")})` },
+    { id: "reviews", label: `Reviews (${reviewCount})` },
     { id: "warranty", label: "Warranty" },
-  ];
-
-  // Rating distribution derived from the catalog rating (5-star share
-  // estimated from the average); review text is not yet imported from
-  // Supabase, so no individual reviews are invented here.
-  const distribution = [
-    { stars: 5, share: Math.round(((product.rating - 3.4) / 1.6) * 100) },
-    { stars: 4, share: 18 },
-    { stars: 3, share: 6 },
-    { stars: 2, share: 2 },
-    { stars: 1, share: 1 },
   ];
 
   return (
@@ -663,11 +854,17 @@ export function ProductDetail({ product }: { product: Product }) {
           </h1>
           <p className="mt-1 text-sm text-muted">{product.variant}</p>
           <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <RatingStars rating={product.rating} size={16} />
-            <span className="font-semibold text-text">{product.rating.toFixed(1)}</span>
-            <span className="text-muted">
-              ({product.review_count.toLocaleString("en-IN")} reviews)
-            </span>
+            {reviewCount > 0 ? (
+              <>
+                <RatingStars rating={reviewAverage} size={16} />
+                <span className="font-semibold text-text">{reviewAverage.toFixed(1)}</span>
+                <span className="text-muted">
+                  ({reviewCount} review{reviewCount === 1 ? "" : "s"})
+                </span>
+              </>
+            ) : (
+              <span className="text-muted">No reviews yet</span>
+            )}
             <span className="text-muted">·</span>
             <span className={stock > 0 ? "font-medium text-success" : "font-medium text-red-400"}>
               {stock > 0 ? "In stock" : "Out of stock"}
@@ -886,64 +1083,85 @@ export function ProductDetail({ product }: { product: Product }) {
           )}
 
           {tab === "specs" && (
-            <dl className="max-w-3xl divide-y divide-border">
-              {Object.entries(product.specs).map(([key, value]) => (
-                <div key={key} className="grid grid-cols-2 gap-4 py-3 text-sm sm:grid-cols-3">
-                  <dt className="font-semibold text-text">{key}</dt>
-                  <dd className="col-span-1 text-muted sm:col-span-2">{value}</dd>
-                </div>
-              ))}
-              <div className="grid grid-cols-2 gap-4 py-3 text-sm sm:grid-cols-3">
-                <dt className="font-semibold text-text">Brand</dt>
-                <dd className="col-span-1 text-muted sm:col-span-2">{product.brand}</dd>
-              </div>
-              <div className="grid grid-cols-2 gap-4 py-3 text-sm sm:grid-cols-3">
-                <dt className="font-semibold text-text">Condition</dt>
-                <dd className="col-span-1 text-muted sm:col-span-2">{product.condition}</dd>
-              </div>
-            </dl>
+            <div className="max-w-3xl">
+              {storedSpecifications.length > 0 ? (
+                <dl className="divide-y divide-border">
+                  {storedSpecifications.map((row) => (
+                    <div key={row.key} className="grid grid-cols-2 gap-4 py-3 text-sm sm:grid-cols-3">
+                      <dt className="font-semibold text-text">{row.key}</dt>
+                      <dd className="col-span-1 text-muted sm:col-span-2">{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-muted">No specifications listed</p>
+              )}
+            </div>
           )}
 
           {tab === "reviews" && (
             <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-4">
-                <p className="text-4xl font-bold text-text">{product.rating.toFixed(1)}</p>
+              {reviewCount > 0 ? (
+                <div className="flex flex-wrap items-center gap-4">
+                  <p className="text-4xl font-bold text-text">{reviewAverage.toFixed(1)}</p>
+                  <div>
+                    <RatingStars rating={reviewAverage} size={18} />
+                    <p className="mt-1 text-sm text-muted">
+                      Based on {reviewCount} real review{reviewCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                </div>
+              ) : (
                 <div>
-                  <RatingStars rating={product.rating} size={18} />
+                  <p className="text-base font-semibold text-text">No reviews yet</p>
                   <p className="mt-1 text-sm text-muted">
-                    Based on {product.review_count.toLocaleString("en-IN")} verified reviews
+                    Nobody has reviewed this product yet.
                   </p>
                 </div>
-              </div>
-              <div className="mt-6 space-y-2">
-                {distribution.map((row) => (
-                  <div key={row.stars} className="flex items-center gap-3 text-sm">
-                    <span className="w-8 shrink-0 text-muted">{row.stars} star</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-border">
-                      <div
-                        className="h-full rounded-full bg-amber-400"
-                        style={{ width: `${Math.min(100, Math.max(0, row.share))}%` }}
-                      />
-                    </div>
-                    <span className="w-10 shrink-0 text-right text-muted">{row.share}%</span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-6 text-sm text-muted">
-                Individual review text has not been imported yet — ratings and
-                counts above come from the catalog. Written reviews will appear
-                here once the review system is connected.
-              </p>
+              )}
+              {reviewList.length > 0 && (
+                <ul className="mt-6 space-y-4">
+                  {reviewList.map((review) => (
+                    <li key={review.id} className="rounded-2xl border border-border bg-surface p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-text">{review.authorName}</p>
+                        <p className="text-xs text-muted">
+                          {new Date(review.createdAt).toLocaleDateString("en-GB", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                      <div className="mt-1.5">
+                        <RatingStars rating={review.rating} size={15} />
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-muted">{review.comment}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {signedIn ? (
+                <ReviewForm productSlug={product.slug} onReviewSaved={handleReviewSaved} />
+              ) : (
+                <p className="mt-8 text-sm text-muted">
+                  <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+                    Sign in to write a review
+                  </Link>
+                </p>
+              )}
             </div>
           )}
 
           {tab === "warranty" && (
             <div className="max-w-3xl space-y-3 text-sm leading-relaxed text-muted">
               <p className="text-base font-semibold text-text">Official warranty, handled by TechShot</p>
+              {storedWarranty ? (
+                <p className="text-text">{storedWarranty}</p>
+              ) : null}
               <p>
-                This product includes the official brand warranty stated in its
-                specifications, starting from the delivery date. Keep your
-                TechShot invoice — it is your warranty proof.
+                This product includes the official brand warranty for this product, starting from
+                the delivery date. Keep your TechShot invoice — it is your warranty proof.
               </p>
               <ul className="list-disc space-y-1.5 pl-5">
                 <li>7-day replacement for dead-on-arrival or manufacturing defects.</li>

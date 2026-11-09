@@ -271,8 +271,23 @@ test("auth-code exchange creates the missing profile (never overwrites, never do
 });
 
 test("sign-up and sign-in never downgrade an admin in any code path", () => {
-  // Every profile write in the auth server goes through the
-  // insert-only upsert above; no update/set-role call exists there.
-  assert.equal(/\.update\(\{\s*role/.test(authServer), false);
-  assert.equal(/\.update\(\{[^}]*role\s*:/.test(authServer), false);
+  // Every profile write on the sign-up / sign-in paths goes through
+  // the insert-only upsert in ensureProfile: no .update() call
+  // exists there, so an existing admin row is never overwritten.
+  // The ONE role update in this file is changeUserRole, the
+  // Owner-only role assignment added with the roles build
+  // (migration 0006): it refuses non-owners and self-changes, and
+  // it is the only place a profiles role may be written.
+  const ensure = authServer.slice(
+    authServer.indexOf("export async function ensureProfile"),
+    authServer.indexOf("export async function ensureCurrentUserProfile"),
+  );
+  assert.ok(ensure.length > 0, "ensureProfile found");
+  assert.equal(/\.update\(/.test(ensure), false);
+  assert.match(ensure, /upsert\(row, \{ onConflict: "id", ignoreDuplicates: true \}\)/);
+  const roleUpdates = [...authServer.matchAll(/\.update\(\{\s*role[^}]*\}\)/g)];
+  assert.equal(roleUpdates.length, 1, "exactly one role update exists (changeUserRole)");
+  assert.match(authServer, /export async function changeUserRole/);
+  assert.match(authServer, /canManageUsers\(caller\.role\)/);
+  assert.match(authServer, /You cannot change your own role/);
 });

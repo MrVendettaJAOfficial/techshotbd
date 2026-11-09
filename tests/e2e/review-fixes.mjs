@@ -261,7 +261,7 @@ async function adminAdvanceButton(page, orderNumber) {
     if (!p) return null;
     let el = p;
     while (el) {
-      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance status");
+      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance");
       if (btn) return btn;
       el = el.parentElement;
     }
@@ -276,7 +276,7 @@ async function adminAdvanceDisabled(page, orderNumber) {
     if (!p) return null;
     let el = p;
     while (el) {
-      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance status");
+      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance");
       if (btn) return btn.disabled;
       el = el.parentElement;
     }
@@ -291,7 +291,7 @@ async function clickAdvanceButton(page, orderNumber) {
     if (!p) return false;
     let el = p;
     while (el) {
-      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance status");
+      const btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance");
       if (btn) {
         btn.click();
         return true;
@@ -372,7 +372,7 @@ async function main() {
     let el = p;
     let btn = null;
     while (el && !btn) {
-      btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance status") ?? null;
+      btn = [...el.querySelectorAll("button")].find((b) => b.textContent.trim() === "Advance") ?? null;
       el = el.parentElement;
     }
     if (!btn) return "no-button";

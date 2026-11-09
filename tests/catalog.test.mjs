@@ -260,9 +260,20 @@ test("variant comes from the title, never from the description text", () => {
   assert.equal(deriveVariant(sonyHeadphones), "WH-1000XM5 Wireless Noise Cancelling Headphones");
 });
 
-test("badge: BESTSELLER at 900+ reviews, FLASH DEAL for flash deals", () => {
-  assert.equal(mapDbProductToCatalog(row()).badge, "BESTSELLER"); // 1248 reviews + flash
-  assert.equal(mapDbProductToCatalog(sonyHeadphones).badge, undefined); // 862, not flash
+test("badge: BESTSELLER at 900+ REAL reviews, FLASH DEAL for flash deals", () => {
+  // The badge counts REAL reviews only (passed as review stats from
+  // the reviews table): the row's own review_count column is
+  // fabricated and is ignored, however large it claims.
+  assert.equal(mapDbProductToCatalog(row()).badge, "FLASH DEAL"); // fabricated 1248 ignored; flash deal
+  assert.equal(
+    mapDbProductToCatalog(row(), { rating: 4.9, review_count: 1248 }).badge,
+    "BESTSELLER",
+  ); // 1248 real reviews + flash
+  assert.equal(mapDbProductToCatalog(sonyHeadphones).badge, undefined); // 862 fabricated, not flash
+  assert.equal(
+    mapDbProductToCatalog(sonyHeadphones, { rating: 4.8, review_count: 862 }).badge,
+    undefined,
+  ); // 862 real reviews, not flash, still no badge
   const flashOnly = row({ review_count: 100, is_flash_deal: true });
   assert.equal(mapDbProductToCatalog(flashOnly).badge, "FLASH DEAL");
   assert.equal(mapDbProductToCatalog(flashOnly).flash, true);

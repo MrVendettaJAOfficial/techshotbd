@@ -20,6 +20,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient, createClient } from "./supabase/server";
 
+import { canManageUsers } from "./roles";
+
 import {
   buildProfileRow,
   deriveProfileFromMetadata,
@@ -39,7 +41,10 @@ function untyped(client: unknown): SupabaseClient {
 }
 
 function isValidRole(value: unknown): value is UserRole {
-  return value === "customer" || value === "admin";
+  // A legacy "seller" role is not a valid app role any more: it is
+  // treated as "customer". Staff roles (co_admin, manager —
+  // migration 0006) are real roles now.
+  return value === "customer" || value === "admin" || value === "co_admin" || value === "manager";
 }
 
 /**
@@ -91,6 +96,178 @@ const fetchCurrentUser = cache(async (): Promise<AppUser | null> => {
 
 export async function getCurrentUser(): Promise<AppUser | null> {
   return fetchCurrentUser();
+}
+
+/**
+ * The signed-in caller's profiles.role, or null when signed out /
+ * Supabase is not configured / the caller has no profiles row.
+ * Never throws. This is the role the server actions enforce with
+ * (see lib/roles.ts): it is read from the database on every call,
+ * never taken from the browser. A legacy "seller" row reads back as
+ * "customer" (see isValidRole above).
+ */
+export async function getCallerRole(): Promise<string | null> {
+  const user = await getCurrentUser();
+  return user?.role ?? null;
+}
+
+/**
+ * Audit row for a user-management change. There is no shared
+ * audit_log write helper in the codebase — lib/orders/actions.ts and
+ * lib/products/actions.ts each carry their own local one, and this
+ * file follows the same pattern (best-effort insert, failure logged
+ * server-side only, never failing the user change or reaching the
+ * client). audit_log has no details column, so the old and new
+ * values live in the action string.
+ */
+async function writeUserAudit(
+  admin: SupabaseClient,
+  actorId: string | null,
+  action: string,
+  entityId: string,
+): Promise<void> {
+  try {
+    const { error } = await admin.from("audit_log").insert({
+      actor_id: actorId,
+      action,
+      entity_type: "user",
+      entity_id: entityId,
+    });
+    if (error) {
+      console.error("TechShot audit_log insert failed:", error.message);
+    }
+  } catch (error) {
+    console.error(
+      "TechShot audit_log insert failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+export type ChangeUserRoleResult = { ok: true } | { ok: false; error: string };
+
+/** Roles changeUserRole may assign. "admin" is the Owner role. */
+const ASSIGNABLE_ROLES = ["customer", "co_admin", "manager", "admin"] as const;
+
+function adminClientOrNull(): SupabaseClient | null {
+  try {
+    return untyped(createAdminClient());
+  } catch {
+    // Service role not configured: generic error, never say which
+    // environment variable is missing.
+    return null;
+  }
+}
+
+/**
+ * Change a user's role. Owner only: the caller must have role
+ * "admin" in profiles. The Owner cannot change their own role (or
+ * remove themselves — see removeUser), so the store can never be
+ * left with no owner. Assigning "admin" makes the target a second
+ * owner — the Owner is the only person who may do that, so it is
+ * allowed here and nowhere else. Returns an error result instead of
+ * throwing, so the admin page can show it; the role change is
+ * audited best-effort in audit_log.
+ */
+export async function changeUserRole(
+  userId: string,
+  role: string,
+): Promise<ChangeUserRoleResult> {
+  const genericError = "Something went wrong. Please try again.";
+  if (typeof userId !== "string" || userId.trim() === "") {
+    return { ok: false, error: genericError };
+  }
+  if (!(ASSIGNABLE_ROLES as readonly string[]).includes(role)) {
+    return { ok: false, error: "Please choose a valid role." };
+  }
+  const caller = await getCurrentUser();
+  if (!caller) return { ok: false, error: "You must be signed in to manage users." };
+  if (!canManageUsers(caller.role)) {
+    return { ok: false, error: "You do not have permission to manage users." };
+  }
+  if (caller.id === userId) {
+    return { ok: false, error: "You cannot change your own role." };
+  }
+  const admin = adminClientOrNull();
+  if (!admin) return { ok: false, error: genericError };
+
+  const { data: target, error: loadError } = await admin
+    .from("profiles")
+    .select("id, role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (loadError || !target) return { ok: false, error: "User not found." };
+  const oldRole = (target as { role: string }).role ?? "customer";
+  if (oldRole === role) return { ok: true };
+
+  const { data: updated, error } = await admin
+    .from("profiles")
+    .update({ role })
+    .eq("id", userId)
+    .select("id");
+  if (error) return { ok: false, error: genericError };
+  if (!Array.isArray(updated) || updated.length !== 1) {
+    return { ok: false, error: "User not found." };
+  }
+  await writeUserAudit(admin, caller.id, `user.role:${oldRole}->${role}`, userId);
+  return { ok: true };
+}
+
+export type RemoveUserResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Remove a user entirely. Owner only, and the Owner cannot remove
+ * themselves. Deletes the auth user via the service-role admin
+ * client (following the listUsers() client pattern in this file);
+ * the profiles row is deleted too — profiles.id references
+ * auth.users with ON DELETE CASCADE, so the auth delete normally
+ * removes it already and the profiles delete below is a no-op
+ * safety net. Audited best-effort before the delete (the audit row
+ * survives: audit_log.actor_id is ON DELETE SET NULL).
+ */
+export async function removeUser(userId: string): Promise<RemoveUserResult> {
+  const genericError = "Something went wrong. Please try again.";
+  if (typeof userId !== "string" || userId.trim() === "") {
+    return { ok: false, error: genericError };
+  }
+  const caller = await getCurrentUser();
+  if (!caller) return { ok: false, error: "You must be signed in to manage users." };
+  if (!canManageUsers(caller.role)) {
+    return { ok: false, error: "You do not have permission to manage users." };
+  }
+  if (caller.id === userId) {
+    return { ok: false, error: "You cannot remove your own account." };
+  }
+  const admin = adminClientOrNull();
+  if (!admin) return { ok: false, error: genericError };
+
+  const { data: target, error: loadError } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (loadError || !target) return { ok: false, error: "User not found." };
+
+  await writeUserAudit(admin, caller.id, "user.remove", userId);
+  let deleteError: { message: string } | null = null;
+  try {
+    const { error } = await admin.auth.admin.deleteUser(userId);
+    deleteError = error;
+  } catch (error) {
+    deleteError = { message: error instanceof Error ? error.message : "unknown error" };
+  }
+  if (deleteError) {
+    console.error("TechShot remove user failed:", deleteError.message);
+    return { ok: false, error: genericError };
+  }
+  try {
+    // Normally already gone via the ON DELETE CASCADE above.
+    await admin.from("profiles").delete().eq("id", userId);
+  } catch {
+    // The auth delete already succeeded; a leftover profiles row is
+    // harmless and must not report the removal as failed.
+  }
+  return { ok: true };
 }
 
 /**

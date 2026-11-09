@@ -24,6 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
   delivered: "Delivered",
   cancelled: "Cancelled",
   refunded: "Refunded",
+  returned: "Returned",
 };
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -100,21 +101,37 @@ function OrderDetailInner() {
     }
     setOrder(browserOrder);
     setLoaded(true);
-    // Reconcile with the server: a payment completed through the public
-    // callback route updates the server-side record, not this browser
-    // copy — without this, an order paid by callback would say "Pending
-    // payment" here forever. Only a copy that is still pending payment
-    // adopts the server status; a copy that is already confirmed,
-    // cancelled or further along is never downgraded from here (the
-    // shopper's own cancel, for example, lives in the browser copy
-    // only). A failed server payment is adopted too, so the retry
-    // button below appears.
-    if (browserOrder && browserOrder.status === "pending_payment") {
+    // Reconcile with the server: a payment completed through the
+    // public callback route updates the server-side record, not this
+    // browser copy — without this, an order paid by callback would
+    // say "Pending payment" here forever. The same is true of admin
+    // moves (advance, return, refund, cancel): they update the
+    // server record, so without this an order the admin advanced
+    // would say "Confirmed" here forever, even though /orders (live
+    // wins in the merge) already shows the new status. Only forward
+    // moves are adopted: the server status must be later in the flow
+    // than the browser copy, or a terminal exit (cancelled /
+    // refunded / returned) while the copy is still in-flow. A copy
+    // that is already terminal is never overwritten, and the server
+    // is never allowed to move the copy backwards (the shopper's own
+    // cancel, for example, lives in the browser copy only). A failed
+    // server payment is adopted too while the copy is still pending
+    // payment, so the retry button below appears.
+    if (browserOrder) {
       let cancelled = false;
       void getOrderStatusFromServer(id).then((server) => {
         if (cancelled || !server) return;
+        const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
+        const terminal = ["cancelled", "refunded", "returned"];
+        const serverAhead = flow.indexOf(server.status) > flow.indexOf(browserOrder.status);
+        const serverTerminal =
+          terminal.includes(server.status) && !terminal.includes(browserOrder.status);
+        const paymentChanged =
+          browserOrder.status === "pending_payment" &&
+          server.paymentStatus !== browserOrder.paymentStatus;
+        if (!serverAhead && !serverTerminal && !paymentChanged) return;
         if (
-          server.status === "pending_payment" &&
+          server.status === browserOrder.status &&
           server.paymentStatus === browserOrder.paymentStatus
         ) {
           return;
@@ -241,7 +258,7 @@ function OrderDetailInner() {
         ? "Order cancelled in this browser. This order was not saved to your account."
         : null);
   const timelineIndex =
-    order.status === "cancelled" || order.status === "refunded"
+    order.status === "cancelled" || order.status === "refunded" || order.status === "returned"
       ? -1
       : ORDER_TIMELINE_STEPS.findIndex((s) => s.key === order.status);
 
@@ -269,7 +286,13 @@ function OrderDetailInner() {
         <h2 className="text-lg font-bold text-text">Status</h2>
         {timelineIndex === -1 ? (
           <p className="mt-3 rounded-lg bg-red-500/20 px-4 py-3 text-sm font-semibold text-red-300">
-            This order was {order.status === "refunded" ? "cancelled and refunded" : "cancelled"}.
+            This order was{" "}
+            {order.status === "refunded"
+              ? "cancelled and refunded"
+              : order.status === "returned"
+                ? "returned — the order was not received, so its items are back in stock"
+                : "cancelled"}
+            .
           </p>
         ) : (
           <ol className="mt-4 space-y-3">

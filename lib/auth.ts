@@ -27,7 +27,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/client";
 import { ensureCurrentUserProfile, ensureProfile } from "./auth-server";
 
-export type UserRole = "customer" | "admin";
+export type UserRole = "customer" | "admin" | "co_admin" | "manager";
 
 export interface AppUser {
   id: string;
@@ -76,8 +76,9 @@ function notConfiguredError(): Error {
 
 function isValidRole(value: unknown): value is UserRole {
   // A legacy "seller" role is not a valid app role any more: it is
-  // treated as "customer" (see toAppUser below).
-  return value === "customer" || value === "admin";
+  // treated as "customer" (see toAppUser below). Staff roles
+  // (co_admin, manager — migration 0006) are real roles now.
+  return value === "customer" || value === "admin" || value === "co_admin" || value === "manager";
 }
 
 /** Build the AppUser the rest of the app sees: profile row first,

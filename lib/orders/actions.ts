@@ -2,18 +2,25 @@
 // customer cancel (owner only).
 //
 // Single-seller store: the owner (role "admin", granted manually in
-// the database) is the only person who may move an order through its
-// fulfilment flow. These run on the server only and are the
-// enforcement point for order status writes, following the same
-// pattern as lib/products/actions.ts:
+// the database) and co-admins (role "co_admin") are the only people
+// who may move an order through its fulfilment flow; managers (role
+// "manager") may NOT change orders — a manager calling any of these
+// actions gets an error, never a silent success (see
+// lib/roles.ts canChangeOrders, enforced in changeOrderStatus
+// below). These run on the server only and are the enforcement
+// point for order status writes, following the same pattern as
+// lib/products/actions.ts:
 //
 //   * Unauthenticated -> generic error.
-//   * role must be "admin" (customers cannot change order status,
-//     except through cancelMyOrder below, which is owner-only).
+//   * role must allow order changes (owner / co_admin —
+//     lib/roles.ts canChangeOrders). Customers cannot change order
+//     status, except through cancelMyOrder below, which is
+//     owner-only; managers cannot change orders at all.
 //   * The transition itself is validated by lib/orders/transitions.ts
 //     (one step forward, cancel only from pending_payment /
-//     confirmed, refund only from a paid order) — never trust the
-//     status the browser asked for.
+//     confirmed, refund only from a paid order, returned only from
+//     confirmed / processing / shipped) — never trust the status
+//     the browser asked for.
 //   * Status writes are CONDITIONAL: the update only lands when the
 //     order still holds the status we read (.eq("status", oldStatus)),
 //     and 0 rows affected means another writer moved first — the
@@ -26,12 +33,18 @@
 //     app/admin/AdminDashboard.tsx keeps a synchronous in-flight
 //     ref, so the second invocation in the same task never reaches
 //     the server. A lost race restores no stock.
-//   * Cancel / refund restore stock (lib/orders/stock.ts) AFTER the
-//     conditional update succeeds, so a failed or lost-race change
-//     restores nothing. A refund calls PaymentAdapter.refund() FIRST
-//     and only marks the order refunded when the adapter succeeds;
-//     a paid order is never "cancelled" (which would keep the money)
-//     — it must be refunded instead.
+//   * Cancel / refund / returned restore stock (lib/orders/stock.ts)
+//     AFTER the conditional update succeeds, so a failed or
+//     lost-race change restores nothing. A refund calls
+//     PaymentAdapter.refund() FIRST and only marks the order refunded
+//     when the adapter succeeds; a paid order is never "cancelled"
+//     (which would keep the money) — it must be refunded instead.
+//     A paid order marked "returned" refunds the same way first:
+//     the adapter is called before the status change and the money
+//     goes back through the same append-only payments row, while
+//     the order itself lands on "returned" (not "refunded"). An
+//     unpaid returned order skips the adapter — there is nothing
+//     to refund — and just restores stock.
 //   * Every change writes an audit_log row (actor, order id, old and
 //     new status in the action string — audit_log has no details
 //     column) and revalidates /admin, /orders and /orders/[id], so
@@ -52,10 +65,10 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth-server";
+import { getCallerRole, getCurrentUser } from "@/lib/auth-server";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { restoreOrderStock } from "./stock";
-import { checkAdminRole, isLegalOrderTransition, nextOrderStatus } from "./transitions";
+import { checkOrderRole, isLegalOrderTransition, nextOrderStatus } from "./transitions";
 import type { OrderStatus, PaymentStatus } from "@/lib/checkout-store";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -82,6 +95,7 @@ const orderStatusSchema = z.enum([
   "delivered",
   "cancelled",
   "refunded",
+  "returned",
 ]);
 
 type AdminClient = SupabaseClient;
@@ -220,7 +234,7 @@ function revalidateOrderPages(orderId: string): void {
 }
 
 /**
- * Restore stock for a cancelled / refunded order. Only ever called
+ * Restore stock for a cancelled / refunded / returned order. Only ever called
  * AFTER the conditional status update has succeeded, so a failed or
  * lost-race change restores nothing. Lines that cannot be attributed
  * to a stock row are logged server-side (see lib/orders/stock.ts).
@@ -253,7 +267,12 @@ async function changeOrderStatus(
   }
 
   const user = await getCurrentUser();
-  const gate = checkAdminRole(user?.role ?? null);
+  // The role is re-read from the caller's profiles row (never from
+  // the browser): owner and co-admin may change orders, a manager
+  // may not. getCallerRole falls back to the session user's role
+  // when the profiles row cannot be read, so a missing row is
+  // treated as a customer, never as staff.
+  const gate = checkOrderRole((await getCallerRole()) ?? user?.role ?? null);
   if (!gate.ok) return { ok: false, error: gate.error };
   if (!user) return { ok: false, error: GENERIC_ERROR };
 
@@ -280,8 +299,16 @@ async function changeOrderStatus(
   // the order marked refunded. A failed gateway refund changes no rows.
   // (The test adapter moves no real money; a real gateway adapter must
   // call the provider's refund API here.)
+  //
+  // A paid order marked "returned" refunds through this exact same
+  // path — the adapter call, the paid-payment lookup and the
+  // append-only payments row below are shared, not duplicated — the
+  // only difference is the status the order lands on ("returned"
+  // instead of "refunded"). An unpaid returned order needs no refund
+  // and skips this block entirely.
+  const needsRefund = target === "refunded" || (target === "returned" && order.paymentStatus === "paid");
   let paidPayment: PaidPaymentRow | null = null;
-  if (target === "refunded") {
+  if (needsRefund) {
     paidPayment = await loadLatestPaidPayment(admin, order.id);
     if (!paidPayment) {
       return { ok: false, error: "That status change is not allowed." };
@@ -311,15 +338,19 @@ async function changeOrderStatus(
     return { ok: false, error: ALREADY_CHANGED_ERROR };
   }
 
-  // Cancel / refund (including a refund from delivered — the returns
-  // flow) restores stock, guarded by the successful update above.
-  if (target === "cancelled" || target === "refunded") {
+  // Cancel / refund / returned (including a refund from delivered —
+  // the returns flow, and a paid return, which refunded first above)
+  // restores stock, guarded by the successful update above.
+  if (target === "cancelled" || target === "refunded" || target === "returned") {
     await restoreStockAfterStatusChange(admin, order.id);
   }
 
   // A refund INSERTS a new payments row (append-only attempts) — it
   // never overwrites the paid row, so the attempt history survives.
-  if (target === "refunded" && paidPayment) {
+  // A paid return inserts the same row: the money went back, so the
+  // payments history records a refund even though the order status
+  // is "returned".
+  if (needsRefund && paidPayment) {
     try {
       const { error: paymentError } = await admin.from("payments").insert({
         order_id: order.id,
@@ -344,7 +375,7 @@ async function changeOrderStatus(
   return { ok: true, orderNumber: order.orderNumber, oldStatus: order.status, newStatus: target };
 }
 
-/** Advance one order to the next step in the fulfilment flow. Admin only. */
+/** Advance one order to the next step in the fulfilment flow. Owner / co-admin only. */
 export async function advanceOrderStatus(orderId: string): Promise<OrderStatusActionResult> {
   return changeOrderStatus(orderId, (order) => {
     const next = nextOrderStatus(order.status);
@@ -353,7 +384,15 @@ export async function advanceOrderStatus(orderId: string): Promise<OrderStatusAc
   });
 }
 
-/** Set an order to a specific valid status (cancel / refund). Admin only. */
+/**
+ * Set an order to a specific valid status (cancel / refund /
+ * returned, or any step in the flow). Owner / co-admin only — the
+ * role gate and the transition validation both live in
+ * changeOrderStatus above, so this path runs the same atomic
+ * conditional update (.eq("status", oldStatus), audit only on
+ * exactly 1 row) and the same audit row as advanceOrderStatus.
+ * A manager calling this gets an error, never a silent success.
+ */
 export async function setOrderStatus(
   orderId: string,
   rawTarget: unknown,

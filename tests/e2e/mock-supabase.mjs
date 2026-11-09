@@ -81,6 +81,17 @@ const PRODUCTS = [
 }));
 
 const ADMIN_MODE = process.env.MOCK_ADMIN === "1";
+// Roles build (2026-11-09): MOCK_ROLE seeds user-1's profile role
+// directly ("admin" / "co_admin" / "manager" / "customer"), and
+// GET /__test/role?role=X switches it at runtime, so one mock
+// process can serve every role scenario with orders persisting
+// across the switch (the app re-reads profiles on every request).
+// MOCK_ADMIN=1 is kept as the old shorthand for MOCK_ROLE=admin.
+const MOCK_ROLE = ["admin", "co_admin", "manager", "customer"].includes(process.env.MOCK_ROLE ?? "")
+  ? process.env.MOCK_ROLE
+  : ADMIN_MODE
+    ? "admin"
+    : null;
 
 const db = {
   categories: CATS,
@@ -154,17 +165,39 @@ const db = {
       image_path: "sony-wh-1000xm5.jpg",
     },
   ],
-  profiles: ADMIN_MODE
-    ? [
-        {
-          id: "user-1",
-          role: "admin",
-          display_name: "Test Admin",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ]
-    : [],
+  profiles: [
+    ...(MOCK_ROLE
+      ? [
+          {
+            id: "user-1",
+            role: MOCK_ROLE,
+            display_name: "Test Admin",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]
+      : []),
+    // Two extra customer accounts: the authors of the seeded real
+    // reviews below (their names resolve through the service-role
+    // profiles lookup in listProductReviews), and the role-change /
+    // remove targets for the Owner's Users tab — the Owner must
+    // never change their own role or remove themselves, so the
+    // e2e role checks use these rows, not user-1.
+    {
+      id: "user-2",
+      role: "customer",
+      display_name: "Reviewer One",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: "user-3",
+      role: "customer",
+      display_name: "Reviewer Two",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
   addresses: [],
   wishlists: [],
   carts: [],
@@ -175,7 +208,31 @@ const db = {
     { id: "coupon-first2000", code: "FIRST2000", type: "fixed", value_poisha: 200000, min_spend_poisha: 5000000, usage_limit: null, used_count: 0, expires_at: new Date(Date.now() + 365 * 864e5).toISOString(), is_active: true },
   ],
   payments: [],
-  reviews: [],
+  // Real review rows for the iPhone (roles build, 2026-11-09): the
+  // storefront must show ONLY these — average 4.5 from 2 reviews —
+  // never the seeded products.rating / review_count numbers (4.9 /
+  // 1,248), which are fabricated. The authors are user-2 / user-3
+  // above, so their display names resolve.
+  reviews: [
+    {
+      id: "rev-seed-1",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      user_id: "user-2",
+      order_id: "order-seed-delivered",
+      rating: 5,
+      text: "Excellent phone, the battery lasts all day.",
+      created_at: new Date(Date.now() - 5 * 864e5).toISOString(),
+    },
+    {
+      id: "rev-seed-2",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      user_id: "user-3",
+      order_id: "order-seed-delivered",
+      rating: 4,
+      text: "Great camera, wish the charger was included.",
+      created_at: new Date(Date.now() - 2 * 864e5).toISOString(),
+    },
+  ],
   audit_log: [],
 };
 
@@ -348,6 +405,35 @@ async function handle(req, res) {
     testDelayMs = Math.max(0, Number(url.searchParams.get("ms") ?? 0) || 0);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ delayMs: testDelayMs }));
+    return;
+  }
+  // Test-only role switch (roles build, 2026-11-09): set user-1's
+  // profiles.role at runtime so one mock process can serve the
+  // owner / co-admin / manager / customer scenarios in a single
+  // Playwright run, with orders persisting across the switch.
+  if (path === "/__test/role") {
+    const role = url.searchParams.get("role") ?? "";
+    if (!["customer", "co_admin", "manager", "admin"].includes(role)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "mock: unknown role " + role }));
+      return;
+    }
+    let row = db.profiles.find((p) => p.id === "user-1");
+    if (!row) {
+      row = {
+        id: "user-1",
+        role,
+        display_name: "Test User",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      db.profiles.push(row);
+    } else {
+      row.role = role;
+      row.updated_at = new Date().toISOString();
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ role }));
     return;
   }
   if (testDelayMs > 0) await new Promise((r) => setTimeout(r, testDelayMs));

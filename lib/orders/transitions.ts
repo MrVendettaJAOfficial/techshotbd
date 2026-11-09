@@ -11,6 +11,15 @@
 // fulfilment (pending_payment or confirmed). Refund is only allowed
 // for an order whose latest payment is paid, and only once the order
 // exists past payment (confirmed, processing, shipped, delivered).
+// Returned is an exit alongside cancelled / refunded: an order that
+// was placed and not yet taken back — confirmed, processing or
+// shipped — may be marked returned. It may NOT come from delivered
+// (the customer took it — that is a refund) and NOT from
+// pending_payment (nothing shipped yet — cancel there instead).
+// Marking an order returned restores stock exactly like cancel /
+// refund, and when the order was already paid the admin action
+// refunds through the payment adapter first (see
+// lib/orders/actions.ts), exactly like a refund.
 //
 // Refund from "delivered" is a returns flow, not a label: the admin
 // refund path (lib/orders/actions.ts changeOrderStatus) restores the
@@ -19,8 +28,9 @@
 // paid state — so "delivered" stays a refund source here.
 
 import type { OrderStatus, PaymentStatus } from "../checkout-store";
+import { canChangeOrders } from "../roles";
 
-/** The fulfilment flow, in order. Cancelled / refunded are exits, not steps. */
+/** The fulfilment flow, in order. Cancelled / refunded / returned are exits, not steps. */
 export const ORDER_FLOW: OrderStatus[] = [
   "pending_payment",
   "confirmed",
@@ -59,6 +69,13 @@ export function isLegalOrderTransition(
         from === "delivered")
     );
   }
+  if (to === "returned") {
+    // No payment condition: an unpaid (e.g. COD, not yet paid) order
+    // can be returned too — the admin action simply skips the refund
+    // step when there is no paid payment. Delivered and
+    // pending_payment are never return sources (see header note).
+    return from === "confirmed" || from === "processing" || from === "shipped";
+  }
   // Every other move must be exactly one step forward in the flow.
   return nextOrderStatus(from) === to;
 }
@@ -71,6 +88,25 @@ export function checkAdminRole(
     return { ok: false, error: "You must be signed in to manage orders." };
   }
   if (role !== "admin") {
+    return { ok: false, error: "You do not have permission to manage orders." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Order-change gate, shared by the server actions so it is
+ * unit-tested. Owner and co-admin may change orders; a manager may
+ * not — a manager calling an order action gets an error, never a
+ * silent success. (checkAdminRole above stays owner-only for the
+ * callers that still need it.)
+ */
+export function checkOrderRole(
+  role: string | null | undefined,
+): { ok: true } | { ok: false; error: string } {
+  if (!role) {
+    return { ok: false, error: "You must be signed in to manage orders." };
+  }
+  if (!canChangeOrders(role)) {
     return { ok: false, error: "You do not have permission to manage orders." };
   }
   return { ok: true };

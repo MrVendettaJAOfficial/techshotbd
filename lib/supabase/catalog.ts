@@ -22,11 +22,13 @@ import {
 } from "../data/catalog";
 import type { Category, Product, SubscriptionPlan } from "../data/catalog";
 import {
+  aggregateReviewStats,
   earliestFlashEndsAt,
   filterPublicProducts,
   mapDbCategoryToCatalog,
   mapDbProductToCatalog,
   mapDbProductToSubscription,
+  type ReviewStats,
 } from "../catalog-rules";
 import type { DbCategoryRow, DbProductRow } from "../catalog-rules";
 
@@ -87,6 +89,29 @@ async function fetchProductRows(supabase: Supabase): Promise<DbProductRow[]> {
 }
 
 /**
+ * Real review figures for the catalogue, aggregated from the reviews
+ * table in one query and mapped by product id. The seeded
+ * products.rating / review_count columns are fabricated and are
+ * never read (see lib/catalog-rules.ts) — a product with no reviews
+ * simply has no entry here and maps with rating 0 / review_count 0.
+ * A failure here must not fail the whole catalogue: it returns an
+ * empty map and the products list with zero ratings instead.
+ */
+async function fetchReviewStats(supabase: Supabase): Promise<Map<string, ReviewStats>> {
+  try {
+    const { data, error } = await supabase.from("reviews").select("product_id, rating");
+    if (error || !data) return new Map();
+    return aggregateReviewStats(
+      (data as Array<{ product_id: string; rating: number }>).filter(
+        (row) => typeof row?.product_id === "string" && Number.isFinite(row?.rating),
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+/**
  * Attach the category slug to each product row, using the categories
  * table (products only carry category_id). Rows whose category is
  * missing keep category_slug unset and map to "uncategorized".
@@ -109,10 +134,13 @@ function withCategorySlugs(
 function toLiveCatalog(
   productRows: DbProductRow[],
   categoryRows: DbCategoryRow[],
+  reviewStats: Map<string, ReviewStats>,
 ): LiveCatalog {
   const rows = withCategorySlugs(productRows, categoryRows);
   const publicRows = filterPublicProducts(rows);
-  const products: Product[] = publicRows.map(mapDbProductToCatalog);
+  const products: Product[] = publicRows.map((row) =>
+    mapDbProductToCatalog(row, row.id ? reviewStats.get(row.id) : undefined),
+  );
   const subscriptions: SubscriptionPlan[] = products
     .filter((product) => product.category === "subscriptions")
     .map(mapDbProductToSubscription);
@@ -131,11 +159,12 @@ function toLiveCatalog(
 export async function getLiveCatalog(): Promise<LiveCatalog> {
   if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
   const supabase = createClient();
-  const [categoryRows, productRows] = await Promise.all([
+  const [categoryRows, productRows, reviewStats] = await Promise.all([
     fetchCategoryRows(supabase),
     fetchProductRows(supabase),
+    fetchReviewStats(supabase),
   ]);
-  return toLiveCatalog(productRows, categoryRows);
+  return toLiveCatalog(productRows, categoryRows, reviewStats);
 }
 
 /**
@@ -146,7 +175,8 @@ export async function getLiveCatalog(): Promise<LiveCatalog> {
  * Per-request cached (React cache()): a product page used to fetch
  * the catalogue three times per visit — once for the product, once
  * for related products, and once more for metadata — each fetch
- * being two Supabase round trips (categories + products). The
+ * being three Supabase round trips (categories + products +
+ * reviews). The
  * metadata render and the page render share one request, so they now
  * share one fetch. The cache is per-request only: the next visit
  * re-fetches, so prices and stock are never stale — force-dynamic

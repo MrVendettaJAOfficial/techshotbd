@@ -10,6 +10,13 @@ import {
   updateOrderStatus,
   type StoredOrder,
 } from "@/lib/checkout-store";
+import TabBar from "@/components/TabBar";
+import {
+  ORDER_STATUS_TABS,
+  countByStatus,
+  filterByStatus,
+  orderStatusLabel,
+} from "@/components/admin-helpers";
 
 const STATUS_STYLES: Record<string, string> = {
   pending_payment: "bg-amber-500/20 text-amber-300",
@@ -17,6 +24,7 @@ const STATUS_STYLES: Record<string, string> = {
   processing: "bg-brand/20 text-blue-300",
   shipped: "bg-accent/20 text-orange-300",
   delivered: "bg-success/20 text-emerald-300",
+  returned: "bg-orange-500/20 text-orange-300",
   cancelled: "bg-red-500/20 text-red-300",
   refunded: "bg-muted/20 text-gray-300",
 };
@@ -27,6 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
   processing: "Processing",
   shipped: "Shipped",
   delivered: "Delivered",
+  returned: "Returned",
   cancelled: "Cancelled",
   refunded: "Refunded",
 };
@@ -46,6 +55,7 @@ function formatDate(iso: string): string {
 export default function OrdersPage() {
   const [loaded, setLoaded] = useState(false);
   const [orders, setOrders] = useState<StoredOrder[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   useEffect(() => {
     const browserOrders = listOrders();
@@ -125,12 +135,34 @@ export default function OrdersPage() {
     );
   }
 
+  const counts = countByStatus(orders, (order) => order.status);
+  const filteredOrders = filterByStatus(orders, statusFilter, (order) => order.status);
+
   return (
     <main className="mx-auto max-w-[1312px] px-4 py-10">
       <h1 className="text-3xl font-bold text-text">My orders</h1>
       <p className="mt-1 text-muted">{orders.length} order{orders.length === 1 ? "" : "s"}</p>
-      <ul className="mt-6 space-y-4">
-        {orders.map((order) => (
+      <div className="mt-6">
+        <TabBar
+          tabs={ORDER_STATUS_TABS.map((tab) => ({
+            ...tab,
+            count: tab.id === "all" ? orders.length : (counts[tab.id] ?? 0),
+          }))}
+          activeId={statusFilter}
+          ariaLabel="Filter your orders by status"
+          onSelect={setStatusFilter}
+        />
+      </div>
+      {filteredOrders.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-border bg-panel p-10 text-center">
+          <h2 className="text-xl font-bold text-text">
+            No {statusFilter === "all" ? "" : `${orderStatusLabel(statusFilter).toLowerCase()} `}orders
+          </h2>
+          <p className="mt-2 text-muted">No orders currently have this status.</p>
+        </div>
+      ) : (
+        <ul className="mt-6 space-y-4">
+          {filteredOrders.map((order) => (
           <li key={order.id}>
             <Link
               href={`/orders/${order.id}`}
@@ -157,8 +189,9 @@ export default function OrdersPage() {
               </div>
             </Link>
           </li>
-        ))}
-      </ul>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }

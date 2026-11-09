@@ -14,7 +14,8 @@ export type OrderStatus =
   | "shipped"
   | "delivered"
   | "cancelled"
-  | "refunded";
+  | "refunded"
+  | "returned";
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 

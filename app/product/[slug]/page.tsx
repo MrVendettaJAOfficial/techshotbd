@@ -20,6 +20,8 @@ import type { Metadata } from "next";
 import type { Product } from "../../../lib/data/catalog";
 import { getCatalog } from "../../../lib/supabase/catalog";
 import { relatedProducts } from "../../../lib/catalog-rules";
+import { getCurrentUser } from "../../../lib/auth-server";
+import { listProductReviews } from "../../../lib/reviews";
 import ProductCard from "../../../components/ProductCard";
 import ProductDetail from "../../../components/ProductGallery";
 
@@ -70,6 +72,19 @@ export default async function ProductPage({ params }: { params: { slug: string }
 
   const related = await resolveRelated(product, 4);
 
+  // Real reviews only: the average, count and review list come from
+  // the reviews table (listProductReviews), and anyone can read
+  // them. Writing a review needs a signed-in user — the page checks
+  // the session server-side and the detail component shows the form
+  // only then. Either fetch failing shows "No reviews yet" rather
+  // than invented numbers.
+  const [reviews, signedIn] = await Promise.all([
+    listProductReviews(product.slug).catch(() => null),
+    getCurrentUser()
+      .then((user) => user !== null)
+      .catch(() => false),
+  ]);
+
   return (
     <div className="mx-auto max-w-shell px-4 py-8">
       <nav aria-label="Breadcrumb" className="mb-6 text-sm text-muted">
@@ -91,7 +106,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
         <span className="text-text">{product.title}</span>
       </nav>
 
-      <ProductDetail product={product} />
+      <ProductDetail product={product} initialReviews={reviews} signedIn={signedIn} />
 
       <section className="mt-16">
         <div className="flex items-end justify-between gap-4">

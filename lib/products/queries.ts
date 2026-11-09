@@ -50,6 +50,8 @@ interface ProductRow {
   compare_at_poisha: number | null;
   stock: number;
   status: string;
+  warranty: string | null;
+  specifications: unknown;
   created_at: string;
 }
 
@@ -58,6 +60,27 @@ interface CategoryRow {
   slug: string;
   name: string;
   is_active: boolean;
+}
+
+/** Parse the products.specifications jsonb column defensively: only
+ *  { key, value } string pairs survive; anything else is dropped. */
+function toSpecificationItems(value: unknown): Array<{ key: string; value: string }> {
+  if (!Array.isArray(value)) return [];
+  const items: Array<{ key: string; value: string }> = [];
+  for (const entry of value) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof (entry as { key?: unknown }).key === "string" &&
+      typeof (entry as { value?: unknown }).value === "string"
+    ) {
+      items.push({
+        key: ((entry as { key: string }).key ?? "").trim(),
+        value: ((entry as { value: string }).value ?? "").trim(),
+      });
+    }
+  }
+  return items.filter((item) => item.key !== "");
 }
 
 function toListItems(
@@ -84,6 +107,8 @@ function toListItems(
       imagePath: imagePaths[0] ?? null,
       imagePaths,
       variants: variantsByProduct.get(row.id) ?? [],
+      warranty: row.warranty ?? null,
+      specifications: toSpecificationItems(row.specifications),
       createdAt: row.created_at,
     };
   });
@@ -166,7 +191,7 @@ export async function fetchAllProducts(): Promise<ProductQueryResult> {
     const admin = untyped(createAdminClient());
     const { data: productsData, error: productsError } = await admin
       .from("products")
-      .select("id, seller_id, category_id, title, slug, description, price_poisha, compare_at_poisha, stock, status, created_at")
+      .select("id, seller_id, category_id, title, slug, description, price_poisha, compare_at_poisha, stock, status, warranty, specifications, created_at")
       .order("created_at", { ascending: false });
     if (productsError || !productsData) return empty;
 

@@ -3,15 +3,37 @@
 -- enabled on every table there, so with no policy a row is invisible
 -- (default deny). This file is idempotent: every policy is dropped first.
 --
+-- LIVE DATABASES apply the numbered migrations instead
+-- (0006_roles, 0007_order_returned, 0008_product_warranty_specs).
+-- This file mirrors those migrations (see "Fresh-install mirror"
+-- below) so a fresh install that only runs 0001 + this file reaches
+-- exactly the same state. Every mirrored statement is idempotent, so
+-- applying both paths is safe. Keep this file and the migrations in
+-- sync.
+--
 -- Rules:
 --   * Visitors (anon) may read active products / categories only.
 --   * Customers may only touch their own profile, addresses, cart,
 --     wishlist, orders and reviews.
 --   * Sellers may only touch their own products, images, variants and
 --     order_items.
---   * Admins get full access through is_admin(). The 'admin' role is
---     granted manually in the database, never from signup (see the
---     profiles policies: a non-admin can never set role = 'admin').
+--   * Roles: 'admin' is the Owner; 'co_admin' is a second admin;
+--     'manager' is staff. is_admin() still means Owner-only — it is
+--     NOT redefined. is_staff() means Owner, co_admin or manager.
+--     Roles are granted manually in the database, never from signup:
+--     a user creating their own profile row may only ever set
+--     role = 'customer'; on update, a BEFORE UPDATE trigger
+--     (prevent_non_owner_role_change) raises when anyone except the
+--     Owner changes a profiles.role value, so staff can still edit
+--     their own display_name / phone without being able to promote
+--     themselves (a policy alone cannot compare the old role with
+--     the new one).
+--   * Staff (Owner / co_admin / manager) may INSERT and DELETE
+--     products; UPDATE of products is Owner / co_admin only
+--     (manager adds/deletes but does not edit/pause). Staff may
+--     SELECT orders; UPDATE of orders is Owner / co_admin only
+--     (manager is read-only on orders). Role changes and user
+--     deletes are Owner-only.
 --   * payments and audit_log have NO policy for non-admins at all, so
 --     they are invisible to everyone except admins (and the service
 --     role, which bypasses RLS).
@@ -22,6 +44,8 @@
 -- Helper: is the current user an admin?
 -- SECURITY DEFINER so the check itself is not blocked by profiles RLS,
 -- and so it cannot recurse into policies that call it.
+-- 'admin' is the Owner. This function is NOT redefined — it still
+-- means Owner-only.
 -- ---------------------------------------------------------------------------
 create or replace function public.is_admin()
 returns boolean
@@ -36,6 +60,136 @@ as $$
   );
 $$;
 
+-- ---------------------------------------------------------------------------
+-- Helpers: co_admin, manager, and staff (Owner / co_admin / manager).
+-- Same shape as is_admin() (SECURITY DEFINER, STABLE, search_path).
+-- Added by migration 0006 — mirrored here for fresh installs.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_co_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'co_admin'
+  );
+$$;
+
+create or replace function public.is_manager()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'manager'
+  );
+$$;
+
+create or replace function public.is_staff()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'co_admin', 'manager')
+  );
+$$;
+
+-- ===========================================================================
+-- Fresh-install mirror of migrations 0006–0008.
+-- Live databases apply the numbered migrations instead; this block
+-- exists so a fresh install (0001 + this file) reaches the same
+-- state. Every statement is idempotent, so applying both paths is
+-- safe. Do not edit one without the other.
+--   * 0006: profiles.role check widened to
+--     ('customer', 'seller', 'admin', 'co_admin', 'manager').
+--   * 0007: orders.status check gains 'returned'.
+--   * 0008: products gains warranty (text, nullable) and
+--     specifications (jsonb, not null, default '[]'::jsonb).
+-- ===========================================================================
+do $$
+declare
+  v_old text;
+begin
+  -- profiles.role check (0006).
+  select c.conname into v_old
+  from pg_constraint c
+  join pg_attribute a
+    on a.attrelid = c.conrelid
+   and a.attnum = any (c.conkey)
+  where c.conrelid = 'public.profiles'::regclass
+    and c.contype = 'c'
+    and a.attname = 'role'
+    and c.conname <> 'profiles_role_check'
+  limit 1;
+
+  if v_old is not null then
+    execute 'alter table public.profiles drop constraint ' || quote_ident(v_old);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_role_check'
+  ) then
+    alter table public.profiles
+      add constraint profiles_role_check
+      check (role in ('customer', 'seller', 'admin', 'co_admin', 'manager'));
+  end if;
+
+  -- orders.status check (0007).
+  v_old := null;
+  select c.conname into v_old
+  from pg_constraint c
+  join pg_attribute a
+    on a.attrelid = c.conrelid
+   and a.attnum = any (c.conkey)
+  where c.conrelid = 'public.orders'::regclass
+    and c.contype = 'c'
+    and a.attname = 'status'
+    and c.conname <> 'orders_status_check'
+  limit 1;
+
+  if v_old is not null then
+    execute 'alter table public.orders drop constraint ' || quote_ident(v_old);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.orders'::regclass
+      and conname = 'orders_status_check'
+  ) then
+    alter table public.orders
+      add constraint orders_status_check
+      check (status in (
+        'pending_payment', 'confirmed', 'processing', 'shipped',
+        'delivered', 'cancelled', 'refunded', 'returned'
+      ));
+  end if;
+end $$;
+
+-- products.warranty / products.specifications (0008).
+alter table public.products
+  add column if not exists warranty text;
+
+alter table public.products
+  add column if not exists specifications jsonb not null default '[]'::jsonb;
+
+comment on column public.products.warranty is
+  'Warranty offered with the product, e.g. ''1 year official warranty''. NULL means no warranty is stated.';
+
+comment on column public.products.specifications is
+  'Specification list as a JSON array of key/value objects: [{"key": "...", "value": "..."}]. Empty array means no specifications are listed yet.';
+
 -- ===========================================================================
 -- profiles
 -- ===========================================================================
@@ -47,22 +201,53 @@ create policy "profiles_select_own" on public.profiles
 drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own" on public.profiles
   for insert to authenticated
-  -- A user may create only their own row, and may never grant
-  -- themselves the admin role.
-  with check (id = auth.uid() and role <> 'admin');
+  -- A user may create only their own row, and only as a customer —
+  -- self-promotion to seller / co_admin / manager / admin is
+  -- impossible here.
+  with check (id = auth.uid() and role = 'customer');
 
 drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles
   for update to authenticated
   using (id = auth.uid())
-  -- Same guard on update: role escalation to admin is impossible here.
-  with check (id = auth.uid() and role <> 'admin');
+  -- Only the row's owner may update it. The role value itself is
+  -- NOT constrained here — the trigger below stops a non-owner
+  -- changing it, so staff can still edit their own display_name /
+  -- phone.
+  with check (id = auth.uid());
 
 drop policy if exists "profiles_admin_all" on public.profiles;
 create policy "profiles_admin_all" on public.profiles
   for all to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- BEFORE UPDATE trigger: only the Owner may change a profiles.role
+-- value (see migration 0006 for the full reasoning). It fires only
+-- on a self-change (old.id = auth.uid()): the Owner changing
+-- someone else's role passes straight through, and the service-role
+-- client (auth.uid() null) is unaffected.
+create or replace function public.prevent_non_owner_role_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.role is distinct from new.role
+     and old.id = auth.uid()
+     and not public.is_admin()
+  then
+    raise exception 'Only the Owner may change a user role.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_prevent_role_change on public.profiles;
+create trigger profiles_prevent_role_change
+  before update on public.profiles
+  for each row execute function public.prevent_non_owner_role_change();
 
 -- ===========================================================================
 -- seller_profiles — verified shops are publicly readable (storefront);
@@ -111,6 +296,8 @@ create policy "categories_admin_all" on public.categories
 
 -- ===========================================================================
 -- products — visitors read active products only; sellers manage their own.
+-- Staff may INSERT and DELETE products; UPDATE is Owner / co_admin
+-- only (manager adds/deletes but does not edit/pause).
 -- ===========================================================================
 drop policy if exists "products_select_active" on public.products;
 create policy "products_select_active" on public.products
@@ -143,6 +330,26 @@ create policy "products_admin_all" on public.products
   for all to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- Staff (Owner / co_admin / manager) may INSERT and DELETE products;
+-- UPDATE is Owner / co_admin only (manager adds/deletes but does
+-- not edit/pause — deliberate). The Owner is already covered by
+-- products_admin_all above.
+drop policy if exists "products_staff_insert" on public.products;
+create policy "products_staff_insert" on public.products
+  for insert to authenticated
+  with check (public.is_staff());
+
+drop policy if exists "products_staff_delete" on public.products;
+create policy "products_staff_delete" on public.products
+  for delete to authenticated
+  using (public.is_staff());
+
+drop policy if exists "products_co_admin_update" on public.products;
+create policy "products_co_admin_update" on public.products
+  for update to authenticated
+  using (public.is_co_admin())
+  with check (public.is_co_admin());
 
 -- ===========================================================================
 -- product_images — readable when the product is active; writable only by
@@ -281,7 +488,8 @@ create policy "cart_items_admin_all" on public.cart_items
 -- ===========================================================================
 -- orders — customers see / place only their own orders. Customers may
 -- NOT update an order (status changes are admin / server-side only).
--- Sellers may read orders that contain their own items.
+-- Staff may SELECT orders; UPDATE is Owner / co_admin only (manager
+-- is read-only on orders).
 -- ===========================================================================
 drop policy if exists "orders_select_own" on public.orders;
 create policy "orders_select_own" on public.orders
@@ -307,6 +515,22 @@ create policy "orders_admin_all" on public.orders
   for all to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- Staff (Owner / co_admin / manager) may SELECT orders; UPDATE is
+-- Owner / co_admin only (manager is read-only on orders). The Owner
+-- is already covered by orders_admin_all above. No policy here reads
+-- order_items, so the orders/order_items recursion fixed in
+-- migration 0004 cannot come back.
+drop policy if exists "orders_staff_select" on public.orders;
+create policy "orders_staff_select" on public.orders
+  for select to authenticated
+  using (public.is_staff());
+
+drop policy if exists "orders_co_admin_update" on public.orders;
+create policy "orders_co_admin_update" on public.orders
+  for update to authenticated
+  using (public.is_co_admin())
+  with check (public.is_co_admin());
 
 -- ===========================================================================
 -- order_items — the buyer (via their order), the seller of the item,

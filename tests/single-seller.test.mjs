@@ -22,8 +22,12 @@ function read(rel) {
 }
 
 function stripComments(source) {
-  // TS/TSX use // comments; SQL uses -- comments.
-  return source
+  // TS/TSX use // comments and /* */ block comments (including
+  // JSDoc); SQL uses -- comments. A mention of a role inside a
+  // comment is not a role value in the code, so all three are
+  // stripped before any "seller" literal check.
+  const withoutBlocks = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  return withoutBlocks
     .split("\n")
     .filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("--"))
     .join("\n");
@@ -51,6 +55,11 @@ test("auth-server only ever creates customer profiles, no seller verification", 
   assert.equal(/getSellerVerified/.test(server), false);
   assert.equal(/"seller"/.test(stripComments(server)), false);
   assert.match(server, /role:\s*"customer"/);
+  // The one role write in this file is the Owner-only changeUserRole
+  // added with the roles build (migration 0006); it may assign only
+  // the four real roles, never "seller".
+  assert.match(server, /const ASSIGNABLE_ROLES = \["customer", "co_admin", "manager", "admin"\]/);
+  assert.equal(/"seller"/.test(server.match(/ASSIGNABLE_ROLES = \[[^\]]*\]/)?.[0] ?? ""), false);
 });
 
 test("profile trigger migration only ever creates customer (executable SQL)", () => {
@@ -91,10 +100,15 @@ test("no seller links in header, footer or auth pages", () => {
   }
 });
 
-test("product actions require admin and never mention a seller", () => {
+test("product actions require staff roles and never mention a seller", () => {
   const actions = read("lib/products/actions.ts");
-  assert.match(actions, /async function requireAdmin/);
-  assert.match(actions, /user\.role !== "admin"/);
+  // The Owner-only requireAdmin gate became the staff gate with the
+  // roles build (migration 0006): create / delete / upload is any
+  // staff role, edit / pause is owner and co-admin only, enforced
+  // through lib/roles.ts — never a seller check.
+  assert.match(actions, /async function requireStaff/);
+  assert.match(actions, /canManageProducts\(role\)/);
+  assert.match(actions, /canEditProducts\(role\)/);
   assert.equal(/requireSellerOrAdmin|getSellerVerified|mayPublish/.test(actions), false);
   assert.equal(/"seller"/.test(stripComments(actions)), false);
   assert.match(actions, /seller_id: null/);

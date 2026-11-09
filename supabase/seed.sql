@@ -47,7 +47,7 @@ values
     'Apple iPhone 16 Pro with 256GB storage in Natural Titanium. A18 Pro chip, 48MP Pro camera system, titanium design and USB-C. Official warranty in Bangladesh.',
     11990000, 12990000, 12, 'active',
     'apple iphone 16 pro 256gb natural titanium smartphone a18 pro camera',
-    4.9, 1248, true, now() + interval '7 days'
+    0, 0, true, now() + interval '7 days'
   ),
   (
     (select id from public.categories where slug = 'audio'),
@@ -56,7 +56,7 @@ values
     'Sony WH-1000XM5 wireless noise cancelling headphones with industry-leading ANC, 30-hour battery life and crystal-clear hands-free calling.',
     2499000, 2999000, 30, 'active',
     'sony wh-1000xm5 headphones wireless noise cancelling audio bluetooth',
-    4.8, 862, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'laptops'),
@@ -65,7 +65,7 @@ values
     'Apple MacBook Air 13-inch with M3 chip, 8GB unified memory and 256GB SSD. Fanless, lightweight and up to 18 hours of battery life.',
     9990000, 11490000, 8, 'active',
     'apple macbook air 13 m3 laptop macos',
-    4.9, 476, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'wearables'),
@@ -74,7 +74,7 @@ values
     'Samsung Galaxy Watch7 with advanced sleep tracking, Galaxy AI health insights, GPS and 5ATM water resistance. Works with Android phones.',
     2699900, 3299900, 25, 'active',
     'samsung galaxy watch7 smartwatch wearable health fitness',
-    4.7, 324, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'smartphones'),
@@ -83,7 +83,7 @@ values
     'Samsung Galaxy S24 Ultra with Galaxy AI, 200MP camera, built-in S Pen and titanium frame. 12GB RAM, 256GB storage.',
     10999900, 12999900, 15, 'active',
     'samsung galaxy s24 ultra smartphone galaxy ai s pen camera',
-    4.8, 934, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'cameras'),
@@ -92,7 +92,7 @@ values
     'Sony Alpha ZV-E10 II mirrorless vlog camera with 26MP APS-C sensor, 4K video, fast autofocus and a vari-angle touchscreen. Body only.',
     9499000, 10499900, 6, 'active',
     'sony alpha zv-e10 ii camera mirrorless vlog 4k',
-    4.8, 186, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'gaming'),
@@ -101,7 +101,7 @@ values
     'Sony PlayStation DualSense wireless controller for PS5 with haptic feedback, adaptive triggers and a built-in microphone.',
     549000, 639000, 40, 'active',
     'sony playstation dualsense wireless controller ps5 gaming',
-    4.8, 711, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'audio'),
@@ -110,7 +110,7 @@ values
     'JBL Flip 6 portable Bluetooth speaker with powerful sound, IP67 waterproof and dustproof rating and 12 hours of playtime.',
     899900, 1199900, 35, 'active',
     'jbl flip 6 speaker portable bluetooth waterproof audio',
-    4.7, 589, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'accessories'),
@@ -119,7 +119,7 @@ values
     'Anker 737 GaNPrime power bank, 24,000mAh capacity with 140W fast charging, smart digital display and USB-C. Charges laptops and phones.',
     1299900, 1699900, 50, 'active',
     'anker 737 power bank 24000mah ganprime fast charging usb-c accessory',
-    4.6, 203, false, null
+    0, 0, false, null
   )
 on conflict (slug) do nothing;
 
@@ -138,7 +138,7 @@ values
     'Netflix Premium subscription for 1 month. Stream in 4K Ultra HD on up to 4 screens at the same time. Account details delivered after purchase.',
     64900, null, 999, 'active',
     'netflix premium subscription 1 month streaming 4k',
-    4.8, 412, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'subscriptions'),
@@ -147,7 +147,7 @@ values
     'Amazon Prime membership for 1 year. Prime Video, fast delivery benefits and exclusive deals. Account details delivered after purchase.',
     149900, null, 999, 'active',
     'amazon prime subscription 1 year prime video membership',
-    4.7, 298, false, null
+    0, 0, false, null
   ),
   (
     (select id from public.categories where slug = 'subscriptions'),
@@ -156,7 +156,7 @@ values
     'YouTube Premium subscription for 1 month. Ad-free videos, background play and YouTube Music included. Account details delivered after purchase.',
     14900, null, 999, 'active',
     'youtube premium subscription 1 month ad-free music',
-    4.8, 531, false, null
+    0, 0, false, null
   )
 on conflict (slug) do nothing;
 

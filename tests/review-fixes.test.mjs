@@ -373,7 +373,7 @@ test("admin refund calls the payment adapter FIRST and only then marks the order
 test("cancel / refund restore stock only after the conditional update succeeds", () => {
   const src = readSource("../lib/orders/actions.ts");
   assert.ok(src.includes("restoreStockAfterStatusChange"), "stock restore is wired into status changes");
-  assert.ok(src.includes('if (target === "cancelled" || target === "refunded")'));
+  assert.ok(src.includes('if (target === "cancelled" || target === "refunded" || target === "returned")'), "cancel, refund and returned all restore stock");
   const updateAt = src.indexOf('.eq("status", order.status)');
   const restoreAt = src.indexOf("await restoreStockAfterStatusChange(admin, order.id)");
   assert.ok(restoreAt > updateAt, "restore happens after the update, never before it");
@@ -433,13 +433,17 @@ test("admin users list carries no email into the client bundle (fix #14)", () =>
 });
 
 test("admin order buttons are disabled while their server action is in flight (fix #1)", () => {
-  const src = readSource("../app/admin/AdminDashboard.tsx");
+  // The guard moved with the orders section when the dashboard was
+  // split into tabs (2026-11-09): it lives in
+  // components/AdminOrders.tsx now, not in the tab shell
+  // (app/admin/AdminDashboard.tsx). The behaviour is unchanged.
+  const src = readSource("../components/AdminOrders.tsx");
   assert.ok(src.includes("pendingOrderId"), "pending order id is tracked in state");
   assert.ok(src.includes("disabled={pendingOrderId === order.id}"), "buttons disable while pending");
 });
 
 test("admin double-click guard is a synchronous ref, not state alone (fix #1 follow-up)", () => {
-  const src = readSource("../app/admin/AdminDashboard.tsx");
+  const src = readSource("../components/AdminOrders.tsx");
   // 2026-11-08: two clicks in the same task both read stale state
   // (null) and both reached the server, moving two steps — the
   // server's conditional update cannot stop the second one, because
@@ -495,4 +499,30 @@ test("audit failures are visible server-side, never swallowed silently (fix #9)"
 test("customer order page shows cancel only from pending_payment / confirmed (fix #3)", () => {
   const src = readSource("../app/orders/[id]/page.tsx");
   assert.ok(src.includes('const cancellable = ["pending_payment", "confirmed"].includes(order.status);'));
+});
+
+test("admin users notice survives the refresh remount (pending notice)", () => {
+  // setUserNotice followed by router.refresh() wiped the notice: the
+  // refresh remounts the component (same bug class as the 2026-11-08
+  // cancel notice, which is why the role-change confirmation never
+  // showed). AdminUsers keeps the notice in a module-level variable
+  // like ProductManager's pendingSaveNotice, consumed on remount.
+  const src = readSource("../components/AdminUsers.tsx");
+  assert.match(src, /let pendingUserNotice: string \| null = null;/);
+  assert.match(src, /const notice = pendingUserNotice;/);
+  assert.match(src, /pendingUserNotice = notice;/);
+});
+
+test("review submit shows the review without a refresh remount", () => {
+  // The form's router.refresh() remounted the gallery, wiping the
+  // thank-you notice and resetting the tab to Description — hiding
+  // the review just written, even though the row was saved. The form
+  // now hands the saved review to the parent, which appends it from
+  // local state; the next navigation loads the server copy.
+  const gallery = readSource("../components/ProductGallery.tsx");
+  const form = gallery.slice(gallery.indexOf("function ReviewForm"));
+  assert.equal(/router\.refresh\(\)/.test(form), false);
+  assert.match(form, /onReviewSaved\?\.\(/);
+  assert.match(gallery, /function handleReviewSaved/);
+  assert.match(gallery, /setShownReviews/);
 });

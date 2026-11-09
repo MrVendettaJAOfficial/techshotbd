@@ -25,8 +25,17 @@ import {
 } from "@/lib/products/actions";
 import { MAX_PRODUCT_IMAGES, parseVariantsText } from "@/lib/products/validation";
 import type { CategoryOption, ProductListItem, ProductStatus } from "@/lib/products/types";
+import { canEditProducts, canManageProducts } from "@/lib/roles";
 import { formatBDT } from "@/lib/theme";
 import { Badge, Button, Card, EmptyState, Field, Input, SectionHeading, Select } from "@/components/ui";
+import TabBar from "@/components/TabBar";
+import {
+  PRODUCT_STATUS_TABS,
+  cleanSpecifications,
+  countByStatus,
+  filterByStatus,
+  type SpecificationRow,
+} from "@/components/admin-helpers";
 
 const inputBase =
   "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:border-brand disabled:opacity-50";
@@ -77,10 +86,17 @@ interface ProductManagerProps {
   canPublish: boolean;
   /** False when Supabase is not configured: the form is disabled. */
   configured: boolean;
+  /** The signed-in caller's role string (owner "admin", "co_admin", "manager", ...). */
+  callerRole: string | null;
 }
 
-export default function ProductManager({ products, categories, canPublish, configured }: ProductManagerProps) {
+export default function ProductManager({ products, categories, canPublish, configured, callerRole }: ProductManagerProps) {
   const router = useRouter();
+
+  // Manager adds and deletes products only — edit and pause/activate
+  // are hidden for that role (canEditProducts is false for manager).
+  const canEdit = canEditProducts(callerRole);
+  const canManage = canManageProducts(callerRole);
 
   const [title, setTitle] = useState("");
   const [categorySlug, setCategorySlug] = useState("");
@@ -96,6 +112,13 @@ export default function ProductManager({ products, categories, canPublish, confi
   // even if it is empty: a product with no photos is allowed.
   const [imagePaths, setImagePaths] = useState<string[]>([""]);
   const [variantsText, setVariantsText] = useState("");
+  // Warranty (one line of text) and specifications (a key/value
+  // list) for the product. Both are optional; empty rows are
+  // dropped on save, so a product with no specs stores none and
+  // the product page honestly says so instead of inventing any.
+  const [warranty, setWarranty] = useState("");
+  const [specifications, setSpecifications] = useState<SpecificationRow[]>([{ key: "", value: "" }]);
+  const [productFilter, setProductFilter] = useState<string>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   // Initial state consumes a save notice left by the previous mount
@@ -115,8 +138,10 @@ export default function ProductManager({ products, categories, canPublish, confi
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  const formDisabled = !configured || !canPublish;
+  const formDisabled = !configured || !canPublish || !canManage;
   const editingProduct = editingId ? products.find((product) => product.id === editingId) ?? null : null;
+  const productCounts = countByStatus(products, (product) => product.status);
+  const filteredProducts = filterByStatus(products, productFilter, (product) => product.status);
 
   function resetForm(): void {
     setTitle("");
@@ -128,6 +153,8 @@ export default function ProductManager({ products, categories, canPublish, confi
     setStatus("draft");
     setImagePaths([""]);
     setVariantsText("");
+    setWarranty("");
+    setSpecifications([{ key: "", value: "" }]);
     setEditingId(null);
     setFormError(null);
     setUploadError(null);
@@ -153,10 +180,33 @@ export default function ProductManager({ products, categories, canPublish, confi
           : [""],
     );
     setVariantsText(variantsToText(product));
+    setWarranty(product.warranty ?? "");
+    setSpecifications(
+      product.specifications.length > 0
+        ? product.specifications.map((row) => ({ key: row.key, value: row.value }))
+        : [{ key: "", value: "" }],
+    );
     setFormError(null);
     setFormNotice(null);
     setUploadError(null);
     setUploadNotice(null);
+  }
+
+  function setSpecification(index: number, field: "key" | "value", value: string): void {
+    setSpecifications((current) =>
+      current.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  function addSpecificationRow(): void {
+    setSpecifications((current) => [...current, { key: "", value: "" }]);
+  }
+
+  function removeSpecification(index: number): void {
+    setSpecifications((current) => {
+      const next = current.filter((_, i) => i !== index);
+      return next.length === 0 ? [{ key: "", value: "" }] : next;
+    });
   }
 
   function setPhoto(index: number, value: string): void {
@@ -247,6 +297,14 @@ export default function ProductManager({ products, categories, canPublish, confi
       // server-side by mergeImagePaths.
       imagePaths: imagePaths.map((path) => path.trim()).filter((path) => path !== ""),
       variants,
+      // Warranty text and the specifications list, for the product
+      // page's warranty and specs tabs. Empty specs rows are dropped
+      // by cleanSpecifications, so a product with no specs stores
+      // an empty list. The actions take the raw input and validate
+      // it with the product input schema (warranty / specifications
+      // are optional there), so no cast is needed.
+      warranty: warranty.trim(),
+      specifications: cleanSpecifications(specifications),
     };
     setSaving(true);
     const result = editingId ? await updateProduct(editingId, input) : await createProduct(input);
@@ -470,6 +528,64 @@ export default function ProductManager({ products, categories, canPublish, confi
               <Input id="product-variants" value={variantsText} onChange={(e) => setVariantsText(e.target.value)} placeholder="128GB:89900:10, Black Titanium::5:iphone-black.jpg" disabled={formDisabled} />
             </Field>
           </div>
+          <Field label="Warranty" htmlFor="product-warranty">
+            <Input
+              id="product-warranty"
+              value={warranty}
+              onChange={(e) => setWarranty(e.target.value)}
+              placeholder="e.g. 1-year official brand warranty"
+              disabled={formDisabled}
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field
+              label="Specifications"
+              hint="Optional. One row per specification — a key and a value, shown on the product page's Specifications tab. Rows left blank are not saved."
+            >
+              <div className="space-y-2">
+                {specifications.map((row, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={row.key}
+                      onChange={(e) => setSpecification(index, "key", e.target.value)}
+                      placeholder="e.g. Display"
+                      disabled={formDisabled}
+                      aria-label={`Specification ${index + 1} key`}
+                    />
+                    <Input
+                      value={row.value}
+                      onChange={(e) => setSpecification(index, "value", e.target.value)}
+                      placeholder="e.g. 6.1-inch OLED"
+                      disabled={formDisabled}
+                      aria-label={`Specification ${index + 1} value`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSpecification(index)}
+                      disabled={formDisabled}
+                      aria-label={`Remove specification ${index + 1}`}
+                      title="Remove specification"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </Field>
+            <div className="mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addSpecificationRow}
+                disabled={formDisabled}
+                data-testid="add-specification-row"
+              >
+                Add a specification
+              </Button>
+            </div>
+          </div>
           {formError ? (
             <p role="alert" className="text-sm text-[#f87171] sm:col-span-2">{formError}</p>
           ) : null}
@@ -493,8 +609,17 @@ export default function ProductManager({ products, categories, canPublish, confi
         title="Product moderation"
         description="Every product in the catalogue, including drafts and paused products. Pause hides a product from shoppers; Delete removes it."
       />
+      <TabBar
+        tabs={PRODUCT_STATUS_TABS.map((tab) => ({
+          ...tab,
+          count: tab.id === "all" ? products.length : (productCounts[tab.id] ?? 0),
+        }))}
+        activeId={productFilter}
+        ariaLabel="Filter products by status"
+        onSelect={setProductFilter}
+      />
       {rowError ? (
-        <p role="alert" className="mb-4 text-sm text-[#f87171]">{rowError}</p>
+        <p role="alert" className="mb-4 mt-4 text-sm text-[#f87171]">{rowError}</p>
       ) : null}
       {products.length === 0 ? (
         <EmptyState
@@ -504,10 +629,17 @@ export default function ProductManager({ products, categories, canPublish, confi
               ? "Add your first product with the form above."
               : "Live product data is not configured yet, so no products can be listed here."
           }
+          className="mt-4"
+        />
+      ) : filteredProducts.length === 0 ? (
+        <EmptyState
+          title={`No ${productFilter === "active" ? "live" : productFilter} products`}
+          description="No products currently have this status."
+          className="mt-4"
         />
       ) : (
-        <div className="space-y-3">
-          {products.map((product) => (
+        <div className="mt-4 space-y-3">
+          {filteredProducts.map((product) => (
             <Card key={product.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -530,42 +662,50 @@ export default function ProductManager({ products, categories, canPublish, confi
                   ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={() => startEdit(product)} disabled={!configured}>
-                    Edit
-                  </Button>
-                  {product.status !== "draft" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleToggleStatus(product)}
-                      disabled={!configured || busyId === product.id || (product.status === "paused" && !canPublish)}
-                    >
-                      {product.status === "active" ? "Pause" : "Activate"}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleToggleStatus(product)}
-                      disabled={!configured || busyId === product.id || !canPublish}
-                    >
-                      Activate
-                    </Button>
-                  )}
-                  {confirmDeleteId === product.id ? (
+                  {/* Manager adds and deletes only: Edit and
+                      Pause / Activate are hidden for that role. */}
+                  {canEdit ? (
                     <>
-                      <Button variant="danger" size="sm" onClick={() => void handleDelete(product)} disabled={busyId === product.id}>
-                        Confirm delete
+                      <Button variant="outline" size="sm" onClick={() => startEdit(product)} disabled={!configured}>
+                        Edit
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>
-                        Keep it
-                      </Button>
+                      {product.status !== "draft" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleToggleStatus(product)}
+                          disabled={!configured || busyId === product.id || (product.status === "paused" && !canPublish)}
+                        >
+                          {product.status === "active" ? "Pause" : "Activate"}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleToggleStatus(product)}
+                          disabled={!configured || busyId === product.id || !canPublish}
+                        >
+                          Activate
+                        </Button>
+                      )}
                     </>
-                  ) : (
-                    <Button variant="danger" size="sm" onClick={() => setConfirmDeleteId(product.id)} disabled={!configured}>
-                      Delete
-                    </Button>
-                  )}
+                  ) : null}
+                  {canManage ? (
+                    confirmDeleteId === product.id ? (
+                      <>
+                        <Button variant="danger" size="sm" onClick={() => void handleDelete(product)} disabled={busyId === product.id}>
+                          Confirm delete
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                          Keep it
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="danger" size="sm" onClick={() => setConfirmDeleteId(product.id)} disabled={!configured}>
+                        Delete
+                      </Button>
+                    )
+                  ) : null}
                 </div>
               </div>
             </Card>
