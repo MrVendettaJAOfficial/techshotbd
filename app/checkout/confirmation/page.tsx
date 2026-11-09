@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { formatBDT } from "@/lib/theme";
+import ProductPlaceholder from "@/components/ProductPlaceholder";
 import { getOrderRecord } from "@/lib/orders";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -43,7 +44,7 @@ export default function ConfirmationPage({
             incomplete. Your browser-saved orders are listed on the Orders page.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/" className="rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600">
+            <Link href="/" className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
               Back to home
             </Link>
             <Link href="/orders" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">
@@ -73,7 +74,7 @@ export default function ConfirmationPage({
         </p>
         <p className="mt-1 text-sm text-muted">
           Status: <span className="font-semibold text-text">{STATUS_LABELS[order.status] ?? order.status}</span>
-          {order.testMode && <span className="ml-2 rounded bg-accent px-2 py-0.5 text-xs font-bold text-white">TEST MODE</span>}
+          {order.testMode && <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-300">TEST MODE</span>}
         </p>
       </div>
 
@@ -82,9 +83,7 @@ export default function ConfirmationPage({
         <ul className="mt-4 space-y-3">
           {order.items.map((item) => (
             <li key={item.productId} className="flex items-center gap-3 text-sm">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface font-bold text-brand">
-                {item.title.charAt(0)}
-              </span>
+              <ProductPlaceholder compact label={item.title} className="h-10 w-10 shrink-0 rounded-lg" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-text">{item.title}</span>
                 <span className="text-muted">Qty {item.quantity}</span>
@@ -136,7 +135,7 @@ export default function ConfirmationPage({
       </section>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        <Link href={`/orders/${order.id}`} className="rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600">
+        <Link href={`/orders/${order.id}`} className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
           Track this order
         </Link>
         <Link href="/" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">

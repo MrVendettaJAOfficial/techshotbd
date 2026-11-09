@@ -27,8 +27,8 @@ test("app/icon.svg exists and is a solid-colour SVG favicon", () => {
   assert.match(svg, /<svg[^>]*viewBox=/);
   assert.doesNotMatch(svg, /gradient/i);
   assert.doesNotMatch(svg, /emoji/i);
-  // TechShot palette only: navy background, orange accent.
-  assert.match(svg, /#0b1120/);
+  // TechShot palette only: logo-navy background, orange accent.
+  assert.match(svg, /#00162E/);
   assert.match(svg, /#f97316/);
 });
 

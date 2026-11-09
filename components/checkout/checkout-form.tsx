@@ -21,6 +21,7 @@ import { useCart, usePricedCartLines } from "@/lib/cart-store";
 import AddressStep from "@/components/checkout/address-step";
 import PaymentStep from "@/components/checkout/payment-step";
 import { btnPrimary, errCls, type CheckoutStep } from "@/components/checkout/checkout-shared";
+import ProductPlaceholder from "@/components/ProductPlaceholder";
 import {
   clearCouponCode,
   getCouponCode,
@@ -189,7 +190,7 @@ export default function CheckoutForm({
         <section className="rounded-2xl border border-border bg-panel p-5" aria-label="Delivery options">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-text">
-              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand text-sm text-white">2</span>
+              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brandDark text-sm text-white">2</span>
               Delivery options
             </h2>
             {step !== 2 && step === 3 && (
@@ -202,7 +203,7 @@ export default function CheckoutForm({
             <div className="mt-4 space-y-3" role="radiogroup" aria-label="Delivery options">
               <label className={`flex cursor-pointer items-center justify-between rounded-xl border p-4 ${delivery === "standard" ? "border-brand bg-surface" : "border-border"}`}>
                 <span className="flex items-center gap-3">
-                  <input type="radio" name="delivery" value="standard" checked={delivery === "standard"} onChange={() => setDelivery("standard")} className="h-4 w-4 accent-blue-500" />
+                  <input type="radio" name="delivery" value="standard" checked={delivery === "standard"} onChange={() => setDelivery("standard")} className="h-4 w-4 accent-brandDark" />
                   <span>
                     <span className="block font-semibold text-text">Standard delivery</span>
                     <span className="block text-sm text-muted">2–4 working days</span>
@@ -212,7 +213,7 @@ export default function CheckoutForm({
               </label>
               <label className={`flex cursor-pointer items-center justify-between rounded-xl border p-4 ${delivery === "express" ? "border-brand bg-surface" : "border-border"}`}>
                 <span className="flex items-center gap-3">
-                  <input type="radio" name="delivery" value="express" checked={delivery === "express"} onChange={() => setDelivery("express")} className="h-4 w-4 accent-blue-500" />
+                  <input type="radio" name="delivery" value="express" checked={delivery === "express"} onChange={() => setDelivery("express")} className="h-4 w-4 accent-brandDark" />
                   <span>
                     <span className="block font-semibold text-text">Express delivery</span>
                     <span className="block text-sm text-muted">1–2 working days</span>
@@ -258,9 +259,7 @@ export default function CheckoutForm({
         <ul className="mt-4 space-y-3">
           {lines.map((item) => (
             <li key={item.productId} className="flex items-center gap-3 text-sm">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface font-bold text-brand">
-                {item.title.charAt(0)}
-              </span>
+              <ProductPlaceholder compact label={item.title} className="h-10 w-10 shrink-0 rounded-lg" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-text">{item.title}</span>
                 <span className="text-muted">Qty {item.quantity}</span>
@@ -292,7 +291,7 @@ export default function CheckoutForm({
           </div>
         </dl>
         {errors.coupon && <p className={errCls}>{errors.coupon}</p>}
-        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-accent px-5 py-3 font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
+        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker disabled:opacity-50">
           {submitting ? "Placing your order…" : `Pay ${formatBDT(summary.total_poisha)} securely`}
         </button>
         <p className="mt-2 text-center text-xs text-muted">

@@ -11,8 +11,8 @@ html {
 }
 
 body {
-  background-color: #0b1120;
-  color: #f8fafc;
+  background-color: #00162e;
+  color: #f1f7fe;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -21,3 +21,60 @@ a {
 }
 
 /* Solid colours only. No gradients are used anywhere in this codebase. */
+
+/* Smooth motion (150–300ms, CSS/Tailwind only, no animation library):
+   drawers slide in from the side, overlays fade in. The classes are
+   applied when a drawer mounts; the global reduced-motion rule below
+   turns them off for users who ask for it. */
+@keyframes drawer-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawer-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-drawer-left {
+  animation: drawer-in-left 250ms ease-out;
+}
+
+.animate-drawer-right {
+  animation: drawer-in-right 250ms ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+/* Respect users who ask for less motion: every transition and
+   animation on the site collapses to (near-)instant, and smooth
+   scrolling becomes a jump. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

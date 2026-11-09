@@ -24,7 +24,7 @@ import {
 } from "@/lib/checkout-store";
 
 const btnPrimary =
-  "inline-flex items-center justify-center rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600";
+  "inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker";
 const btnGhost =
   "inline-flex items-center justify-center rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text hover:border-brand";
 
@@ -177,7 +177,7 @@ export default function CartPage() {
 
       {amountToFreeDelivery > 0 ? (
         <div className="mt-4 rounded-lg border border-border bg-panel px-4 py-3 text-sm text-text">
-          Add <span className="font-semibold text-accent">{formatBDT(amountToFreeDelivery)}</span> more to unlock FREE delivery.
+          Add <span className="font-semibold text-brandLight">{formatBDT(amountToFreeDelivery)}</span> more to unlock FREE delivery.
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-success bg-panel px-4 py-3 text-sm text-success">
@@ -211,13 +211,7 @@ export default function CartPage() {
               const image = line?.image ?? product?.image;
               return (
                 <li key={`${item.slug}::${item.variant ?? ""}`} className="flex gap-4 rounded-2xl border border-border bg-panel p-4">
-                  {image ? (
-                    <ProductImage src={image} alt={title} className="h-20 w-20 shrink-0 rounded-lg" />
-                  ) : (
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-surface text-2xl font-bold text-brand">
-                      ?
-                    </div>
-                  )}
+                  <ProductImage src={image ?? ""} alt={title} className="h-20 w-20 shrink-0 rounded-lg" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-text">
                       {title}

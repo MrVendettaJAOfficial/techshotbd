@@ -27,11 +27,11 @@ import {
 
 const STATUS_STYLES: Record<string, string> = {
   pending_payment: "bg-amber-500/20 text-amber-300",
-  confirmed: "bg-brand/20 text-blue-300",
-  processing: "bg-brand/20 text-blue-300",
-  shipped: "bg-accent/20 text-orange-300",
+  confirmed: "bg-brand/20 text-brandLight",
+  processing: "bg-brand/20 text-brandLight",
+  shipped: "bg-logoWhite/10 text-logoWhite",
   delivered: "bg-success/20 text-emerald-300",
-  returned: "bg-orange-500/20 text-orange-300",
+  returned: "bg-slate-500/20 text-slate-300",
   cancelled: "bg-red-500/20 text-red-300",
   refunded: "bg-muted/20 text-gray-300",
 };
@@ -134,7 +134,7 @@ export default function OrdersPage() {
         <div className="mt-8 rounded-2xl border border-border bg-panel p-10 text-center">
           <h2 className="text-xl font-bold text-text">No orders yet</h2>
           <p className="mt-2 text-muted">Orders you place will show up here with their status and totals.</p>
-          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600">
+          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
             Shop now
           </Link>
         </div>
@@ -190,7 +190,7 @@ export default function OrdersPage() {
                     {STATUS_LABELS[order.status] ?? order.status}
                   </span>
                   {order.testMode && (
-                    <span className="ml-2 inline-block rounded-full bg-accent px-2 py-1 text-xs font-bold text-white">TEST MODE</span>
+                    <span className="ml-2 inline-block rounded-full bg-amber-500/20 px-2 py-1 text-xs font-bold text-amber-300">TEST MODE</span>
                   )}
                 </div>
               </div>

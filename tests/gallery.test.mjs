@@ -136,12 +136,14 @@ test("mapDbProductToCatalog carries every photo as gallery, image stays first", 
   ]);
 });
 
-test("gallery falls back to the slug photo when no image rows exist", () => {
+test("gallery is empty when no image rows exist (no slug guess)", () => {
+  // 2026-11-09 image-400 fix: see tests/catalog.test.mjs — a product
+  // with no image rows gets image "" and an empty gallery, and the
+  // gallery/product page renders the logo placeholder instead of
+  // requesting a photo file that may not exist.
   const mapped = mapDbProductToCatalog(row({ product_images: [] }));
-  assert.equal(mapped.image, "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg");
-  assert.deepEqual(mapped.gallery, [
-    "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg",
-  ]);
+  assert.equal(mapped.image, "");
+  assert.deepEqual(mapped.gallery, []);
 });
 
 test("gallery dedupes the same photo twice and drops empty rows", () => {

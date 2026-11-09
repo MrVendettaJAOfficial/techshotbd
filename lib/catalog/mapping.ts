@@ -94,27 +94,29 @@ export function mapDbProductToCatalog(row: DbProductRow, reviewStats?: ReviewSta
   // Supabase Storage: a stored local path /images/products/<file>.jpg
   // or a bare filename resolves to its Storage URL, a full https URL
   // passes through, and the local path is kept when Supabase is not
-  // configured (see lib/storage-images.ts). The slug fallback goes
-  // through the same resolution, so a product with no image rows still
-  // gets its Storage photo; an empty resolution falls back to the
-  // local slug image, exactly as before. `gallery` is every resolved
-  // photo in sort_order (the first is `image`); the gallery shows
-  // the whole list, cards and the cart keep using `image` alone.
+  // configured (see lib/storage-images.ts). Rows are authoritative:
+  // the admin form writes a row when it uploads a file, so a product
+  // with rows gets exactly those photos.
+  //
+  // There is deliberately NO slug fallback here any more. The old
+  // fallback guessed a Storage URL from the product slug
+  // (/images/products/<slug>.jpg) for any product with no image rows
+  // — and for the three subscription products that file was never
+  // uploaded, so the guessed URL 404'd in Storage and the Next.js
+  // image optimizer answered 400 on every shop/product render (the
+  // console error, with the initials fallback covering it up). A
+  // product with no image rows now gets image "" and an empty
+  // gallery, and ProductImage renders the branded logo placeholder
+  // instead — no doomed URL is ever requested. `gallery` is every
+  // resolved photo in sort_order (the first is `image`); the gallery
+  // shows the whole list, cards and the cart keep using `image` alone.
   const resolvedImages = images
     .map((row) =>
       resolveProductImageSrc(row.storage_path, process.env.NEXT_PUBLIC_SUPABASE_URL),
     )
     .filter((src) => src !== "");
-  // The slug fallback goes through the same resolution, so a product
-  // with no image rows still gets its Storage photo when configured
-  // (and the local slug image when not).
-  const image =
-    resolvedImages[0] ??
-    (resolveProductImageSrc(
-      `/images/products/${row.slug}.jpg`,
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-    ) || `/images/products/${row.slug}.jpg`);
-  const gallery = [...new Set([image, ...resolvedImages.slice(1)])];
+  const image = resolvedImages[0] ?? "";
+  const gallery = [...new Set(resolvedImages)];
 
   const variants = row.product_variants ?? [];
   const storageOptions = variants

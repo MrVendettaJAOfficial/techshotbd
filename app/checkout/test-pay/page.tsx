@@ -74,7 +74,7 @@ export default function TestPayPage({
   if (!order) {
     return (
       <main className="mx-auto max-w-[720px] px-4 py-10">
-        <div className="rounded-lg bg-accent px-4 py-3 text-sm font-bold text-white">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-300">
           TEST MODE — no real payment is processed on this site.
         </div>
         <div className="mt-6 rounded-2xl border border-border bg-panel p-8 text-center">
@@ -85,7 +85,7 @@ export default function TestPayPage({
             restarted. Check your orders list, which is stored in your browser.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/orders" className="rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600">
+            <Link href="/orders" className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
               View my orders
             </Link>
             <Link href="/" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">
@@ -99,7 +99,7 @@ export default function TestPayPage({
 
   return (
     <main className="mx-auto max-w-[720px] px-4 py-10">
-      <div className="rounded-lg bg-accent px-4 py-3 text-sm font-bold text-white">
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-300">
         TEST MODE — no real payment is processed. Choose an outcome below to simulate the test gateway.
       </div>
 

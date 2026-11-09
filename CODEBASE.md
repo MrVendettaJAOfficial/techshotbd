@@ -77,6 +77,7 @@ is the skeleton shown while it loads.
 | `components/admin/` | Admin dashboard shell (`dashboard-shell.tsx`) and coupons (`coupons-section.tsx`) |
 | `components/admin-orders/` | Admin orders tab: `orders-list.tsx`, `status-controls.tsx` (status selector, Advance, Cancel, Refund) |
 | `components/Header.tsx`, `Footer.tsx` | Site header (cart button + mini-cart) and footer |
+| `components/Logo.tsx` | Brand wordmark (code-built, no image): TS monogram, "TechShot" in extra-bold Montserrat + green "BD", tagline; header hides the tagline on mobile, footer always shows it |
 | `components/MiniCartDrawer.tsx` | Slide-over mini cart |
 | `components/ProductCard.tsx`, `ProductImage.tsx`, `Stars.tsx` | Product card, photo with fallback, star rating |
 | `components/AdminStats.tsx`, `AdminUsers.tsx`, `TabBar.tsx` | Admin stats cards, users tab, tab bar |

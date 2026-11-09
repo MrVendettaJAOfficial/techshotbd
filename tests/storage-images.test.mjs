@@ -129,6 +129,10 @@ test("mapDbProductToCatalog: unconfigured keeps the stored local path", () => {
       ],
     });
     assert.equal(product.image, "/images/products/apple-iphone-16-pro.jpg");
+    // No image rows and no Supabase: no slug guess either — the
+    // storefront renders the logo placeholder instead of requesting
+    // a local file that may not exist (see the subscription case
+    // below). Row-based resolution above is untouched.
     const noImage = mapDbProductToCatalog({
       title: "Sony WH-1000XM5",
       slug: "sony-wh-1000xm5",
@@ -136,14 +140,22 @@ test("mapDbProductToCatalog: unconfigured keeps the stored local path", () => {
       status: "active",
       product_images: [],
     });
-    assert.equal(noImage.image, "/images/products/sony-wh-1000xm5.jpg");
+    assert.equal(noImage.image, "");
+    assert.deepEqual(noImage.gallery, []);
   } finally {
     if (previous === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previous;
   }
 });
 
-test("mapDbProductToCatalog: no images still falls back to the slug image", () => {
+test("mapDbProductToCatalog: no image rows leaves image empty (no slug guess)", () => {
+  // The old slug fallback guessed a Storage URL from the product
+  // slug for any product with no image rows. The three subscription
+  // products never had their files uploaded, so the guessed URL
+  // 404'd in Storage and the image optimizer answered 400 on every
+  // render. A product with no rows now gets image "" and an empty
+  // gallery, and ProductImage renders the logo placeholder — no
+  // doomed URL is ever requested.
   const previous = process.env.NEXT_PUBLIC_SUPABASE_URL;
   process.env.NEXT_PUBLIC_SUPABASE_URL = LIVE;
   try {
@@ -154,7 +166,18 @@ test("mapDbProductToCatalog: no images still falls back to the slug image", () =
       status: "active",
       product_images: [],
     });
-    assert.equal(product.image, `${LIVE_STORAGE}/sony-wh-1000xm5.jpg`);
+    assert.equal(product.image, "");
+    assert.deepEqual(product.gallery, []);
+    const subscription = mapDbProductToCatalog({
+      title: "Netflix Premium — 1 Month",
+      slug: "netflix-premium-1-month",
+      price_poisha: 64900,
+      status: "active",
+      category_slug: "subscriptions",
+      product_images: [],
+    });
+    assert.equal(subscription.image, "");
+    assert.deepEqual(subscription.gallery, []);
   } finally {
     if (previous === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previous;

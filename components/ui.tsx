@@ -15,8 +15,8 @@ type ButtonVariant = "primary" | "accent" | "outline" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-white hover:bg-[#2f6fe0] disabled:bg-brand/50",
-  accent: "bg-accent text-white hover:bg-[#e06a0e] disabled:bg-accent/50",
+  primary: "bg-brandDark text-white hover:bg-brandDarker disabled:bg-brand/50",
+  accent: "bg-accentDark text-white hover:bg-accentDarker disabled:bg-accentDark/50",
   outline:
     "border border-border bg-transparent text-text hover:border-brand hover:text-text disabled:opacity-50",
   ghost: "bg-transparent text-text hover:bg-panel disabled:opacity-50",
@@ -59,12 +59,12 @@ export function Card({ children, className }: { children: ReactNode; className?:
 
 const badgeTones: Record<string, string> = {
   default: "bg-surface text-text border-border",
-  brand: "bg-brand text-white border-brand",
-  accent: "bg-accent text-white border-accent",
+  brand: "bg-brandDark text-white border-brandDark",
+  accent: "bg-accentDark text-white border-accentDark",
   success: "bg-success/15 text-success border-success/40",
   muted: "bg-surface text-muted border-border",
   danger: "bg-[#b91c1c]/15 text-[#f87171] border-[#b91c1c]/40",
-  warning: "bg-accent/15 text-accent border-accent/40",
+  warning: "bg-amber-500/15 text-amber-300 border-amber-500/40",
 };
 
 export function Badge({
@@ -123,7 +123,7 @@ export function Field({
     <div className="space-y-1.5">
       <label htmlFor={htmlFor} className="block text-sm font-medium text-text">
         {label}
-        {required ? <span className="text-accent"> *</span> : null}
+        {required ? <span className="text-brandLight"> *</span> : null}
       </label>
       {children}
       {hint && !error ? <p className="text-xs text-muted">{hint}</p> : null}

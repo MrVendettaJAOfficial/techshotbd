@@ -286,7 +286,7 @@ export const PRODUCTS: Product[] = [
     category: "subscriptions",
     brand: "Netflix",
     condition: "New",
-    image: "/images/products/netflix-premium.jpg",
+    image: "", // No photo exists: the logo placeholder renders (never a guessed URL — see lib/catalog/mapping.ts).
     description:
       "Unlimited movies, TV shows and more in 4K Ultra HD on up to four screens at once. Delivered to your email within minutes of ordering.",
     specs: {
@@ -310,7 +310,7 @@ export const PRODUCTS: Product[] = [
     category: "subscriptions",
     brand: "Amazon",
     condition: "New",
-    image: "/images/products/amazon-prime.jpg",
+    image: "", // No photo exists: the logo placeholder renders (never a guessed URL — see lib/catalog/mapping.ts).
     description:
       "A full year of Prime Video, Prime Music and exclusive deals. Stream award-winning movies and shows, ad-free music and more.",
     specs: {
@@ -334,7 +334,7 @@ export const PRODUCTS: Product[] = [
     category: "subscriptions",
     brand: "Google",
     condition: "New",
-    image: "/images/products/youtube-premium.jpg",
+    image: "", // No photo exists: the logo placeholder renders (never a guessed URL — see lib/catalog/mapping.ts).
     description:
       "Ad-free YouTube and YouTube Music, background play and offline downloads. Watch and listen without interruptions, anywhere.",
     specs: {

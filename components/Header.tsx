@@ -10,29 +10,21 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Heart, Search, ShoppingCart, User, Zap } from "lucide-react";
+import { Heart, Menu, Search, ShoppingCart, User } from "lucide-react";
 import { useRef, useState } from "react";
 import { useCart } from "../lib/cart-store";
+import Logo from "./Logo";
 import MiniCartDrawer from "./MiniCartDrawer";
-
-const NAV_LINKS = [
-  { label: "All categories", href: "/shop" },
-  { label: "Home", href: "/" },
-  { label: "Shop all", href: "/shop" },
-  { label: "Smartphones", href: "/shop?category=smartphones" },
-  { label: "Laptops", href: "/shop?category=laptops" },
-  { label: "Audio", href: "/shop?category=audio" },
-  { label: "Gaming", href: "/shop?category=gaming" },
-  { label: "Subscriptions", href: "/shop?category=subscriptions" },
-  { label: "Flash deals", href: "/shop?flash=1", accent: true },
-];
+import MobileNavDrawer, { NAV_LINKS } from "./MobileNavDrawer";
 
 export default function Header({ cartCount }: { cartCount?: number }) {
   const { count } = useCart();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const cartButtonRef = useRef<HTMLButtonElement>(null);
+  const navButtonRef = useRef<HTMLButtonElement>(null);
   const displayCount = cartCount ?? count;
 
   function handleSearch(e: React.FormEvent<HTMLFormElement>) {
@@ -43,9 +35,9 @@ export default function Header({ cartCount }: { cartCount?: number }) {
 
   return (
     <header className="sticky top-0 z-40">
-      <div className="bg-brand px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
+      <div className="bg-brandDark px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
         Your next upgrade, delivered free. On every order above ৳999.
-        <span className="mx-2 hidden text-blue-200 sm:inline">|</span>
+        <span className="mx-2 hidden text-logoWhite/60 sm:inline">|</span>
         <span className="hidden sm:inline">
           100% genuine · Official warranty · Bangladesh-wide delivery
         </span>
@@ -53,14 +45,28 @@ export default function Header({ cartCount }: { cartCount?: number }) {
 
       <div className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-shell items-center gap-3 px-4 py-3 sm:gap-6">
-          <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="TechShot home">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white">
-              <Zap size={22} className="fill-white" />
-            </span>
-            <span className="text-xl font-bold tracking-tight text-text">
-              TechShot<span className="text-brand">.</span>
-            </span>
-          </Link>
+          {/* Mobile only: the hamburger opens the slide-in nav drawer.
+              The horizontal category nav row below is hidden on mobile,
+              so this is the only way to the categories there. */}
+          <button
+            type="button"
+            ref={navButtonRef}
+            aria-label="Open menu"
+            aria-haspopup="dialog"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+            data-testid="mobile-nav-button"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text transition hover:bg-panel sm:hidden"
+          >
+            <Menu size={20} />
+          </button>
+          <MobileNavDrawer
+            open={navOpen}
+            onClose={() => setNavOpen(false)}
+            triggerRef={navButtonRef}
+          />
+
+          <Logo />
 
           <form
             onSubmit={handleSearch}
@@ -79,7 +85,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             />
             <button
               type="submit"
-              className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-500"
+              className="shrink-0 rounded-lg bg-brandDark px-3 py-1.5 text-sm font-semibold text-white hover:bg-brandDarker"
             >
               Search
             </button>
@@ -107,12 +113,12 @@ export default function Header({ cartCount }: { cartCount?: number }) {
               aria-haspopup="dialog"
               aria-expanded={cartOpen}
               onClick={() => setCartOpen(true)}
-              className="relative flex items-center gap-2 rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 sm:px-4"
+              className="relative flex items-center gap-2 rounded-xl bg-brandDark px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker sm:px-4"
             >
               <ShoppingCart size={18} />
               <span className="hidden sm:inline">Cart</span>
               {displayCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-white">
+                <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-logoWhite px-1 text-[11px] font-bold text-ink">
                   {displayCount}
                 </span>
               )}
@@ -142,9 +148,11 @@ export default function Header({ cartCount }: { cartCount?: number }) {
           />
         </form>
 
+        {/* Category nav: desktop/laptop only. On mobile it is hidden
+            and the hamburger drawer (above) carries the same links. */}
         <nav
           aria-label="Categories"
-          className="overflow-x-auto border-t border-border"
+          className="hidden overflow-x-auto border-t border-border sm:block"
         >
           <ul className="mx-auto flex max-w-shell items-center gap-1 px-4 py-2 text-sm font-medium whitespace-nowrap">
             {NAV_LINKS.map((link) => (

@@ -2,7 +2,8 @@
 // contact email, payment methods as text chips, and copyright.
 
 import Link from "next/link";
-import { Mail, Zap } from "lucide-react";
+import { Mail } from "lucide-react";
+import Logo from "./Logo";
 
 const DISCOVER_LINKS = [
   { label: "Shop all", href: "/shop" },
@@ -32,14 +33,7 @@ export default function Footer() {
     <footer className="border-t border-border bg-panel">
       <div className="mx-auto grid max-w-shell gap-10 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <Link href="/" className="flex items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white">
-              <Zap size={22} className="fill-white" />
-            </span>
-            <span className="text-xl font-bold tracking-tight text-text">
-              TechShot<span className="text-brand">.</span>
-            </span>
-          </Link>
+          <Logo tagline="always" />
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted">
             Great tech. Zero second guesses.
           </p>

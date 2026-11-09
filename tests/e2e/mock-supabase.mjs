@@ -102,11 +102,17 @@ const db = {
     // `product-images` bucket. Real per-product shots, not colour
     // photos. The gallery Playwright check
     // (tests/e2e/gallery.mjs) uses these rows to prove the slider,
-    // thumbnails, swipe and viewer work with several photos. All
-    // other products have one photo each — the seed writes one row
-    // per product (see supabase/seed.sql) — so they are left out
-    // here and the gallery falls back to the slug photo, exactly
-    // like the live storefront does for a single-photo product.
+    // thumbnails, swipe and viewer work with several photos.
+    // Every other PHYSICAL product has exactly one row here, mirroring
+    // supabase/seed.sql — the seed writes one row per physical
+    // product, and the storefront no longer guesses a photo from the
+    // slug (see lib/catalog/mapping.ts: a product with no rows gets
+    // image "", never a Storage URL for a file that may not exist),
+    // so the rows have to be present for the photos to show.
+    // The three SUBSCRIPTION products deliberately have NO rows here,
+    // exactly like the fixed seed: their files were never uploaded,
+    // so they render the branded logo placeholder — the recolour
+    // Playwright check (tests/e2e/recolour-mobile.mjs) asserts that.
     {
       id: "img-iphone-1",
       product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
@@ -135,6 +141,22 @@ const db = {
       alt_text: "Apple iPhone 16 Pro 256GB Natural Titanium — angle 4",
       sort_order: 3,
     },
+    ...[
+      ["sony-wh-1000xm5", "Sony WH-1000XM5 Wireless Noise Cancelling Headphones"],
+      ["macbook-air-13-m3", 'MacBook Air 13" M3'],
+      ["samsung-galaxy-watch7", "Samsung Galaxy Watch7"],
+      ["samsung-galaxy-s24-ultra", "Samsung Galaxy S24 Ultra"],
+      ["sony-alpha-zv-e10-ii", "Sony Alpha ZV-E10 II"],
+      ["playstation-dualsense", "PlayStation DualSense Wireless Controller"],
+      ["jbl-flip-6", "JBL Flip 6 Portable Bluetooth Speaker"],
+      ["anker-737-power-bank", "Anker 737 Power Bank 24,000mAh"],
+    ].map(([slug, title]) => ({
+      id: `img-${slug}`,
+      product_id: `prod-${slug}`,
+      storage_path: `/images/products/${slug}.jpg`,
+      alt_text: title,
+      sort_order: 0,
+    })),
   ],
   product_variants: [
     // Variant-photo test rows for the iPhone (migration 0005):

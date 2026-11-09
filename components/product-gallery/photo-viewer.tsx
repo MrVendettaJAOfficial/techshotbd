@@ -186,7 +186,7 @@ export function PhotoViewer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-[#080d18]"
+      className="fixed inset-0 z-50 flex flex-col bg-ink"
       role="dialog"
       aria-modal="true"
       aria-label={`${title} — photo viewer`}

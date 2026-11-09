@@ -192,11 +192,19 @@ where slug in (
   'sony-alpha-zv-e10-ii',
   'playstation-dualsense',
   'jbl-flip-6',
-  'anker-737-power-bank',
-  'netflix-premium-1-month',
-  'amazon-prime-1-year',
-  'youtube-premium-1-month'
+  'anker-737-power-bank'
 )
+-- NOTE (2026-11-09, image-400 fix): the three subscription products
+-- (netflix-premium-1-month, amazon-prime-1-year,
+-- youtube-premium-1-month) are deliberately NOT listed here. Their
+-- files were never uploaded to the `product-images` bucket, so the
+-- rows this insert used to write for them pointed at files that do
+-- not exist: Storage 404'd, the image optimizer answered 400, and
+-- every shop/product render logged the error. Subscriptions now get
+-- no image rows and render the branded logo placeholder instead.
+-- The LIVE database still has the three stale rows (seeded before
+-- this fix) — delete them via /admin or SQL for the 400 to stop live;
+-- this file only affects a fresh seed.
 on conflict (product_id, storage_path) do nothing;
 
 -- Extra angles for the iPhone 16 Pro: the 2nd / 3rd / 4th shots

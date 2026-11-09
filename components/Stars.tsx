@@ -1,5 +1,5 @@
 // Rating stars. Solid colours only, no emoji. Filled stars use the
-// accent colour; empty stars use the muted border colour.
+// amber-400; empty stars use the muted border colour.
 
 import { Star } from "lucide-react";
 
@@ -27,7 +27,7 @@ export default function Stars({
             <Star
               key={star}
               size={size}
-              className={filled || half ? "fill-accent text-accent" : "fill-transparent text-muted"}
+              className={filled || half ? "fill-amber-400 text-amber-400" : "fill-transparent text-muted"}
             />
           );
         })}

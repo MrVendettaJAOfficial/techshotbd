@@ -7,6 +7,7 @@ import Link from "next/link";
 import { SearchX } from "lucide-react";
 import { getCatalog } from "../../lib/supabase/catalog";
 import ProductCard from "../../components/ProductCard";
+import FilterDrawer from "../../components/FilterDrawer";
 
 const PAGE_SIZE = 9;
 
@@ -103,6 +104,17 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
 
   const activeCategory = category || "all";
 
+  // Active-filter count for the mobile Filters button badge: selected
+  // brands + price set (min or max counts once) + rating + condition
+  // + in-stock. Search, category, flash, sort and page are not
+  // filters and are excluded.
+  const activeFilterCount =
+    selectedBrands.length +
+    (minTaka !== undefined || maxTaka !== undefined ? 1 : 0) +
+    (minRating !== undefined ? 1 : 0) +
+    (condition ? 1 : 0) +
+    (inStockOnly ? 1 : 0);
+
   return (
     <div className="mx-auto max-w-shell px-4 py-8">
       <h1 className="text-3xl font-bold text-text">
@@ -119,7 +131,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
           href={buildHref(searchParams, { category: undefined, page: undefined })}
           className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
             activeCategory === "all" && !flash
-              ? "border-brand bg-brand text-white"
+              ? "border-brandDark bg-brandDark text-white"
               : "border-border bg-panel text-text hover:border-brand"
           }`}
         >
@@ -131,7 +143,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             href={buildHref(searchParams, { category: c.slug, page: undefined, flash: undefined })}
             className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
               activeCategory === c.slug
-                ? "border-brand bg-brand text-white"
+                ? "border-brandDark bg-brandDark text-white"
                 : "border-border bg-panel text-text hover:border-brand"
             }`}
           >
@@ -141,9 +153,14 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[260px_1fr]">
-        {/* Filters — a GET form, so every control re-runs the server filter. */}
-        <aside>
-          <form method="get" action="/shop" className="space-y-6 rounded-2xl border border-border bg-panel p-5 lg:sticky lg:top-40">
+        {/* Filters — a GET form, so every control re-runs the server
+            filter. On mobile the form lives in the FilterDrawer
+            (hidden by default, opened by the Filters button); on
+            desktop the same single form is the sidebar. The box
+            styling is lg-only because the drawer panel already
+            provides it on mobile. */}
+        <FilterDrawer activeCount={activeFilterCount}>
+          <form method="get" action="/shop" className="space-y-6 lg:sticky lg:top-40 lg:rounded-2xl lg:border lg:border-border lg:bg-panel lg:p-5">
             {q && <input type="hidden" name="q" value={q} />}
             {category && <input type="hidden" name="category" value={category} />}
             {flash && <input type="hidden" name="flash" value="1" />}
@@ -187,7 +204,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                         name="brand"
                         value={brand}
                         defaultChecked={selectedBrands.includes(brand)}
-                        className="h-4 w-4 accent-[#3b82f6]"
+                        className="h-4 w-4 accent-brandDark"
                       />
                       {brand}
                       <span className="ml-auto text-xs text-muted">
@@ -214,7 +231,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                       name="rating"
                       value={opt.value}
                       defaultChecked={(minRating?.toString() ?? "") === opt.value}
-                      className="h-4 w-4 accent-[#3b82f6]"
+                      className="h-4 w-4 accent-brandDark"
                     />
                     {opt.label}
                   </label>
@@ -236,7 +253,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                       name="condition"
                       value={opt.value}
                       defaultChecked={condition === opt.value}
-                      className="h-4 w-4 accent-[#3b82f6]"
+                      className="h-4 w-4 accent-brandDark"
                     />
                     {opt.label}
                   </label>
@@ -250,7 +267,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                 name="inStock"
                 value="1"
                 defaultChecked={inStockOnly}
-                className="h-4 w-4 accent-[#3b82f6]"
+                className="h-4 w-4 accent-brandDark"
               />
               In stock only
             </label>
@@ -275,7 +292,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             <div className="flex gap-2">
               <button
                 type="submit"
-                className="flex-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500"
+                className="flex-1 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Apply filters
               </button>
@@ -287,7 +304,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
               </Link>
             </div>
           </form>
-        </aside>
+        </FilterDrawer>
 
         {/* Results */}
         <div>
@@ -301,7 +318,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
               </p>
               <Link
                 href="/shop"
-                className="mt-5 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500"
+                className="mt-5 rounded-xl bg-brandDark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Clear all filters
               </Link>
@@ -339,7 +356,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                       aria-current={n === currentPage ? "page" : undefined}
                       className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                         n === currentPage
-                          ? "border-brand bg-brand text-white"
+                          ? "border-brandDark bg-brandDark text-white"
                           : "border-border bg-panel text-text hover:border-brand"
                       }`}
                     >

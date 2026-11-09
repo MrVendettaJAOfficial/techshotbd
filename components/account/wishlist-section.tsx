@@ -14,6 +14,7 @@
 import { formatBDT } from "@/lib/theme";
 import type { WishlistItem } from "@/lib/checkout-store";
 import { btnGhost } from "./account-ui";
+import ProductImage from "../ProductImage";
 
 interface WishlistSectionProps {
   wishlist: WishlistItem[];
@@ -38,9 +39,7 @@ export default function WishlistSection({
         <ul className="mt-4 space-y-3">
           {wishlist.map((item) => (
             <li key={item.productId} className="flex items-center gap-4 rounded-xl border border-border bg-surface p-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-panel font-bold text-brand">
-                {item.title.charAt(0)}
-              </span>
+              <ProductImage src={item.image ?? ""} alt={item.title} className="h-12 w-12 shrink-0 rounded-lg" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium text-text">{item.title}</span>
                 <span className="text-sm text-muted">{formatBDT(item.price_poisha)}</span>

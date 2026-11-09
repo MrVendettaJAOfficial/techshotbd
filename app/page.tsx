@@ -68,7 +68,7 @@ export default async function HomePage() {
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <Link
                 href="/shop"
-                className="inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-500"
+                className="inline-flex items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Shop Now <ArrowRight size={16} />
               </Link>
@@ -98,7 +98,7 @@ export default async function HomePage() {
               </div>
             </Link>
             <div className="absolute bottom-4 left-4 flex items-center gap-3 rounded-2xl bg-ink/90 px-4 py-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brandDark text-white">
                 <Zap size={20} />
               </span>
               <div>
@@ -250,7 +250,7 @@ export default async function HomePage() {
           </div>
           <Link
             href="/shop?category=gaming"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brand px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-500"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
           >
             Explore gaming <ArrowRight size={16} />
           </Link>
@@ -300,7 +300,7 @@ export default async function HomePage() {
               </p>
               <Link
                 href={`/product/${plan.productSlug}`}
-                className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+                className="mt-5 inline-flex items-center justify-center rounded-xl bg-brandDark px-5 py-3 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Get plan
               </Link>

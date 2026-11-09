@@ -88,13 +88,13 @@ export default function MiniCartDrawer({
       <div
         aria-hidden="true"
         onClick={closeAndRefocus}
-        className="absolute inset-0 bg-black/60"
+        className="animate-fade-in absolute inset-0 bg-black/60"
       />
       <aside
         role="dialog"
         aria-modal="true"
         aria-label="Your cart"
-        className="absolute right-0 top-0 flex h-full w-[92vw] max-w-md flex-col bg-surface shadow-2xl"
+        className="animate-drawer-right absolute right-0 top-0 flex h-full w-[92vw] max-w-md flex-col bg-surface shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-bold text-text">
@@ -126,7 +126,7 @@ export default function MiniCartDrawer({
             <button
               type="button"
               onClick={closeAndRefocus}
-              className="mt-6 rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+              className="mt-6 rounded-lg bg-brandDark px-5 py-3 text-sm font-semibold text-white hover:bg-brandDarker"
             >
               Continue shopping
             </button>
@@ -156,17 +156,11 @@ export default function MiniCartDrawer({
                     key={`${item.slug}::${item.variant ?? ""}`}
                     className="flex gap-3 border-b border-border py-4 first:pt-0 last:border-b-0"
                   >
-                    {image ? (
-                      <ProductImage
-                        src={image}
-                        alt={title}
-                        className="h-20 w-20 shrink-0 rounded-lg"
-                      />
-                    ) : (
-                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-panel text-2xl font-bold text-brand">
-                        ?
-                      </div>
-                    )}
+                    <ProductImage
+                      src={image ?? ""}
+                      alt={title}
+                      className="h-20 w-20 shrink-0 rounded-lg"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold text-text">
                         {title}
@@ -245,7 +239,7 @@ export default function MiniCartDrawer({
               {amountToFreeDelivery > 0 ? (
                 <p className="rounded-lg bg-panel px-3 py-2 text-sm text-text">
                   Add{" "}
-                  <span className="font-semibold text-accent">
+                  <span className="font-semibold text-brandLight">
                     {formatBDT(amountToFreeDelivery)}
                   </span>{" "}
                   more to unlock free delivery.
@@ -262,7 +256,7 @@ export default function MiniCartDrawer({
               <Link
                 href="/checkout"
                 onClick={onClose}
-                className="mt-4 flex w-full items-center justify-center rounded-lg bg-accent px-5 py-3 font-semibold text-white hover:bg-orange-600"
+                className="mt-4 flex w-full items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker"
               >
                 Checkout
               </Link>

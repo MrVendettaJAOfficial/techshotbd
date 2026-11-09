@@ -223,7 +223,7 @@ function OrderDetailInner() {
             This order is not in your browser&apos;s saved orders. It may have
             been placed in a different browser or before the preview data was cleared.
           </p>
-          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brand px-5 py-3 font-semibold text-white hover:bg-blue-600">
+          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
             Back to my orders
           </Link>
         </div>
@@ -274,7 +274,7 @@ function OrderDetailInner() {
           <p className="mt-2 text-sm text-text">
             {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}
             {order.testMode && (
-              <span className="ml-2 rounded bg-accent px-2 py-0.5 text-xs font-bold text-white">TEST MODE</span>
+              <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-300">TEST MODE</span>
             )}
           </p>
           <p className="mt-1 text-sm text-muted">
@@ -292,7 +292,7 @@ function OrderDetailInner() {
                 </p>
                 <Link
                   href={`/checkout/test-pay?order=${order.id}&ref=test-ref-${order.orderNumber}`}
-                  className="mt-3 inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 font-semibold text-white hover:bg-orange-600"
+                  className="mt-3 inline-flex items-center justify-center rounded-lg bg-[#b91c1c] px-5 py-2.5 font-semibold text-white transition hover:bg-[#991b1b]"
                 >
                   Retry payment
                 </Link>

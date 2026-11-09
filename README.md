@@ -297,6 +297,7 @@ components/
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
   MiniCartDrawer.tsx  Slide-over mini cart (header cart button; same cart store as /cart)
+  Logo.tsx            Brand wordmark: TS monogram, TechShot + green BD, tagline (Montserrat via next/font/google, code-built, no image)
   product-gallery/    Product photos: gallery (slider), photo-viewer (fullscreen zoom), product-detail, review-form
   product-manager/    Admin product form + list + helpers (ProductManager.tsx is the barrel)
   cart/               Cart page pieces: cart-summary, coupon-box

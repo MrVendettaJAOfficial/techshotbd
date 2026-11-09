@@ -290,12 +290,14 @@ test("specs carry the description and the right warranty line", () => {
   );
 });
 
-test("image falls back to the conventional product path when none is stored", () => {
+test("image is empty when no image rows are stored (no slug guess)", () => {
+  // 2026-11-09 image-400 fix: the old slug fallback guessed a photo
+  // path for products with no rows, which 400'd for the subscription
+  // products (their files were never uploaded). No rows now means
+  // image "" and the logo placeholder renders instead.
   const noImage = row({ product_images: [] });
-  assert.equal(
-    mapDbProductToCatalog(noImage).image,
-    "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg",
-  );
+  assert.equal(mapDbProductToCatalog(noImage).image, "");
+  assert.deepEqual(mapDbProductToCatalog(noImage).gallery, []);
   const firstImageWins = row({
     product_images: [
       { storage_path: "/images/products/second.jpg", sort_order: 1 },

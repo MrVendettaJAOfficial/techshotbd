@@ -8,7 +8,7 @@ import { formatBDT } from "@/lib/theme";
 import CouponBox from "./coupon-box";
 
 const btnAccent =
-  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-5 py-3 font-semibold text-white hover:bg-orange-600";
+  "inline-flex w-full items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker";
 
 export interface CartSummaryTotals {
   savings_poisha: number;

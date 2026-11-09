@@ -1,11 +1,14 @@
 "use client";
 
-// Product image with a solid-colour fallback. If the product photo fails
-// to load (for example before product photos are uploaded), a solid card
-// background with the product's initial letter is shown instead. No emoji.
+// Product image with a branded fallback. A product with no photo at
+// all (empty src — the subscription products have none) or a photo
+// that fails to load shows the TechShot logo placeholder instead of
+// a blank area or a bare initial letter, so a broken or missing
+// image URL degrades to the logo rather than an empty box. No emoji.
 
 import Image from "next/image";
 import { useState } from "react";
+import ProductPlaceholder from "./ProductPlaceholder";
 
 export default function ProductImage({
   src,
@@ -20,20 +23,21 @@ export default function ProductImage({
 }) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
+  // Empty src must never reach next/image: an empty src renders
+  // nothing (and a guessed URL for a file that does not exist is
+  // what used to produce the image-optimizer 400s — see
+  // lib/catalog/mapping.ts). The placeholder covers both cases.
+  if (!src?.trim() || failed) {
     return (
-      <div
-        className={`flex aspect-square items-center justify-center bg-[#151f33] ${className ?? ""}`}
-        aria-label={alt}
-        role="img"
-      >
-        <span className="text-5xl font-bold text-brand">{alt.charAt(0)}</span>
-      </div>
+      <ProductPlaceholder
+        className={`aspect-square ${className ?? ""}`}
+        label={alt}
+      />
     );
   }
 
   return (
-    <div className={`relative aspect-square overflow-hidden bg-[#151f33] ${className ?? ""}`}>
+    <div className={`relative aspect-square overflow-hidden bg-panel ${className ?? ""}`}>
       <Image
         src={src}
         alt={alt}

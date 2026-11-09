@@ -8,6 +8,7 @@
 // and cancel logic.
 
 import { formatBDT } from "@/lib/theme";
+import ProductPlaceholder from "../ProductPlaceholder";
 import type { StoredOrder } from "@/lib/checkout-store";
 
 interface OrderItemsProps {
@@ -21,9 +22,7 @@ export default function OrderItems({ order }: OrderItemsProps) {
       <ul className="mt-4 space-y-3">
         {order.items.map((item) => (
           <li key={item.productId} className="flex items-center gap-3 text-sm">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface font-bold text-brand">
-              {item.title.charAt(0)}
-            </span>
+            <ProductPlaceholder compact label={item.title} className="h-10 w-10 shrink-0 rounded-lg" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-text">{item.title}</span>
               <span className="text-muted">

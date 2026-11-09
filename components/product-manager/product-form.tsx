@@ -281,7 +281,7 @@ export default function ProductForm({ products, categories, canPublish, configur
         description="Products added here are store-owned and appear in the shop when their status is Live. Prices are in Bangladeshi Taka (৳)."
       />
       {!configured ? (
-        <div className="mb-6 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-text" role="alert">
+        <div className="mb-6 rounded-xl border border-brand/40 bg-brand/10 px-4 py-3 text-sm text-text" role="alert">
           Live product data is not configured yet, so products cannot be added or changed here. Ask an admin to connect Supabase.
         </div>
       ) : null}

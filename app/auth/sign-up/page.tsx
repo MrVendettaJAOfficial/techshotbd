@@ -110,7 +110,7 @@ function SignUpForm() {
             />
           </Field>
           {notice ? (
-            <p role="status" className="rounded-lg border border-[#5bd4a0]/40 bg-[#5bd4a0]/15 px-3 py-2 text-sm text-[#5bd4a0]">
+            <p role="status" className="rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-sm text-success">
               {notice}
             </p>
           ) : null}

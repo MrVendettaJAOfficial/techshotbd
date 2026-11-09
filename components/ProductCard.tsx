@@ -80,13 +80,13 @@ export default function ProductCard({ product }: { product: Product }) {
   }
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
+    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition duration-200 hover:-translate-y-0.5 hover:border-brand/60 hover:shadow-xl">
       <div className="relative">
         <Link href={`/product/${product.slug}`} aria-label={product.title}>
           <ProductImage src={product.image} alt={product.title} />
         </Link>
         {pct > 0 && (
-          <span className="absolute left-3 top-3 rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-white">
+          <span className="absolute left-3 top-3 rounded-full bg-accentDark px-2.5 py-1 text-xs font-bold text-white">
             -{pct}%
           </span>
         )}
@@ -134,7 +134,7 @@ export default function ProductCard({ product }: { product: Product }) {
         <p className="text-xs text-muted">
           {product.stock > 0 ? (
             product.stock <= 12 ? (
-              <span className="text-accent">Selling fast · {product.stock} left</span>
+              <span className="text-brandLight">Selling fast · {product.stock} left</span>
             ) : (
               "In stock"
             )
@@ -146,7 +146,7 @@ export default function ProductCard({ product }: { product: Product }) {
           type="button"
           onClick={handleAdd}
           disabled={product.stock <= 0}
-          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
         >
           {added ? (
             <>

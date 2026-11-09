@@ -48,7 +48,7 @@ export default function OrderSummary({ order, notice }: OrderSummaryProps) {
           <h1 className="text-3xl font-bold text-text">{order.orderNumber}</h1>
           <p className="mt-1 text-sm text-muted">Placed {formatDateTime(order.createdAt)}</p>
         </div>
-        <span className="rounded-full bg-brand/20 px-3 py-1 text-sm font-semibold text-blue-300">
+        <span className="rounded-full bg-brand/20 px-3 py-1 text-sm font-semibold text-brandLight">
           {STATUS_LABELS[order.status] ?? order.status}
         </span>
       </div>

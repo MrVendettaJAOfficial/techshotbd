@@ -197,7 +197,7 @@ export function ProductDetail({
                 <span className="text-lg text-muted line-through">
                   {formatBDT(compareAt)}
                 </span>
-                <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-white">
+                <span className="rounded-full bg-accentDark px-2.5 py-1 text-xs font-bold text-white">
                   {pct}% OFF
                 </span>
               </>
@@ -292,7 +292,7 @@ export function ProductDetail({
               type="button"
               onClick={handleAdd}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               {added ? (
                 <>
@@ -308,7 +308,7 @@ export function ProductDetail({
               type="button"
               onClick={handleBuyNow}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               <Zap size={18} /> Buy Now
             </button>

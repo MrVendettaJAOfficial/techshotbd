@@ -348,7 +348,7 @@ function AccountPageInner() {
       {showSignedIn && user && (
         <p
           role="status"
-          className="mt-4 flex items-start justify-between gap-4 rounded-lg border border-[#5bd4a0]/40 bg-[#5bd4a0]/15 px-4 py-3 text-sm font-medium text-[#5bd4a0]"
+          className="mt-4 flex items-start justify-between gap-4 rounded-lg border border-success/40 bg-success/15 px-4 py-3 text-sm font-medium text-success"
         >
           <span>Signed in successfully. Welcome back, {user.displayName}.</span>
           <button type="button" onClick={dismissSignedIn} className="shrink-0 font-bold hover:underline" aria-label="Dismiss">

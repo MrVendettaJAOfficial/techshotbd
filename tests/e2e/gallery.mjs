@@ -356,7 +356,10 @@ async function main() {
     failures.push(`admin pageerror: ${error.message}`);
   });
   await signIn(apage);
-  await apage.goto(`${BASE}/admin`, { waitUntil: "networkidle" });
+  // The admin is tabbed since the roles build (2026-11-09): plain
+  // /admin shows the Overview tab, and the product form (photo list,
+  // upload) lives on the Products tab.
+  await apage.goto(`${BASE}/admin?tab=products`, { waitUntil: "networkidle" });
   await sleep(1500);
   check("admin: photo list has a main photo row", (await apage.$('[data-testid="product-photo-0"]')) !== null);
   check("admin: add-photo-row and upload controls exist", (await apage.$('[data-testid="add-photo-row"]')) !== null && (await apage.$('[data-testid="photo-upload-input"]')) !== null);
