@@ -112,27 +112,33 @@ export async function getAccountData(): Promise<AccountData | null> {
       authUser.email?.split("@")[0] ??
       "TechShot customer";
 
-    const { data: addressRows } = (await supabase
-      .from("addresses")
-      .select("id, name, phone, division, district, city, full_address, is_default")
-      .eq("user_id", authUser.id)
-      .order("created_at", { ascending: false })) as {
-      data: DbAddressRow[] | null;
-    };
+    // After the profile is known, the addresses, wishlist and orders
+    // are independent of each other — fetch them in parallel. They
+    // used to run one after another (three serial Supabase round
+    // trips, plus a second getUser() inside listSupabaseOrders()),
+    // which was a large share of the account page's wait on a real
+    // network. The profile self-heal re-select above stays serial:
+    // it depends on the insert finishing first.
+    const [addressResult, wishlistResult, orders] = await Promise.all([
+      supabase
+        .from("addresses")
+        .select("id, name, phone, division, district, city, full_address, is_default")
+        .eq("user_id", authUser.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("wishlists")
+        .select("product_id, products(title, slug, price_poisha, compare_at_poisha)")
+        .eq("user_id", authUser.id)
+        .order("created_at", { ascending: false }),
+      listSupabaseOrders(),
+    ]);
+    const addressRows = (addressResult as { data: DbAddressRow[] | null }).data;
     const addresses = (addressRows ?? []).map(mapDbAddressToLocal);
 
-    const { data: wishlistRows } = (await supabase
-      .from("wishlists")
-      .select("product_id, products(title, slug, price_poisha, compare_at_poisha)")
-      .eq("user_id", authUser.id)
-      .order("created_at", { ascending: false })) as {
-      data: DbWishlistRow[] | null;
-    };
+    const wishlistRows = (wishlistResult as { data: DbWishlistRow[] | null }).data;
     const wishlist = (wishlistRows ?? [])
       .map(mapDbWishlistRowToLocal)
       .filter((item): item is WishlistItem => item !== null);
-
-    const orders = await listSupabaseOrders();
 
     return {
       user: {

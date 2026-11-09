@@ -22,6 +22,16 @@ import http from "node:http";
 
 const PORT = Number(process.env.MOCK_SUPABASE_PORT ?? 3101);
 let seq = 0;
+
+// Test-only latency (ms) applied to every mock response. Set at
+// startup with MOCK_DELAY_MS, or at runtime with
+// GET /__test/delay?ms=N (ms=0 clears it). The skeleton Playwright
+// check uses it to simulate a slow data fetch — a loading.tsx
+// skeleton only renders while the page is waiting on data, and the
+// mock answers in milliseconds, so without an artificial delay the
+// page resolves before the shell flushes and no skeleton ever
+// appears. Test tooling only; never present in the app or production.
+let testDelayMs = Math.max(0, Number(process.env.MOCK_DELAY_MS ?? 0) || 0);
 const nid = (p) => `${p}-${++seq}-${Date.now().toString(36)}`;
 
 const CATS = [
@@ -76,7 +86,35 @@ const db = {
   categories: CATS,
   products: PRODUCTS,
   product_images: [],
-  product_variants: [],
+  product_variants: [
+    // Variant-photo test rows for the iPhone (migration 0005):
+    // "Natural Titanium" has no photo (gallery falls back to the
+    // product photo); "Black Titanium" has a photo. The photo is a
+    // STAND-IN ONLY — it is the Sony headphones shot
+    // (sony-wh-1000xm5.jpg), chosen deliberately so nobody mistakes
+    // it for a real Black Titanium iPhone photo. No real per-colour
+    // photos exist yet. The Playwright check
+    // (tests/e2e/mini-cart-variant-photos.mjs) uses these rows to
+    // prove the gallery switches to the variant photo when one is
+    // set and falls back when it is not. All other products have no
+    // variant rows, exactly like the live seed.
+    {
+      id: "var-iphone-natural-titanium",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      name: "Natural Titanium",
+      price_override_poisha: null,
+      stock: 12,
+      image_path: null,
+    },
+    {
+      id: "var-iphone-black-titanium",
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      name: "Black Titanium",
+      price_override_poisha: null,
+      stock: 12,
+      image_path: "sony-wh-1000xm5.jpg",
+    },
+  ],
   profiles: ADMIN_MODE
     ? [
         {
@@ -204,7 +242,7 @@ function attachEmbeds(table, rows, select) {
       if (has("product_variants")) {
         out.product_variants = db.product_variants
           .filter((v) => v.product_id === row.id)
-          .map((v) => ({ name: v.name, price_override_poisha: v.price_override_poisha, stock: v.stock }));
+          .map((v) => ({ name: v.name, price_override_poisha: v.price_override_poisha, stock: v.stock, image_path: v.image_path ?? null }));
       }
     }
     if (table === "wishlists" && has("products")) {
@@ -265,6 +303,16 @@ async function handle(req, res) {
   const path = url.pathname;
   console.log(`${req.method} ${path}${url.search}`);
 
+  // Test-only latency control (see testDelayMs above). This endpoint
+  // itself is never delayed.
+  if (path === "/__test/delay") {
+    testDelayMs = Math.max(0, Number(url.searchParams.get("ms") ?? 0) || 0);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ delayMs: testDelayMs }));
+    return;
+  }
+  if (testDelayMs > 0) await new Promise((r) => setTimeout(r, testDelayMs));
+
   // CORS preflight for browser calls (Auth + REST).
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -274,6 +322,39 @@ async function handle(req, res) {
         "*",
     });
     res.end();
+    return;
+  }
+
+  // --- Storage (public product-images bucket) ---
+  // The real bucket serves the product photos; the mock serves a
+  // solid 120x120 PNG for any file under it, so a browser check can
+  // prove a photo URL resolves and loads (the variant-photo
+  // Playwright check asserts the gallery's <img> actually shows the
+  // variant file). 120x120, not 1x1: headless Chromium reports
+  // naturalWidth 0 for a 1x1 image loaded via srcset even though it
+  // loads fine, which makes a load assertion meaningless.
+  // Filenames with ".." are rejected, like the real bucket.
+  if (path.startsWith("/storage/v1/object/public/product-images/")) {
+    const file = path.slice("/storage/v1/object/public/product-images/".length);
+    if (!file || file.includes("..")) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "mock storage: bad file" }));
+      return;
+    }
+    // Solid 120x120 PNG in the card colour (#151f33). Generated
+    // with Python (zlib + struct, correct CRCs) — a hand-written
+    // 1x1 base64 PNG turned out to have a bad IDAT CRC, which
+    // Chromium refuses to decode.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAABLUlEQVR4nO3RMQ0AIADAMExwIwL/2kAGyejRf8nGXPvQNV4HYDAGY/CnDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7gOIPjDI4zOM7guAu9464TroPW9gAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": png.length,
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(png);
     return;
   }
 

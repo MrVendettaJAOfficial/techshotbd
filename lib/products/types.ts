@@ -11,6 +11,9 @@ export interface ProductVariantItem {
   /** Price in BDT taka, or null to use the product price. */
   priceTaka: number | null;
   stock: number;
+  /** Photo for this variant (product_variants.image_path, migration
+   *  0005), or null when the variant has no photo of its own. */
+  imagePath: string | null;
 }
 
 export interface ProductListItem {

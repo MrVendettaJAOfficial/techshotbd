@@ -125,6 +125,7 @@ async function writeVariants(admin: AdminClient, productId: string, variants: Pr
         name: variant.name,
         price_override_poisha: variant.priceTaka === undefined ? null : takaToPoisha(variant.priceTaka),
         stock: variant.stock,
+        image_path: variant.imagePath ? variant.imagePath : null,
       })),
     );
   } catch {

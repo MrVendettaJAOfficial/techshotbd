@@ -1,55 +1,54 @@
-// Product detail page (server component). Fetches the product from the
-// live Supabase catalogue when configured, renders the interactive
+// Product detail page (server component). Fetches the product from
+// the live Supabase catalogue when configured, renders the interactive
 // detail client component, and lists related products below. A product
 // that is missing or paused / draft is a 404. When Supabase is not
 // configured, or a live lookup fails, the local seed catalogue is used
 // instead, so the page keeps working.
+//
+// One catalogue fetch per visit: the product, the related products
+// and the metadata all resolve from a single getCatalog() call (which
+// is itself per-request cached in lib/supabase/catalog.ts). The page
+// used to fetch the catalogue three times per visit — once for the
+// product, once for related products (which re-fetched the whole
+// list), and once more for metadata — so a product page cost up to
+// six Supabase round trips; it now costs two (categories + products,
+// in parallel).
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getProduct, getRelated } from "../../../lib/data/catalog";
 import type { Product } from "../../../lib/data/catalog";
-import {
-  getLiveProduct,
-  getLiveRelated,
-  isSupabaseConfigured,
-} from "../../../lib/supabase/catalog";
+import { getCatalog } from "../../../lib/supabase/catalog";
+import { relatedProducts } from "../../../lib/catalog-rules";
 import ProductCard from "../../../components/ProductCard";
 import ProductDetail from "../../../components/ProductGallery";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Resolve one product by slug: live (active only) when Supabase is
- * configured, local seed catalogue otherwise. A live query failure
- * falls back to the local catalogue rather than failing the page; a
- * live "not found" (missing or paused) stays a 404.
+ * Resolve one product by slug from one catalogue fetch: the exact
+ * slug first, then the `<slug>-…` prefix — the live database uses
+ * longer slugs than the seed catalogue for some products (live
+ * `apple-iphone-16-pro-256gb-natural-titanium` vs seed
+ * `apple-iphone-16-pro`), so a link using the shorter seed slug
+ * still resolves instead of 404ing. The prefixed match takes the
+ * alphabetically-first slug, exactly as the old per-product query
+ * did (order by slug, limit 1). The catalogue only ever holds
+ * active products, so a paused / draft product is a 404 here.
  */
 async function resolveProduct(slug: string): Promise<Product | undefined> {
-  if (!isSupabaseConfigured()) return getProduct(slug);
-  try {
-    return await getLiveProduct(slug);
-  } catch (error) {
-    console.warn(
-      "TechShot: live product lookup failed, using local catalogue.",
-      error instanceof Error ? error.message : error,
-    );
-    return getProduct(slug);
-  }
+  const { products } = await getCatalog();
+  const exact = products.find((p) => p.slug === slug);
+  if (exact) return exact;
+  const prefixed = products
+    .filter((p) => p.slug.startsWith(`${slug}-`))
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+  return prefixed[0];
 }
 
 async function resolveRelated(product: Product, n: number): Promise<Product[]> {
-  if (!isSupabaseConfigured()) return getRelated(product, n);
-  try {
-    return await getLiveRelated(product, n);
-  } catch (error) {
-    console.warn(
-      "TechShot: live related-products lookup failed, using local catalogue.",
-      error instanceof Error ? error.message : error,
-    );
-    return getRelated(product, n);
-  }
+  const { products } = await getCatalog();
+  return relatedProducts(products, product, n);
 }
 
 export async function generateMetadata({

@@ -139,7 +139,10 @@ async function clickTestPayOutcome(page, label) {
 }
 
 async function cartBadge(page) {
-  return page.evaluate(() => document.querySelector('a[aria-label^="Cart"]')?.getAttribute("aria-label") ?? "");
+  // The header cart control is a button that opens the mini-cart
+  // drawer (2026-11-09), not a link to /cart — the aria-label is
+  // unchanged, so the selector matches any element carrying it.
+  return page.evaluate(() => document.querySelector('[aria-label^="Cart"]')?.getAttribute("aria-label") ?? "");
 }
 
 async function addIphoneFromShop(page) {

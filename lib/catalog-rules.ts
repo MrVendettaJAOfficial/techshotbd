@@ -26,11 +26,15 @@ export interface DbProductImageRow {
   sort_order?: number | null;
 }
 
-/** A product_variants row, as read from Supabase. */
+/** A product_variants row, as read from Supabase. `image_path` is the
+ *  variant's own photo (migration 0005): a Storage filename, a legacy
+ *  /images/products/<file>.jpg path, or an https URL. NULL / empty
+ *  means the gallery shows the product photo. */
 export interface DbProductVariantRow {
   name: string;
   price_override_poisha?: number | null;
   stock?: number | null;
+  image_path?: string | null;
 }
 
 /** A categories row, as read from Supabase. */
@@ -87,6 +91,15 @@ export interface MappedProduct {
   specs: Record<string, string>;
   colours?: string[];
   storageOptions?: Array<{ label: string; priceDeltaPoisha: number; stock: number }>;
+  /**
+   * Photo per variant, keyed by the variant's exact name (a colour
+   * name or a storage label) and resolved to the URL the storefront
+   * renders (Storage URL when configured, local path otherwise).
+   * Only variants with a photo set are present; a missing key means
+   * "no photo for this variant — show the product photo". No real
+   * per-colour photos exist yet, so this is usually absent.
+   */
+  variantImages?: Record<string, string>;
 }
 
 /** The storefront Category shape (mirrors lib/data/catalog.ts Category). */
@@ -338,6 +351,20 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
   const colours = variants
     .filter((v) => isColourName(v.name))
     .map((v) => v.name.trim());
+  // One photo per variant (migration 0005): a variant's image_path
+  // resolves through the same Storage helper as the product photo.
+  // Only variants with a usable photo are present — anything else
+  // falls back to the product photo in the gallery.
+  const variantImages: Record<string, string> = {};
+  for (const v of variants) {
+    const name = (v.name ?? "").trim();
+    if (!name || variantImages[name]) continue;
+    const resolved = resolveProductImageSrc(
+      v.image_path,
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+    );
+    if (resolved) variantImages[name] = resolved;
+  }
 
   const product: MappedProduct = {
     slug: row.slug,
@@ -364,7 +391,28 @@ export function mapDbProductToCatalog(row: DbProductRow): MappedProduct {
   else if (flash) product.badge = "FLASH DEAL";
   if (colours.length > 0) product.colours = colours;
   if (storageOptions.length > 0) product.storageOptions = storageOptions;
+  if (Object.keys(variantImages).length > 0) product.variantImages = variantImages;
   return product;
+}
+
+/**
+ * Photo for the currently selected variant, or undefined when the
+ * selection has no photo (the gallery then shows the product photo).
+ * The colour decides the photo first — a storage option's photo is
+ * the fallback — because a colour is what a photo shows; a storage
+ * size rarely has its own shot. `product` only needs its
+ * variantImages map, so this is usable from the seed catalogue too.
+ */
+export function resolveVariantImage(
+  product: { variantImages?: Record<string, string> },
+  colour?: string | null,
+  storageLabel?: string | null,
+): string | undefined {
+  const images = product.variantImages;
+  if (!images) return undefined;
+  if (colour && images[colour]) return images[colour];
+  if (storageLabel && images[storageLabel]) return images[storageLabel];
+  return undefined;
 }
 
 /** Map one database category row to the storefront Category shape. */

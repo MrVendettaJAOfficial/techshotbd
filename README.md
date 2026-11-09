@@ -61,6 +61,10 @@ The live project **TechshotBD** already exists and its database is already set u
       `order_items` while `order_items_select_buyer` reads `orders`),
       so a signed-in customer's `/orders` page showed "No orders yet"
       in a fresh browser even though their orders existed.
+   7. `supabase/migrations/0005_product_variant_image.sql` — adds
+      `image_path` to `product_variants` (one photo per colour /
+      storage variant; see "Colour-variant photos" below). **Not yet
+      applied live** — run it in the SQL Editor like 0002–0004.
 3. Set in `.env.local` (from your project's Settings, API Keys — use the publishable and secret keys):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -101,7 +105,9 @@ To exercise the admin orders flow against the mock instead, start the mock with 
 
 `/orders` lists the signed-in user's live Supabase orders, not just the browser's copy: `tests/e2e/orders-fresh-browser.mjs` places a COD order, then opens `/orders` in a fresh browser profile (empty localStorage) and checks the order is listed there and that `/orders/<id>` shows it with its live status. In fallback mode (no env vars) the same script checks a guest COD order is still listed from localStorage.
 
-The 2026-11-08 gstack review fixes are covered by `tests/e2e/review-fixes.mjs` (same mock + `MOCK_ADMIN=1` setup, run after the app is built against the mock): a realistic double-click of Advance moves one step only and the button disables while the action runs, then two clicks dispatched synchronously in one task also move one step only (the synchronous in-flight ref guard in `AdminDashboard.tsx` — React state alone cannot stop the second click, and the server's conditional update cannot either, because "advance from the new status" is legal once the first advance lands); a customer cancel cancels the live order, restores stock, writes a customer-cancel audit row and shows the stock-released confirmation; an admin Refund calls the test adapter first and appends a refunded payments row while the paid row stays paid; a failed test payment followed by a successful retry leaves two payments rows; and a fresh browser lists live orders with live status.
+The 2026-11-08 gstack review fixes are covered by `tests/e2e/review-fixes.mjs` (same mock + `MOCK_ADMIN=1` setup, run after the app is built against the mock): a realistic double-click of Advance moves one step only and the button disables while the action runs, then two clicks dispatched synchronously in one task also move one step only (the synchronous in-flight ref guard in `AdminDashboard.tsx` — React state alone cannot stop the second click, and the server's conditional update cannot either, because "advance from the new status" is legal once the first advance lands); a customer cancel cancels the live order, restores stock, writes a customer-cancel audit row and shows the stock-released confirmation; an admin Refund calls the test adapter first and appends a refunded payments row while the paid row stays paid; a failed test payment followed by a successful retry leaves two payments rows; and a fresh browser lists live orders with live status. Stock is read from the variant row the order actually decremented (the iPhone's Natural Titanium variant — see the comment on `iphoneStock()`): since the mock gained variant rows, checkout decrements the variant row, not the product row.
+
+The mini-cart drawer, colour-variant photos and per-route skeletons are covered by one combined run, `tests/e2e/mini-cart-variant-photos.mjs` (same mock setup, no admin mode needed): variant photos (Black Titanium switches the gallery to the variant image and back), the drawer (opens without navigating or losing scroll, quantity +/- updates the header count, Escape / overlay / X close it with focus back on the cart button, "View full cart" and "Checkout" land on `/cart` / `/checkout`, mobile size, empty state), and skeletons (the matching skeleton appears before the content on `/shop`, a product page and `/`, then is replaced). The mock's Black Titanium photo is a stand-in (the Sony headphones shot), labelled as such — no real colour photo exists yet. The skeleton section sets a 2s delay on the mock first (test-only endpoint `GET /__test/delay?ms=N`, cleared afterwards) because a skeleton only renders while the page waits on data and the mock answers in milliseconds; the product skeleton is checked via client-side navigation from `/shop`, since on a cold load `generateMetadata` blocks the shell (see "Loading skeletons").
 
 Product photos resolving to Supabase Storage are covered by `tests/e2e/storage-images.mjs` (same mock setup, no admin mode needed): the server-rendered `/shop` HTML contains a Storage photo URL, loading `/shop` in a real browser shows no remotePatterns / invalid-src / CSP image error, and the rendered `<img>` elements point at the Storage URL rather than a local path. The mock serves no Storage objects, so a successful photo load cannot be proven here — the live load is verified after deploy.
 
@@ -152,7 +158,56 @@ How it works: product writes go through server actions (`lib/products/actions.ts
 
 If Supabase is **not configured** (no env vars), the site falls back to the local seed catalogue (`lib/data/catalog.ts`) and localStorage cart/orders/auth so it can still be previewed — but product changes made in the dashboards will not persist or appear publicly until Supabase is connected. Set `.env.local` (below) to switch the live path on.
 
-## Supabase Auth
+## Mini-cart drawer
+
+Clicking the cart icon in the header opens a slide-over mini cart (`components/MiniCartDrawer.tsx`) instead of navigating away — the page behind stays exactly where it was, with its scroll position intact. The drawer shows every line (thumbnail, title, variant, quantity +/-, line price, remove), the subtotal and the free-delivery hint (free over ৳999 — how much more is needed, or "You've got free delivery"), plus "View full cart" (→ `/cart`) and "Checkout" (→ `/checkout`); both close the panel. The empty state says "Your cart is empty" with a "Continue shopping" button that just closes it. Close with the X button, the dimmed overlay, or Escape; focus moves into the panel on open and back to the cart button on close (`role="dialog"`). Mobile: full-height, near-full-width; desktop: fixed right-side panel.
+
+Quantities go through the **same cart store** as everything else (`useCart` / `usePricedCartLines` in `lib/cart-store.ts`) — there is no second cart state, so the header count, the drawer and `/cart` always agree. `/cart` itself is untouched.
+
+## Colour-variant photos
+
+Selecting a colour (or storage option) switches the gallery photo to that variant's photo when one is set, and falls back to the product photo when it is not (`components/ProductGallery.tsx`, `resolveVariantImage` in `lib/catalog-rules.ts`).
+
+- **Schema:** `supabase/migrations/0005_product_variant_image.sql` adds `image_path` to `product_variants` — one photo per variant, sitting next to the variant it belongs to (the admin already edits variants as rows), rather than a `variant_id` on `product_images`. The value is a Storage filename / legacy local path / https URL, resolved through the same helper as product images (`lib/storage-images.ts`) into the public `product-images` bucket. No new bucket; RLS unchanged (a column, not a new table). **Apply migration 0005 live in the SQL Editor** — until then the column does not exist and no variant photo can be set.
+- **Admin:** the Variants field in `/admin` accepts an optional fourth segment — `Name:price:stock:image`, e.g. `Black Titanium::5:iphone-black.jpg` (empty price keeps the base price; segments after the third are rejoined so https URLs survive). The image is validated with the same `isSafeImagePath` rule as product images, and the product list shows "· photo set" when a variant has one.
+- **Real per-colour photos are still needed from the owner.** No per-colour photos exist yet: the 14 photos in Storage are per-product shots (plus 3 extra iPhone angles — angles, not colours). Every variant starts with no photo and the gallery falls back, so the shop looks exactly as before until real photos are uploaded and set per variant. The switching itself is proven by the Playwright check below, which uses an existing Storage file as a stand-in variant image — the stand-in is labelled as such in the mock and is not a real colour photo.
+
+## Loading skeletons
+
+Every route has its own `loading.tsx` that mirrors the real page layout, so navigation shows the matching skeleton instantly instead of a blank page: home (hero + product grid), `/shop` (filters + 9-card grid), `/product/[slug]` (gallery + info column + selectors), `/account` (user card + profile form + sections), `/admin` (form card + product rows + sections). Solid colours, `animate-pulse`, `bg-panel` — the same pattern as before, just per-route instead of one generic skeleton for everything. The cart drawer needs no skeleton: its content is synchronous from the cart store, so it opens instantly with the lines already in it.
+
+One honest limitation, found while verifying: on a **cold load** (typing a product URL directly), the product skeleton does not appear — `generateMetadata` blocks the document shell on the same catalogue fetch the page needs, so the shell cannot flush until the data is ready. On **in-app navigation** (clicking a product card from `/shop` or home) the router shows the product skeleton for the whole fetch, which is the common case. The skeleton file stays for that reason; removing the product's `<title>` metadata to chase a cold-load skeleton would trade real SEO for nothing.
+
+## Performance — what was slow, and what changed (2026-11-09)
+
+Measured locally against the mock Supabase (no real keys), before and after. The production timings below are medians of 5 (curl TTFB) and Playwright `networkidle` loads; the mock's photos are tiny, so the mock cannot show the real-photo cost — the per-image numbers use the real JPEGs in `public/images/products/`.
+
+**What was actually slow:**
+1. **Image optimisation, cold.** `next/image` with the built-in squoosh optimiser (no `sharp` installed) took **1.4–2.5s per real photo** on a cold cache (iPhone 59 KB: 2.50s, Sony 43 KB: 1.66s, MacBook 73 KB: 1.38s) — and the default `minimumCacheTTL` is 60s, so a photo was re-optimised on the first visit after a minute of quiet. Nine cards on `/shop` is **13–22s of optimisation work** on a cold cache. The build log itself warned that sharp is "strongly recommended".
+2. **Dev-mode compile.** `npm run dev` compiles each page on first hit: `/` 9.3s, `/shop` 6.1s, `/product` 1.7s, `/account` 0.68s, `/admin` 0.78s cold (warm: 40–150ms) — unchanged by these fixes, because it is inherent to dev mode, not a code problem.
+3. **Serial Supabase round trips.** A product page fetched the catalogue three times per visit (product, related, metadata — up to 6 round trips); `/account` ran 6–7 serial queries; `/admin` about 10; and `getUser()` was re-validated on every call inside a request. Against the real project from Bangladesh (each round trip ~100–300ms to ap-southeast-1) that is 1–2s on `/account` alone, more on `/admin`. The middleware auth gate was **not** the cause: it only runs on `/admin`.
+
+**What changed:**
+- **`sharp` installed** (`npm install sharp`) and **`images.minimumCacheTTL` set to 86400 (1 day)** in `next.config.mjs`. Cold optimise of the same real photos is now **0.03–0.24s** (iPhone 0.236s on the very first request, which loads the native module once; Sony 0.034s, MacBook 0.031s; warm 2–3ms) — a cold `/shop` is ~0.3–0.5s of optimisation instead of 13–22s. Caveat: a photo re-uploaded under the **same** Storage filename takes up to a day to show the new optimised image; a new filename busts the cache immediately (the URL is the cache key).
+- **Product page: one catalogue fetch per visit.** Product, related products and metadata all resolve from a single `getCatalog()` call, itself per-request cached with React `cache()` (`lib/supabase/catalog.ts`). The old per-product / per-related helpers are removed. Cost: 2 round trips (categories + products, in parallel) instead of up to 6.
+- **Parallelised:** `getAccountData()` (`lib/account-server.ts`) fetches addresses / wishlist / orders with `Promise.all`; `fetchAllProducts()` / `loadExtras()` (`lib/products/queries.ts`) fetch categories + extras and images + variants in parallel.
+- **`getUser()` deduped per request** with React `cache()` in `lib/auth-server.ts`, `lib/orders-server.ts` and `lib/cart-server.ts` — one Auth validation per request instead of one per call.
+- **Nothing safe or fresh was weakened:** the middleware gate still runs on `/admin`, RLS is untouched, `force-dynamic` is kept where freshness matters, and every cache is per-request only — prices and stock re-fetch on every visit.
+
+**Before / after (production, mock Supabase, localhost):**
+
+| Route | TTFB before | TTFB after | Full load before | Full load after |
+| --- | --- | --- | --- | --- |
+| `/` | 22.9 ms | 39 ms | DCL ~475 ms / idle ~1.4 s | DCL 451 ms / idle 1.46 s |
+| `/shop` | 22.4 ms | 31 ms | idle ~1.1 s | idle 0.92 s |
+| `/product/[slug]` | 17.6 ms | 24 ms | idle ~0.74 s | idle 0.80 s |
+| `/account` | 2.7 ms | 3.5 ms | content 121–147 ms (signed in) | (unchanged — data loads client-side after mount) |
+| `/admin` | 3.8 ms | 3.6 ms | content 549 ms (admin) | (unchanged — guest is a 307 redirect) |
+| `/seller` | 12.7 ms | 12.3 ms | 404 | 404 |
+
+TTFB and full-load times against the mock are essentially unchanged — they were already fast, and the mock's tiny images never showed the real-photo cost. The measurable wins are the cold image optimisation (above) and the round-trip reduction, which only show up against the real project and real photos. The user's reported 30s loads (10–20s on profile/admin) are most plausibly dev-mode compile + squoosh cold optimisation of real photos + serial round trips to ap-southeast-1 — the mock cannot reproduce his exact 30s, and this README does not claim it does.
+
+**Dev vs production:** use the production build for local use — `npm run build && npm run start` — not `npm run dev`, whose first-hit compile (9.5s for `/`) is the main thing that makes the site feel slow locally. Never run `dev` and `start` from the same checkout without rebuilding in between: they fight over `.next` (starting dev deletes `BUILD_ID` and breaks the running production server).
 
 Sign-in and sign-up use **Supabase Auth** (`lib/auth.ts`): email/password, http-only cookie session, profile row created on sign-up with role `customer` (never `admin` — admin is granted manually in the database). There are no seller accounts: TechShot is a single-seller store (see below). Middleware (`middleware.ts`) refreshes the session from cookies and redirects unsigned users away from `/admin`, and non-admins away from `/admin`. There is no demo admin account and no demo sign-in button.
 
@@ -185,6 +240,8 @@ Cart and orders are stored in Supabase (`carts`/`cart_items`, `orders`/`order_it
 
 ## What is NOT yet live
 
+- **Apply migration 0005 on the live project.** `supabase/migrations/0005_product_variant_image.sql` adds `image_path` to `product_variants`. Until it is applied, no variant photo can be set. Migrations 0002, 0003 and 0004 were applied live on 2026-11-08.
+- **Real per-colour product photos are still needed from the owner.** The gallery switches the moment a variant photo is set (see "Colour-variant photos"), but no per-colour photos exist yet — the 14 Storage photos are per-product shots. Upload the colour photos to the `product-images` bucket and set each variant's image in `/admin`.
 - **Apply migration 0004 on the live project.** `supabase/migrations/0004_drop_seller_order_policy.sql` drops the legacy `orders_select_seller` policy. Until it is applied, a signed-in customer's `/orders` page shows "No orders yet" in a fresh browser (and `/account` shows no live orders) because every authenticated SELECT on `orders` fails with "infinite recursion detected in policy for relation orders". Migrations 0002 and 0003 were applied live on 2026-11-08.
 - **Live verification against the TechshotBD project (first run 2026-11-08).** Verified live with a test account: live catalogue (12 seeded products), sign-in + success banner + `/account` dashboard, profile auto-created by the 0002 trigger, admin grant, admin add/pause/delete product round-trip (new products appear on `/shop` page 2 / category / search — page 1 holds 9), card order with FIRST2000 (−৳2,000) and free delivery (order confirmed, payment row paid, stock decremented), COD order, admin double-click Advance moving exactly one step with exactly one audit row, customer cancel restoring stock with the stock message, admin refund keeping the paid row and adding a refunded row, no hydration errors and no favicon errors. Still to verify after migration 0004 is applied: `/orders` in a fresh browser listing the customer's live orders. Product photos are still missing (see below), so product pages log `/_next/image` 400 errors for the absent JPEGs.
 - **Product photos live in Supabase Storage, not in this repo.** The product photos are in the public `product-images` bucket in Supabase Storage (upload the JPEGs there, flat at the bucket root, keeping their filenames). The storefront maps each product's stored image — a legacy local path `/images/products/<file>.jpg`, a bare filename such as `<slug>.jpg`, or a full https URL — to its public Storage URL (`lib/storage-images.ts`); `next.config.mjs` allows the Supabase host for `next/image` and the CSP `img-src`. The seed still writes the legacy local paths, so no migration is needed to switch existing rows to Storage. To add or replace a photo: upload the file to the bucket (same filename replaces it) or set the product's image in `/admin` to the Storage filename. The local `public/images/products/` files are only the fallback when Supabase is not configured — and a fresh clone has none (the JPEGs were never pushed as binaries), so an unconfigured preview shows initials too. The three subscription products have no photos in the set, so they show initials either way.
@@ -217,12 +274,17 @@ app/
   auth/               Sign in, sign up, auth callback
   admin/              Admin dashboard (product moderation, orders, coupons, users)
   error.tsx           Generic error boundary
-  loading.tsx         Loading skeleton
+  loading.tsx         Loading skeleton (home; also the fallback for routes without their own file)
+  shop/loading.tsx    Shop skeleton (filters + grid)
+  product/[slug]/loading.tsx  Product skeleton (gallery + info column)
+  account/loading.tsx Account skeleton
+  admin/loading.tsx   Admin skeleton
   not-found.tsx       404 page
 components/
   ui.tsx              Shared primitives: Button, Card, Badge, Input, Select, Field, EmptyState, SectionHeading
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
+  MiniCartDrawer.tsx  Slide-over mini cart (header cart button; same cart store as /cart)
   ProductManager.tsx  Admin product form + list (server actions)
   Header.tsx / Footer.tsx
 lib/
@@ -248,7 +310,7 @@ supabase/
   migrations/0001_initial_schema.sql
   migrations/0002_profile_trigger.sql  Creates profiles rows on sign-up + backfills missing ones
   migrations/0003_order_items_variant.sql  Records which variant row each order line decremented (cancel / refund stock restore)
-  migrations/0004_drop_seller_order_policy.sql  Drops legacy orders_select_seller (broke authenticated orders reads with infinite RLS recursion)
+  migrations/0005_product_variant_image.sql  Adds image_path to product_variants (one photo per variant)
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/
@@ -258,6 +320,10 @@ tests/
   payments.test.mjs   Test-payment adapter tests (node:test, real adapter)
   cart.test.mjs       Cart pricing rules: live slugs, variants, totals (node:test)
   catalog.test.mjs    Live-catalogue visibility rules (add/delete/pause, DB prices)
+  mini-cart.test.mjs  Mini-cart drawer: shared store, dialog, lines, subtotal, free-delivery hint
+  variant-images.test.mjs  Per-variant photos: resolution, mapping, admin format, migration 0005
+  skeletons.test.mjs  Per-route loading.tsx files exist and match their page layouts
+  performance.test.mjs  Single catalogue fetch, parallel queries, getUser dedupe, sharp + cache TTL
   products-actions.test.mjs  Product slug/validation helpers
   profile.test.mjs    Profile creation rules (sign-in creates a missing profile, never admin, never overwrite)
   account.test.mjs    Account dashboard rules (address/wishlist mapping, order merge, sign-in banner + dashboard wiring)

@@ -19,6 +19,7 @@
 
 "use server";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "./supabase/server";
 import { getProductForCartSlug } from "./data/catalog";
@@ -70,7 +71,10 @@ function untyped(client: unknown): SupabaseClient {
   return client as unknown as SupabaseClient;
 }
 
-async function getSignedInUserId(): Promise<string | null> {
+// Per-request cached (React cache()): see fetchSignedInUserId
+// above — the same session is re-read by several order actions
+// during one request, and each read was a separate Auth round trip.
+const fetchSignedInUserId = cache(async (): Promise<string | null> => {
   try {
     const supabase = untyped(createClient());
     const {
@@ -80,6 +84,10 @@ async function getSignedInUserId(): Promise<string | null> {
   } catch {
     return null;
   }
+});
+
+async function getSignedInUserId(): Promise<string | null> {
+  return fetchSignedInUserId();
 }
 
 /** Live product for a local cart slug: exact match, then `<slug>-…`. */

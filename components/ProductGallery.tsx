@@ -20,8 +20,9 @@ import {
   Truck,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Product } from "../lib/data/catalog";
+import { resolveVariantImage } from "../lib/catalog-rules";
 import { formatBDT } from "../lib/theme";
 import { FIRST2000_MIN_POISHA, FIRST2000_VALUE_POISHA } from "../lib/theme";
 import { useCart } from "../lib/cart-store";
@@ -39,6 +40,14 @@ export function ProductGallery({
 }) {
   const [active, setActive] = useState(0);
   const list = images.length > 0 ? images : [product.image];
+  // The image list changes when the shopper picks a variant with its
+  // own photo (ProductDetail swaps the list); go back to the first
+  // image so the main photo is always the selected variant's photo,
+  // not a stale thumbnail index from the previous list. `images` is
+  // memoised by the caller, so this only fires when the list changes.
+  useEffect(() => {
+    setActive(0);
+  }, [images]);
   return (
     <div>
       <div className="overflow-hidden rounded-2xl border border-border">
@@ -88,7 +97,18 @@ export function ProductDetail({ product }: { product: Product }) {
     compareAt > price ? Math.round((1 - price / compareAt) * 100) : 0;
   const variantLabel = [storage?.label, colour].filter(Boolean).join(" · ") || product.variant;
 
-  const images = useMemo(() => [product.image], [product.image]);
+  // The displayed photo follows the selected variant: a colour (or
+  // storage option) with its own photo shows that photo first, with
+  // the product photo still available as a thumbnail; a variant
+  // without a photo falls back to the product photo alone. No real
+  // per-colour photos exist yet, so this is the product photo until
+  // a variant photo is set in /admin (product_variants.image_path,
+  // migration 0005).
+  const variantImage = resolveVariantImage(product, colour, storage?.label);
+  const images = useMemo(() => {
+    const list = variantImage ? [variantImage, product.image] : [product.image];
+    return [...new Set(list)];
+  }, [variantImage, product.image]);
 
   function handleAdd() {
     add(product.slug, variantLabel, quantity);

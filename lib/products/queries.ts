@@ -98,32 +98,38 @@ async function loadExtras(
   const variantsByProduct = new Map<string, ProductVariantItem[]>();
   if (productIds.length === 0) return { imagesByProduct, variantsByProduct };
 
-  const { data: images } = await admin
-    .from("product_images")
-    .select("product_id, storage_path, sort_order")
-    .in("product_id", productIds)
-    .order("sort_order", { ascending: true });
+  // Images and variants are independent queries — run them in
+  // parallel instead of one after another.
+  const [{ data: images }, { data: variants }] = await Promise.all([
+    admin
+      .from("product_images")
+      .select("product_id, storage_path, sort_order")
+      .in("product_id", productIds)
+      .order("sort_order", { ascending: true }),
+    admin
+      .from("product_variants")
+      .select("product_id, name, price_override_poisha, stock, image_path")
+      .in("product_id", productIds),
+  ]);
   for (const image of (images ?? []) as Array<{ product_id: string; storage_path: string }>) {
     if (!imagesByProduct.has(image.product_id)) {
       imagesByProduct.set(image.product_id, image.storage_path);
     }
   }
 
-  const { data: variants } = await admin
-    .from("product_variants")
-    .select("product_id, name, price_override_poisha, stock")
-    .in("product_id", productIds);
   for (const variant of (variants ?? []) as Array<{
     product_id: string;
     name: string;
     price_override_poisha: number | null;
     stock: number;
+    image_path: string | null;
   }>) {
     const list = variantsByProduct.get(variant.product_id) ?? [];
     list.push({
       name: variant.name,
       priceTaka: variant.price_override_poisha === null ? null : poishaToTaka(variant.price_override_poisha),
       stock: variant.stock,
+      imagePath: variant.image_path ?? null,
     });
     variantsByProduct.set(variant.product_id, list);
   }
@@ -160,11 +166,17 @@ export async function fetchAllProducts(): Promise<ProductQueryResult> {
       .order("created_at", { ascending: false });
     if (productsError || !productsData) return empty;
 
-    const { data: categoryRows } = await admin.from("categories").select("id, slug, name, is_active");
+    // The categories query and the images/variants extras are
+    // independent of each other — run them in parallel (they used
+    // to run one after another, three serial Supabase round trips
+    // before the page could render).
+    const productIds = (productsData as ProductRow[]).map((row) => row.id);
+    const [{ data: categoryRows }, { imagesByProduct, variantsByProduct }] = await Promise.all([
+      admin.from("categories").select("id, slug, name, is_active"),
+      loadExtras(admin, productIds),
+    ]);
     const categoryRowsTyped = (categoryRows ?? []) as CategoryRow[];
     const categoriesById = new Map<string, CategoryRow>(categoryRowsTyped.map((row) => [row.id, row]));
-    const productIds = (productsData as ProductRow[]).map((row) => row.id);
-    const { imagesByProduct, variantsByProduct } = await loadExtras(admin, productIds);
     return {
       products: toListItems(productsData as ProductRow[], categoriesById, imagesByProduct, variantsByProduct),
       categories: categoryRowsTyped

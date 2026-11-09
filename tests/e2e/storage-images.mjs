@@ -10,13 +10,10 @@
 //      allowed by next.config remotePatterns and the CSP img-src;
 //   3. the browser actually requested a Storage photo URL (via
 //      next/image) and no local product-photo path — captured from the
-//      request log, because the mock 404s the photo and ProductImage
-//      swaps each <img> for its solid-colour fallback almost at once.
-//
-// The mock serves no /storage/v1/... objects, so a successful photo
-// LOAD cannot be proven here; the live load is verified after deploy
-// (or with keys for a live check). What is proven here is the URL
-// mapping and that next/image accepts the remote host.
+//      request log. The mock serves a solid 120x120 PNG for any Storage file
+//      (tests/e2e/mock-supabase.mjs), so the photos load here too;
+//      the live load against the real bucket is still verified after
+//      deploy.
 //
 // Run (see README, "End-to-end checks"):
 //   Mock:      MOCK_ADMIN=0 node tests/e2e/mock-supabase.mjs  (port 3101)
@@ -76,11 +73,10 @@ page.on("console", (msg) => {
   if (msg.type() === "error") consoleErrors.push(msg.text());
 });
 page.on("pageerror", (err) => pageErrors.push(String(err)));
-// The mock serves no Storage objects, so the photo requests 404 and
-// ProductImage swaps each <img> for its solid-colour fallback almost
-// immediately — live <img> elements are usually gone by the time the
-// page settles. The requested URLs are the reliable record of what
-// the storefront asked for, so they are captured here instead.
+// The mock serves a solid 120x120 PNG for any Storage file, so the requested
+// URLs are captured here as the reliable record of what the
+// storefront asked for (a <img> that loads stays in the DOM, but the
+// request log is still the direct proof).
 page.on("request", (req) => requestedUrls.push(req.url()));
 
 try {

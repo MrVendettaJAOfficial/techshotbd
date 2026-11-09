@@ -12,6 +12,7 @@
 // console warning only — shoppers never see an error and no
 // configuration details are ever surfaced.
 
+import { cache } from "react";
 import { createClient } from "./server";
 import {
   CATEGORIES,
@@ -26,7 +27,6 @@ import {
   mapDbCategoryToCatalog,
   mapDbProductToCatalog,
   mapDbProductToSubscription,
-  relatedProducts,
 } from "../catalog-rules";
 import type { DbCategoryRow, DbProductRow } from "../catalog-rules";
 
@@ -55,9 +55,10 @@ function localCatalog(): LiveCatalog {
 }
 
 // Columns fetched for a storefront product, with its images and
-// variants joined in the same query.
+// variants joined in the same query. product_variants.image_path is
+// the variant's own photo (migration 0005).
 const PRODUCT_SELECT =
-  "*, product_images(storage_path, alt_text, sort_order), product_variants(name, price_override_poisha, stock)";
+  "*, product_images(storage_path, alt_text, sort_order), product_variants(name, price_override_poisha, stock, image_path)";
 
 const CATEGORY_SELECT = "id, slug, name, sort_order, is_active";
 
@@ -141,8 +142,17 @@ export async function getLiveCatalog(): Promise<LiveCatalog> {
  * Live catalogue when available, otherwise the local seed catalogue.
  * The fallback logs a console warning only — no user-visible error
  * and no configuration detail is ever leaked.
+ *
+ * Per-request cached (React cache()): a product page used to fetch
+ * the catalogue three times per visit — once for the product, once
+ * for related products, and once more for metadata — each fetch
+ * being two Supabase round trips (categories + products). The
+ * metadata render and the page render share one request, so they now
+ * share one fetch. The cache is per-request only: the next visit
+ * re-fetches, so prices and stock are never stale — force-dynamic
+ * freshness is unchanged.
  */
-export async function getCatalog(): Promise<LiveCatalog> {
+const fetchCatalog = cache(async (): Promise<LiveCatalog> => {
   if (!isSupabaseConfigured()) return localCatalog();
   try {
     return await getLiveCatalog();
@@ -153,65 +163,8 @@ export async function getCatalog(): Promise<LiveCatalog> {
     );
     return localCatalog();
   }
-}
+});
 
-/**
- * One live product by slug. Returns undefined when there is no such
- * product or it is not active (paused / draft products are hidden).
- * Throws when Supabase is not configured or the query fails — callers
- * that want a local fallback should catch and use getProduct() instead.
- *
- * Slug rule: the exact slug is tried first, then the `<slug>-…` prefix
- * — the live database uses longer slugs than the seed catalogue for
- * some products (live `apple-iphone-16-pro-256gb-natural-titanium` vs
- * seed `apple-iphone-16-pro`), so a link using the shorter seed slug
- * still resolves to the live product instead of 404ing. This is the
- * same rule the cart and order code uses (see lib/cart-server.ts).
- */
-export async function getLiveProduct(slug: string): Promise<Product | undefined> {
-  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("products")
-    .select(PRODUCT_SELECT)
-    .eq("slug", slug)
-    .eq("status", "active")
-    .maybeSingle();
-  if (error) throw new Error(`Failed to load product: ${error.message}`);
-  let row = (data ?? null) as unknown as DbProductRow | null;
-  if (!row) {
-    const prefixed = await supabase
-      .from("products")
-      .select(PRODUCT_SELECT)
-      .like("slug", `${slug}-%`)
-      .eq("status", "active")
-      .order("slug")
-      .limit(1)
-      .maybeSingle();
-    if (prefixed.error) {
-      throw new Error(`Failed to load product: ${prefixed.error.message}`);
-    }
-    row = (prefixed.data ?? null) as unknown as DbProductRow | null;
-  }
-  if (!row) return undefined;
-  const categoryRows = await fetchCategoryRows(supabase);
-  return mapDbProductToCatalog(withCategorySlugs([row], categoryRows)[0] as DbProductRow);
-}
-
-/**
- * Related live products for a detail page: same-category active
- * products first, then other active products. Throws when Supabase is
- * not configured or the query fails — callers that want a local
- * fallback should catch and use getRelated() instead.
- */
-export async function getLiveRelated(product: Product, n: number): Promise<Product[]> {
-  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
-  const supabase = createClient();
-  const [categoryRows, productRows] = await Promise.all([
-    fetchCategoryRows(supabase),
-    fetchProductRows(supabase),
-  ]);
-  const rows = withCategorySlugs(productRows, categoryRows);
-  const products: Product[] = filterPublicProducts(rows).map(mapDbProductToCatalog);
-  return relatedProducts(products, product, n);
+export async function getCatalog(): Promise<LiveCatalog> {
+  return fetchCatalog();
 }

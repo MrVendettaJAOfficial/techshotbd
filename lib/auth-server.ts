@@ -15,6 +15,7 @@
 
 "use server";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient, createClient } from "./supabase/server";
@@ -44,8 +45,15 @@ function isValidRole(value: unknown): value is UserRole {
 /**
  * The signed-in user, or null when nobody is signed in / Supabase is
  * not configured. Never throws.
+ *
+ * Per-request cached (React cache()): several server actions and
+ * components ask for the current user during one request (the admin
+ * page, account data, order actions), and each call was a separate
+ * Auth round trip. The cache is per-request only — the next request
+ * re-validates the session, so a sign-out or role change is never
+ * hidden by a stale result.
  */
-export async function getCurrentUser(): Promise<AppUser | null> {
+const fetchCurrentUser = cache(async (): Promise<AppUser | null> => {
   try {
     const supabase = untyped(createClient());
     const { data, error } = await supabase.auth.getUser();
@@ -79,6 +87,10 @@ export async function getCurrentUser(): Promise<AppUser | null> {
     // error. Never leak which variable or service is missing.
     return null;
   }
+});
+
+export async function getCurrentUser(): Promise<AppUser | null> {
+  return fetchCurrentUser();
 }
 
 /**

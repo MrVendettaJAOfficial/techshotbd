@@ -79,14 +79,23 @@ export interface ParsedVariant {
   name: string;
   priceTaka?: number;
   stock: number;
+  /** Photo for this variant (migration 0005): a Storage filename, a
+   *  legacy /images/products/<file>.jpg path, or an https URL.
+   *  Absent when the variant has no photo of its own. */
+  imagePath?: string;
 }
 
 /**
  * Parse the form's comma-separated variant list:
  *   "128GB:89900:10, 256GB:99900:5"  or  "Red::20" (no price override)
  * Each entry is "Name:priceTaka:stock"; price may be empty (use the
- * product price) and stock defaults to 0. Throws an Error with a
- * user-facing message on malformed input.
+ * product price) and stock defaults to 0. An optional fourth segment
+ * is the variant's photo: "Black Titanium::10:iphone-black.jpg"
+ * (price empty, stock 10, photo set). The photo is validated with
+ * the same isSafeImagePath rule as product images. A URL holds its
+ * colons: segments after the third are rejoined, so an https photo
+ * URL survives the split. Throws an Error with a user-facing
+ * message on malformed input.
  */
 export function parseVariantsText(text: string): ParsedVariant[] {
   const trimmed = text.trim();
@@ -102,6 +111,7 @@ export function parseVariantsText(text: string): ParsedVariant[] {
     }
     const priceRaw = parts[1] ?? "";
     const stockRaw = parts[2] ?? "";
+    const imageRaw = parts.slice(3).join(":").trim();
     const variant: ParsedVariant = { name, stock: 0 };
     if (priceRaw !== "") {
       const price = Number(priceRaw);
@@ -117,6 +127,14 @@ export function parseVariantsText(text: string): ParsedVariant[] {
       }
       variant.stock = stock;
     }
+    if (imageRaw !== "") {
+      if (!isSafeImagePath(imageRaw)) {
+        throw new Error(
+          `Variant "${name}" has an invalid photo. Use a Supabase Storage filename (e.g. <slug>.jpg), a storage path (e.g. /images/products/<slug>.jpg) or an https URL — never a Figma link.`,
+        );
+      }
+      variant.imagePath = imageRaw;
+    }
     variants.push(variant);
   }
   if (variants.length > 20) {
@@ -129,6 +147,15 @@ export const productVariantInputSchema = z.object({
   name: z.string().trim().min(1, "Each variant needs a name.").max(100, "Variant names must be 100 characters or fewer."),
   priceTaka: z.number().finite().min(0, "Variant prices must be ৳0 or more.").max(100_000_000).optional(),
   stock: z.number().int("Variant stock must be a whole number.").min(0, "Variant stock cannot be negative.").max(1_000_000),
+  imagePath: z
+    .string()
+    .trim()
+    .max(500, "Variant photo path is too long.")
+    .optional()
+    .refine(
+      (value) => value === undefined || value === "" || isSafeImagePath(value),
+      "Variant photo must be a Supabase Storage filename (e.g. <slug>.jpg), a storage path (e.g. /images/products/<slug>.jpg) or an https URL — never a Figma link.",
+    ),
 });
 
 /** Server-side validation for create / update product input. */

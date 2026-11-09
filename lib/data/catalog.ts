@@ -38,6 +38,11 @@ export type Product = {
   specs: Record<string, string>;
   colours?: string[];
   storageOptions?: StorageOption[];
+  /** Photo per variant, keyed by exact variant name (colour or
+   *  storage label). Only variants with a photo set are present;
+   *  see lib/catalog-rules.ts resolveVariantImage. No seed product
+   *  sets this — no real per-colour photos exist yet. */
+  variantImages?: Record<string, string>;
 };
 
 export type SubscriptionPlan = {

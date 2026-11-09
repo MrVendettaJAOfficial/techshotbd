@@ -64,6 +64,16 @@ const nextConfig = {
   images: {
     remotePatterns,
     formats: ["image/avif", "image/webp"],
+    // Optimised images are cached for a day instead of the 60-second
+    // default. The default meant every product photo was re-optimised
+    // from scratch (1.4–2.5s per real photo with squoosh, the
+    // built-in optimiser) on the first visit after a minute of
+    // quiet — nine cards on /shop is 13–22s of optimisation work on
+    // a cold cache. The cache key is the image URL, so a photo
+    // re-uploaded under the SAME Storage filename takes up to a day
+    // to show the new optimised image; uploading under a new
+    // filename (or editing the product's image) busts it immediately.
+    minimumCacheTTL: 86400,
   },
   async headers() {
     return [

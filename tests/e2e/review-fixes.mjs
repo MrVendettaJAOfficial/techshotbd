@@ -75,8 +75,18 @@ async function mockGet(path) {
   return res.json();
 }
 
+// Stock lives on the row checkout actually decrements. The script's
+// orders carry the iPhone's default variant (Natural Titanium), and
+// since the mock gained variant rows (variant-photo work, 2026-11-09)
+// checkout decrements the product_variants row, not the products
+// row — the products row stays 12. Reading the products row here
+// was correct before variants existed and is stale now: the app is
+// behaving correctly (see the mock log: PATCH product_variants
+// stock 12 -> 11 on order, back up on cancel / refund).
 async function iphoneStock() {
-  const rows = await mockGet("products?slug=eq.apple-iphone-16-pro-256gb-natural-titanium&select=stock");
+  const rows = await mockGet(
+    "product_variants?product_id=eq.prod-apple-iphone-16-pro-256gb-natural-titanium&name=eq.Natural%20Titanium&select=stock",
+  );
   return rows?.[0]?.stock;
 }
 

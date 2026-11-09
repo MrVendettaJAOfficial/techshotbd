@@ -31,6 +31,7 @@
 
 "use server";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "./supabase/server";
 import { getProductForCartSlug } from "./data/catalog";
@@ -96,7 +97,11 @@ function untyped(client: unknown): SupabaseClient {
   return client as unknown as SupabaseClient;
 }
 
-async function getSignedInUserId(): Promise<string | null> {
+// Per-request cached (React cache()): listSupabaseOrders and the
+// account page both ask for the signed-in user during one request,
+// and each call was a separate Auth round trip. The cache is
+// per-request only — the next request re-validates the session.
+const fetchSignedInUserId = cache(async (): Promise<string | null> => {
   try {
     const supabase = untyped(createClient());
     const {
@@ -106,14 +111,18 @@ async function getSignedInUserId(): Promise<string | null> {
   } catch {
     return null;
   }
+});
+
+async function getSignedInUserId(): Promise<string | null> {
+  return fetchSignedInUserId();
 }
 
-/** Signed-in user with email + profile role, or null. */
-async function getSignedInUser(): Promise<{
+/** Signed-in user with email + profile role, or null. Per-request cached — see fetchSignedInUserId above. */
+const fetchSignedInUser = cache(async (): Promise<{
   id: string;
   email: string;
   role: string | null;
-} | null> {
+} | null> => {
   let supabase: SupabaseClient;
   try {
     supabase = untyped(createClient());
@@ -141,6 +150,14 @@ async function getSignedInUser(): Promise<{
   } catch {
     return null;
   }
+});
+
+async function getSignedInUser(): Promise<{
+  id: string;
+  email: string;
+  role: string | null;
+} | null> {
+  return fetchSignedInUser();
 }
 
 /** Latest payments-row status for an order ("unpaid" when there is none). */

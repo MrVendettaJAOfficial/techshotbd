@@ -26,9 +26,15 @@ const inputBase =
 
 function variantsToText(product: ProductListItem): string {
   return product.variants
-    .map((variant) =>
-      variant.priceTaka === null ? `${variant.name}::${variant.stock}` : `${variant.name}:${variant.priceTaka}:${variant.stock}`,
-    )
+    .map((variant) => {
+      const base =
+        variant.priceTaka === null
+          ? `${variant.name}::${variant.stock}`
+          : `${variant.name}:${variant.priceTaka}:${variant.stock}`;
+      // A variant photo is a fourth segment; it round-trips through
+      // parseVariantsText (lib/products/validation.ts).
+      return variant.imagePath ? `${base}:${variant.imagePath}` : base;
+    })
     .join(", ");
 }
 
@@ -110,7 +116,7 @@ export default function ProductManager({ products, categories, canPublish, confi
     event.preventDefault();
     setFormError(null);
     setFormNotice(null);
-    let variants: Array<{ name: string; priceTaka?: number; stock: number }> = [];
+    let variants: Array<{ name: string; priceTaka?: number; stock: number; imagePath?: string }> = [];
     try {
       variants = parseVariantsText(variantsText);
     } catch (error) {
@@ -240,9 +246,9 @@ export default function ProductManager({ products, categories, canPublish, confi
             <Field
               label="Variants"
               htmlFor="product-variants"
-              hint='Optional. Comma-separated "Name:price:stock", e.g. "128GB:89900:10, 256GB:99900:5". Leave the price empty to use the product price.'
+              hint='Optional. Comma-separated "Name:price:stock", e.g. "128GB:89900:10, 256GB:99900:5". Leave the price empty to use the product price. A variant photo is an optional fourth part — "Black Titanium::10:iphone-black.jpg" — a Storage filename, storage path or https URL, same rule as the image path above; the gallery shows that photo when the colour is selected.'
             >
-              <Input id="product-variants" value={variantsText} onChange={(e) => setVariantsText(e.target.value)} placeholder="128GB:89900:10, 256GB:99900:5" disabled={formDisabled} />
+              <Input id="product-variants" value={variantsText} onChange={(e) => setVariantsText(e.target.value)} placeholder="128GB:89900:10, Black Titanium::5:iphone-black.jpg" disabled={formDisabled} />
             </Field>
           </div>
           {formError ? (
@@ -299,7 +305,7 @@ export default function ProductManager({ products, categories, canPublish, confi
                     <p className="mt-1 text-sm text-muted">
                       Variants:{" "}
                       {product.variants
-                        .map((variant) => `${variant.name}${variant.priceTaka === null ? "" : ` (${formatBDT(Math.round(variant.priceTaka * 100))})`} × ${variant.stock}`)
+                        .map((variant) => `${variant.name}${variant.priceTaka === null ? "" : ` (${formatBDT(Math.round(variant.priceTaka * 100))})`} × ${variant.stock}${variant.imagePath ? " · photo set" : ""}`)
                         .join(", ")}
                     </p>
                   ) : null}

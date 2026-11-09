@@ -4,12 +4,16 @@
 // wishlist/account icons, cart button with live count, and category nav.
 // Cart count comes from the cart store (CartProvider in app/layout.tsx);
 // an optional cartCount prop overrides it. No server fetching here.
+// The cart button opens the mini-cart drawer (components/MiniCartDrawer)
+// instead of navigating: shoppers stay on the page they were browsing.
+// "View full cart" inside the drawer is the way to reach /cart.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, Search, ShoppingCart, User, Zap } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useCart } from "../lib/cart-store";
+import MiniCartDrawer from "./MiniCartDrawer";
 
 const NAV_LINKS = [
   { label: "All categories", href: "/shop" },
@@ -27,6 +31,8 @@ export default function Header({ cartCount }: { cartCount?: number }) {
   const { count } = useCart();
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [cartOpen, setCartOpen] = useState(false);
+  const cartButtonRef = useRef<HTMLButtonElement>(null);
   const displayCount = cartCount ?? count;
 
   function handleSearch(e: React.FormEvent<HTMLFormElement>) {
@@ -94,9 +100,13 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             >
               <User size={20} />
             </Link>
-            <Link
-              href="/cart"
+            <button
+              type="button"
+              ref={cartButtonRef}
               aria-label={`Cart, ${displayCount} items`}
+              aria-haspopup="dialog"
+              aria-expanded={cartOpen}
+              onClick={() => setCartOpen(true)}
               className="relative flex items-center gap-2 rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 sm:px-4"
             >
               <ShoppingCart size={18} />
@@ -106,7 +116,12 @@ export default function Header({ cartCount }: { cartCount?: number }) {
                   {displayCount}
                 </span>
               )}
-            </Link>
+            </button>
+            <MiniCartDrawer
+              open={cartOpen}
+              onClose={() => setCartOpen(false)}
+              triggerRef={cartButtonRef}
+            />
           </div>
         </div>
 
