@@ -77,7 +77,7 @@ export default function ProfileSection({
             <p className="mt-1 text-xs text-muted">Your sign-in email cannot be changed here.</p>
           )}
         </div>
-        {error && <p role="alert" className="text-sm text-red-400 sm:col-span-2">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-700 sm:col-span-2">{error}</p>}
         {saved && <p role="status" className="text-sm text-success sm:col-span-2">Profile saved.</p>}
         <div className="sm:col-span-2">
           <button type="submit" className={btnPrimary}>Save profile</button>

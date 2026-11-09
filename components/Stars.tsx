@@ -27,7 +27,7 @@ export default function Stars({
             <Star
               key={star}
               size={size}
-              className={filled || half ? "fill-amber-400 text-amber-400" : "fill-transparent text-muted"}
+              className={filled || half ? "fill-amber-600 text-amber-600" : "fill-transparent text-muted"}
             />
           );
         })}

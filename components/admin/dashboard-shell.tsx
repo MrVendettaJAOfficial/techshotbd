@@ -1,10 +1,10 @@
 // Admin dashboard shell (client component) — tab shell.
 //
 // The dashboard is split into tabs driven by the ?tab= search param
-// (Overview / Products / Orders / Users), so tabs are shareable and
+// (Overview / Products / Orders / Messages / Users), so tabs are shareable and
 // survive refresh. The server page fetches only what the active tab
 // needs. Which tabs exist for the caller depends on their role:
-// Owner sees all four, co-admin and manager see everything except
+// Owner sees all five, co-admin and manager see everything except
 // Users, and the Users tab is Owner-only — a non-owner who navigates
 // to ?tab=users directly gets an access-denied message, not the
 // content. Role helpers come from lib/roles.ts.
@@ -13,7 +13,10 @@
 // backed by Supabase through lib/products/actions.ts — the shop
 // reflects every change there. Orders live in
 // components/AdminOrders.tsx (status tabs + manual status selector,
-// server actions in lib/orders/actions.ts). Users live in
+// server actions in lib/orders/actions.ts). Messages live in
+// ./messages-section (broadcast announcements to all users, server
+// actions in lib/announcements-server.ts — Owner / co-admin only
+// for sending). Users live in
 // components/AdminUsers.tsx (Owner-only role changes + removal).
 // Coupons live in ./coupons-section.
 //
@@ -46,6 +49,8 @@ import AdminUsers from "@/components/AdminUsers";
 import TabBar from "@/components/TabBar";
 import { ADMIN_TABS, visibleAdminTabs, type AdminTabId } from "@/components/admin-helpers";
 import CouponsSection from "./coupons-section";
+import MessagesSection from "./messages-section";
+import type { Announcement } from "@/lib/announcements";
 
 import type { CategoryOption, ProductListItem } from "@/lib/products/types";
 import type { AdminUserItem } from "@/lib/products/queries";
@@ -66,6 +71,10 @@ interface AdminDashboardProps {
   users: AdminUserItem[];
   /** Live Supabase orders for the admin list. Only fetched for the Orders tab. */
   initialOrders: ListedOrder[];
+  /** Sent broadcast announcements, newest first. Only fetched for the Messages tab. */
+  announcements: Announcement[];
+  /** True only for the Owner and co-admins (decided server-side). */
+  canSendMessages: boolean;
 }
 
 export default function AdminDashboard({
@@ -78,6 +87,8 @@ export default function AdminDashboard({
   configured,
   users,
   initialOrders,
+  announcements,
+  canSendMessages,
 }: AdminDashboardProps) {
   const router = useRouter();
   const { user, loading, signOutUser } = useAuth();
@@ -99,10 +110,10 @@ export default function AdminDashboard({
         />
         <Card>
           <p className="text-sm text-muted">
-            Sign in with a staff account to manage products, orders, coupons and users.
+            Sign in with a staff account to manage products, orders, messages, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
-            <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
               Sign in
             </Link>
           </p>
@@ -124,10 +135,10 @@ export default function AdminDashboard({
         <Card>
           <p className="text-sm text-muted">
             This account does not have admin access. Sign in with a staff account to manage
-            products, orders, coupons and users.
+            products, orders, messages, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
-            <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
               Sign in
             </Link>
           </p>
@@ -197,6 +208,14 @@ export default function AdminDashboard({
           <AdminOrders initialOrders={initialOrders} configured={configured} callerRole={effectiveRole} />
         )}
 
+        {tab === "messages" && (
+          <MessagesSection
+            announcements={announcements}
+            canSend={canSendMessages}
+            configured={configured}
+          />
+        )}
+
         {tab === "users" &&
           (isOwner(effectiveRole) ? (
             <AdminUsers users={users} currentUserId={currentUserId} callerRole={effectiveRole} />
@@ -211,7 +230,7 @@ export default function AdminDashboard({
       </div>
 
       <p className="mt-8 text-sm">
-        <Link href="/shop" className="font-medium text-brand hover:underline">
+        <Link href="/shop" className="font-medium text-ink hover:underline">
           View the shop
         </Link>
       </p>

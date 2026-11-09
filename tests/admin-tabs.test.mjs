@@ -7,8 +7,12 @@
 // dashboard and the customer orders page use — not a stub copy.
 //
 // What is proven here:
-//   - which admin tabs each role sees (Owner all four, co-admin and
+//   - which admin tabs each role sees (Owner all five, co-admin and
 //     manager everything except Users, anyone else none);
+//     Messages (broadcast announcements, 2026-11-09) is visible to
+//     all staff — managers can read the sent messages — but only
+//     the Owner and co-admins can SEND one (lib/roles.ts
+//     canSendBroadcasts, enforced in the server actions);
 //   - the order status tabs are All + the eight statuses, including
 //     Returned, and the product status tabs are All + Active /
 //     Paused / Draft;
@@ -40,13 +44,13 @@ import {
   visibleAdminTabs,
 } from "../components/admin-helpers.ts";
 
-test("owner sees all four admin tabs", () => {
-  assert.deepEqual(visibleAdminTabs("admin"), ["overview", "products", "orders", "users"]);
+test("owner sees all five admin tabs", () => {
+  assert.deepEqual(visibleAdminTabs("admin"), ["overview", "products", "orders", "messages", "users"]);
 });
 
 test("co-admin and manager see everything except Users", () => {
-  assert.deepEqual(visibleAdminTabs("co_admin"), ["overview", "products", "orders"]);
-  assert.deepEqual(visibleAdminTabs("manager"), ["overview", "products", "orders"]);
+  assert.deepEqual(visibleAdminTabs("co_admin"), ["overview", "products", "orders", "messages"]);
+  assert.deepEqual(visibleAdminTabs("manager"), ["overview", "products", "orders", "messages"]);
 });
 
 test("customers, legacy sellers and signed-out callers see no admin tabs", () => {
@@ -56,12 +60,13 @@ test("customers, legacy sellers and signed-out callers see no admin tabs", () =>
   assert.deepEqual(visibleAdminTabs(undefined), []);
 });
 
-test("admin tab ids are the four known tabs", () => {
+test("admin tab ids are the five known tabs", () => {
   assert.deepEqual(
     ADMIN_TABS.map((tab) => tab.id),
-    ["overview", "products", "orders", "users"],
+    ["overview", "products", "orders", "messages", "users"],
   );
   assert.equal(isAdminTab("orders"), true);
+  assert.equal(isAdminTab("messages"), true);
   assert.equal(isAdminTab("coupons"), false);
   assert.equal(isAdminTab(null), false);
 });

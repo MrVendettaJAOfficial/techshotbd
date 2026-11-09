@@ -68,6 +68,18 @@ export function canChangeOrders(role: string | null | undefined): boolean {
   return role === "admin" || role === "co_admin";
 }
 
+/**
+ * Who may send in-app broadcast messages (and delete them):
+ * the Owner and co-admins only. A manager is staff, but may NOT
+ * send broadcasts — the server actions in
+ * lib/announcements-server.ts enforce this on every call, and the
+ * announcements RLS policies (migration 0009) enforce it in the
+ * database too. Customers can never send.
+ */
+export function canSendBroadcasts(role: string | null | undefined): boolean {
+  return role === "admin" || role === "co_admin";
+}
+
 /** Who may manage users (change roles, remove users): the Owner only. */
 export function canManageUsers(role: string | null | undefined): boolean {
   return role === "admin";

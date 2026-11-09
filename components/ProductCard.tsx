@@ -35,7 +35,7 @@ export function RatingStars({
           size={size}
           className={
             n <= Math.round(rating)
-              ? "fill-amber-400 text-amber-400"
+              ? "fill-amber-600 text-amber-600"
               : "fill-border text-border"
           }
         />
@@ -101,7 +101,7 @@ export default function ProductCard({ product }: { product: Product }) {
           </span>
         )}
         {product.badge && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-text">
+          <span className="absolute bottom-3 left-3 rounded-full bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
             {product.badge}
           </span>
         )}
@@ -110,7 +110,7 @@ export default function ProductCard({ product }: { product: Product }) {
           onClick={toggleWishlist}
           aria-pressed={wishlisted}
           aria-label={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
-          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-text transition hover:bg-ink"
+          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-white transition hover:bg-ink"
         >
           <Heart
             size={18}
@@ -120,7 +120,7 @@ export default function ProductCard({ product }: { product: Product }) {
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 p-4">
-        <Link href={`/product/${product.slug}`} className="hover:text-brand">
+        <Link href={`/product/${product.slug}`} className="hover:text-brandDark">
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-text">
             {product.title}
           </h3>
@@ -144,19 +144,19 @@ export default function ProductCard({ product }: { product: Product }) {
         <p className="text-xs text-muted">
           {product.stock > 0 ? (
             product.stock <= 12 ? (
-              <span className="text-brandLight">Selling fast · {product.stock} left</span>
+              <span className="text-brandDark">Selling fast · {product.stock} left</span>
             ) : (
               "In stock"
             )
           ) : (
-            <span className="text-red-400">Out of stock</span>
+            <span className="text-red-700">Out of stock</span>
           )}
         </p>
         <button
           type="button"
           onClick={handleAdd}
           disabled={product.stock <= 0}
-          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
         >
           {added ? (
             <>

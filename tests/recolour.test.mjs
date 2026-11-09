@@ -10,6 +10,19 @@
 // never uploaded), and products without a photo now show the
 // TechShot logo instead of an initial letter.
 //
+// 2026-11-09 (light theme): the site flipped to navy blue and
+// white, like the logo — white page backgrounds, dark navy text,
+// navy header/footer and navy primary buttons. Green #0F9A70 is
+// now a SECONDARY accent only (logo, success states, small
+// highlights); it is no longer the primary button/link colour.
+// The header cart button and announcement bar stay green because
+// they sit directly on the navy header (navy-on-navy would be
+// unreadable); the homepage feature icon tile and the filter count
+// badge stay green as small highlights. The full green and the
+// light green fail AA as text on white, so green text on light is
+// always the darker tint brandDark #0B7A55, and brandLight #4CC9A4
+// is a navy-only token now.
+//
 // These tests pin the rules down in source: the token values and
 // their Tailwind mappings, the WCAG contrast calls (computed here,
 // not guessed), no leftover blue anywhere, orange only where it
@@ -67,21 +80,25 @@ function contrast(fg, bg) {
 // Tokens: logo palette promoted to the site palette.
 // ---------------------------------------------------------------------------
 
-test("theme.ts promotes the logo tokens to the site palette", () => {
+test("theme.ts promotes the logo tokens to the light site palette", () => {
   const theme = read("lib/theme.ts");
   assert.match(theme, /ink:\s*"#00162E"/);
-  assert.match(theme, /surface:\s*"#0A2438"/);
-  assert.match(theme, /panel:\s*"#122C44"/);
-  assert.match(theme, /card:\s*"#1B3850"/);
-  assert.match(theme, /border:\s*"#283246"/);
+  assert.match(theme, /inkLight:\s*"#0A2438"/);
+  assert.match(theme, /surface:\s*"#FFFFFF"/);
+  assert.match(theme, /panel:\s*"#F1F7FE"/);
+  assert.match(theme, /card:\s*"#FFFFFF"/);
+  assert.match(theme, /border:\s*"#D9E2EC"/);
   assert.match(theme, /brand:\s*"#0F9A70"/);
   assert.match(theme, /brandDark:\s*"#0B7A55"/);
   assert.match(theme, /brandDarker:\s*"#096B49"/);
   assert.match(theme, /brandLight:\s*"#4CC9A4"/);
   assert.match(theme, /accent:\s*"#f97316"/);
   assert.match(theme, /accentDark:\s*"#C2410C"/);
-  assert.match(theme, /success:\s*"#4CC9A4"/);
-  assert.match(theme, /text:\s*"#F1F7FE"/);
+  assert.match(theme, /success:\s*"#0B7A55"/);
+  assert.match(theme, /muted:\s*"#475569"/);
+  assert.match(theme, /mutedLight:\s*"#5B6B7F"/);
+  assert.match(theme, /mutedNavy:\s*"#8AA0B8"/);
+  assert.match(theme, /text:\s*"#00162E"/);
   assert.match(theme, /logoGreen:\s*"#0F9A70"/);
   assert.match(theme, /logoNavy:\s*"#00162E"/);
   assert.match(theme, /logoWhite:\s*"#F1F7FE"/);
@@ -90,10 +107,10 @@ test("theme.ts promotes the logo tokens to the site palette", () => {
 test("tailwind maps the new tokens to classes", () => {
   const config = read("tailwind.config.ts");
   for (const token of [
-    "ink", "surface", "panel", "card", "border",
+    "ink", "inkLight", "surface", "panel", "card", "border",
     "brand", "brandDark", "brandDarker", "brandLight",
     "accent", "accentDark", "accentDarker",
-    "success", "muted", "text",
+    "success", "muted", "mutedLight", "mutedNavy", "text",
   ]) {
     assert.match(config, new RegExp(`${token}:\\s*theme\\.colors\\.${token}`));
   }
@@ -103,20 +120,45 @@ test("tailwind maps the new tokens to classes", () => {
 // Contrast: the calls in lib/theme.ts, recomputed.
 // ---------------------------------------------------------------------------
 
-test("contrast: white text passes AA on the button green, fails on the full green", () => {
-  // This is WHY solid buttons use bg-brandDark, never bg-brand.
-  assert.ok(contrast("#FFFFFF", "#0F9A70") < 4.5, "white on #0F9A70 must fail AA");
-  assert.ok(contrast("#FFFFFF", "#0B7A55") >= 4.5, "white on #0B7A55 must pass AA");
-  assert.ok(contrast("#FFFFFF", "#096B49") >= 4.5, "white on #096B49 must pass AA");
-  assert.ok(contrast("#F1F7FE", "#0B7A55") >= 4.5, "off-white on #0B7A55 must pass AA");
+test("contrast: white text passes AA on navy, navy text passes AA on white", () => {
+  // This is WHY primary buttons are bg-ink (navy) with white text.
+  assert.ok(contrast("#FFFFFF", "#00162E") >= 4.5, "white on navy");
+  assert.ok(contrast("#00162E", "#FFFFFF") >= 4.5, "navy text on white");
+  assert.ok(contrast("#F1F7FE", "#00162E") >= 4.5, "off-white on navy");
+  assert.ok(contrast("#FFFFFF", "#0A2438") >= 4.5, "white on inkLight (button hover)");
+  assert.ok(contrast("#00162E", "#F1F7FE") >= 4.5, "navy text on panel");
 });
 
-test("contrast: green text passes AA on the navy", () => {
-  assert.ok(contrast("#0F9A70", "#00162E") >= 4.5, "brand green text on navy");
-  assert.ok(contrast("#4CC9A4", "#00162E") >= 4.5, "light green text on navy");
-  assert.ok(contrast("#F1F7FE", "#00162E") >= 4.5, "body text on navy");
-  assert.ok(contrast("#8AA0B8", "#122C44") >= 4.5, "muted text on panel");
-  assert.ok(contrast("#8AA0B8", "#1B3850") >= 4.5, "muted text on card");
+test("contrast: the full green fails as text on white, the darker tint passes", () => {
+  // This is WHY green text on light is always brandDark, never brand,
+  // and why green is no longer the link colour (links are navy ink).
+  assert.ok(contrast("#0F9A70", "#FFFFFF") < 4.5, "full green text on white must fail AA");
+  assert.ok(contrast("#0F9A70", "#F1F7FE") < 4.5, "full green text on panel must fail AA");
+  assert.ok(contrast("#0B7A55", "#FFFFFF") >= 4.5, "brandDark green text on white");
+  assert.ok(contrast("#0B7A55", "#F1F7FE") >= 4.5, "brandDark green text on panel");
+  assert.ok(contrast("#096B49", "#FFFFFF") >= 4.5, "brandDarker green text on white");
+  // The full green still passes as text on navy, and as a border/tint
+  // on light (3.57:1 clears the 3:1 non-text bar).
+  assert.ok(contrast("#0F9A70", "#00162E") >= 4.5, "full green text on navy");
+  assert.ok(contrast("#0F9A70", "#FFFFFF") >= 3, "full green border/tint on white");
+});
+
+test("contrast: brandLight is navy-only, mutedNavy is navy-only", () => {
+  // brandLight on white fails, so it must never appear on a light
+  // background; mutedNavy is the old muted, kept only for navy.
+  assert.ok(contrast("#4CC9A4", "#FFFFFF") < 4.5, "brandLight on white must fail AA");
+  assert.ok(contrast("#4CC9A4", "#00162E") >= 4.5, "brandLight text on navy");
+  assert.ok(contrast("#8AA0B8", "#FFFFFF") < 4.5, "mutedNavy on white must fail AA");
+  assert.ok(contrast("#8AA0B8", "#00162E") >= 4.5, "mutedNavy text on navy");
+});
+
+test("contrast: muted text passes AA on white and on panel", () => {
+  assert.ok(contrast("#475569", "#FFFFFF") >= 4.5, "muted text on white");
+  assert.ok(contrast("#475569", "#F1F7FE") >= 4.5, "muted text on panel");
+  assert.ok(contrast("#5B6B7F", "#FFFFFF") >= 4.5, "mutedLight text on white");
+  assert.ok(contrast("#5B6B7F", "#F1F7FE") >= 4.5, "mutedLight text on panel");
+  assert.ok(contrast("#0B7A55", "#FFFFFF") >= 4.5, "success text on white");
+  assert.ok(contrast("#0B7A55", "#F1F7FE") >= 4.5, "success text on panel");
 });
 
 test("contrast: white text passes AA on the darker deal orange, fails on the full orange", () => {
@@ -124,6 +166,102 @@ test("contrast: white text passes AA on the darker deal orange, fails on the ful
   assert.ok(contrast("#FFFFFF", "#f97316") < 4.5, "white on #f97316 must fail AA");
   assert.ok(contrast("#FFFFFF", "#C2410C") >= 4.5, "white on #C2410C must pass AA");
   assert.ok(contrast("#f97316", "#00162E") >= 4.5, "orange text on navy");
+  // Orange text on light must be the darker tint, never the full orange.
+  assert.ok(contrast("#f97316", "#FFFFFF") < 4.5, "orange text on white must fail AA");
+  assert.ok(contrast("#C2410C", "#FFFFFF") >= 4.5, "accentDark text on white");
+  assert.ok(contrast("#C2410C", "#F1F7FE") >= 4.5, "accentDark text on panel");
+});
+
+test("contrast: warning amber and error red text pass AA on light", () => {
+  assert.ok(contrast("#B45309", "#FFFFFF") >= 4.5, "amber-700 warning text on white");
+  assert.ok(contrast("#B45309", "#F1F7FE") >= 4.5, "amber-700 warning text on panel");
+  assert.ok(contrast("#B91C1C", "#FFFFFF") >= 4.5, "red-700 error text on white");
+  assert.ok(contrast("#B91C1C", "#F1F7FE") >= 4.5, "red-700 error text on panel");
+  // Stars are graphics, not text: amber-600 clears the 3:1 non-text bar.
+  assert.ok(contrast("#D97706", "#FFFFFF") >= 3, "amber-600 stars on white");
+});
+
+// ---------------------------------------------------------------------------
+// Light theme: white page, navy chrome, navy primary buttons.
+// ---------------------------------------------------------------------------
+
+test("globals.css sets a light page: white background, navy text", () => {
+  const css = read("app/globals.css");
+  assert.match(css, /color-scheme: light;/);
+  assert.match(css, /background-color: #ffffff;/);
+  assert.match(css, /color: #00162e;/);
+  assert.doesNotMatch(css, /color-scheme: dark;/);
+});
+
+test("layout body is the white surface, not navy", () => {
+  assert.match(read("app/layout.tsx"), /className="min-h-screen bg-surface text-text antialiased"/);
+  assert.doesNotMatch(read("app/layout.tsx"), /bg-ink text-text/);
+});
+
+test("header bar and footer are navy", () => {
+  assert.match(read("components/Header.tsx"), /className="border-b border-border bg-ink"/);
+  assert.match(read("components/Footer.tsx"), /<footer className="border-t border-border bg-ink">/);
+  // Footer text on navy uses the navy tokens, not the light ones.
+  assert.match(read("components/Footer.tsx"), /text-mutedNavy/);
+  assert.doesNotMatch(codeOnly(read("components/Footer.tsx")), /text-muted"/);
+});
+
+test("primary buttons are navy: the shared Button primary variant", () => {
+  assert.match(read("components/ui.tsx"), /primary: "bg-ink text-white hover:bg-inkLight disabled:bg-ink\/50"/);
+});
+
+test("green is not a resting link or button colour any more", () => {
+  // No resting text-brand anywhere in app/ or components/: links are
+  // navy ink now, green text on light is always brandDark.
+  for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
+    const src = codeOnly(readFileSync(file, "utf8"));
+    assert.doesNotMatch(src, /\btext-brand(?![A-Za-z])/, `${file} still uses green as a resting text colour`);
+  }
+  // And bg-brandDark survives only in the four documented keepers:
+  // the header announcement bar + cart button (both sit on navy),
+  // the homepage feature icon tile, the filter count badge, and the
+  // generic brand Badge tone in ui.tsx (a small highlight).
+  const allowed = new Set([
+    "components/Header.tsx",
+    "app/page.tsx",
+    "components/FilterDrawer.tsx",
+    "components/ui.tsx",
+  ]);
+  for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
+    const rel = path.relative(fileURLToPath(new URL("../", import.meta.url)), file);
+    const src = codeOnly(readFileSync(file, "utf8"));
+    if (/\bbg-brandDark\b/.test(src)) {
+      assert.ok(allowed.has(rel), `${rel} uses bg-brandDark outside the documented keepers`);
+    }
+  }
+  assert.match(read("components/Header.tsx"), /bg-brandDark px-4 py-2 text-center/);
+  assert.match(read("components/Header.tsx"), /rounded-xl bg-brandDark px-2\.5 py-2\.5/);
+  assert.match(read("app/page.tsx"), /rounded-xl bg-brandDark text-white/);
+  assert.match(read("components/FilterDrawer.tsx"), /rounded-full bg-brandDark px-1\.5/);
+  assert.match(read("components/ui.tsx"), /brand: "bg-brandDark text-white border-brandDark"/);
+});
+
+test("no light-invisible tints remain in app/ or components/", () => {
+  // The old light tints (red-400, amber-300, emerald-300, slate-300,
+  // gray-300, brandLight as resting text) are unreadable on white.
+  const pale = /text-red-400|border-red-400|text-red-300|text-amber-300|text-emerald-300|text-slate-300|text-gray-300|#f87171/;
+  for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
+    const src = codeOnly(readFileSync(file, "utf8"));
+    assert.doesNotMatch(src, pale, `${file} still has a light tint that fails on white`);
+  }
+  // The only brandLight text left is hover-only, on navy surfaces.
+  for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
+    const src = codeOnly(readFileSync(file, "utf8"));
+    for (const hit of src.matchAll(/text-brandLight/g)) {
+      const before = src.slice(Math.max(0, hit.index - 12), hit.index);
+      assert.match(before, /hover:/, `${file} uses text-brandLight outside a navy hover`);
+    }
+  }
+});
+
+test("drawer Flash deals link uses the darker orange on white", () => {
+  assert.match(read("components/MobileNavDrawer.tsx"), /text-accentDark/);
+  assert.doesNotMatch(codeOnly(read("components/MobileNavDrawer.tsx")), /\btext-accent(?![A-Za-z])/);
 });
 
 // ---------------------------------------------------------------------------
@@ -178,8 +316,10 @@ test("orange is used only in deal/discount contexts", () => {
 });
 
 test("stars stay amber (rating convention), not orange or green", () => {
-  assert.match(read("components/ProductCard.tsx"), /fill-amber-400 text-amber-400/);
-  assert.match(read("components/Stars.tsx"), /fill-amber-400 text-amber-400/);
+  // Amber-600, not amber-400: the lighter star fails the 3:1
+  // non-text bar on white (1.7:1); amber-600 is 3.19:1.
+  assert.match(read("components/ProductCard.tsx"), /fill-amber-600 text-amber-600/);
+  assert.match(read("components/Stars.tsx"), /fill-amber-600 text-amber-600/);
   assert.doesNotMatch(codeOnly(read("components/Stars.tsx")), /accent/);
 });
 

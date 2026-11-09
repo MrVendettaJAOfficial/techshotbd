@@ -101,7 +101,7 @@ export function ProductList({
         onSelect={setProductFilter}
       />
       {rowError ? (
-        <p role="alert" className="mb-4 mt-4 text-sm text-[#f87171]">{rowError}</p>
+        <p role="alert" className="mb-4 mt-4 text-sm text-red-700">{rowError}</p>
       ) : null}
       {products.length === 0 ? (
         <EmptyState

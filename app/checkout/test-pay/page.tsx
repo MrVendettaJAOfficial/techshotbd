@@ -74,7 +74,7 @@ export default function TestPayPage({
   if (!order) {
     return (
       <main className="mx-auto max-w-[720px] px-4 py-10">
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-300">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-700">
           TEST MODE — no real payment is processed on this site.
         </div>
         <div className="mt-6 rounded-2xl border border-border bg-panel p-8 text-center">
@@ -85,7 +85,7 @@ export default function TestPayPage({
             restarted. Check your orders list, which is stored in your browser.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/orders" className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
+            <Link href="/orders" className="rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
               View my orders
             </Link>
             <Link href="/" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">
@@ -99,7 +99,7 @@ export default function TestPayPage({
 
   return (
     <main className="mx-auto max-w-[720px] px-4 py-10">
-      <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-300">
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-700">
         TEST MODE — no real payment is processed. Choose an outcome below to simulate the test gateway.
       </div>
 
@@ -148,7 +148,7 @@ export default function TestPayPage({
         <form action={testPayAction}>
           <input type="hidden" name="orderId" value={order.id} />
           <input type="hidden" name="outcome" value="failed" />
-          <button type="submit" className="w-full rounded-lg bg-red-500 px-5 py-3 font-semibold text-white hover:bg-red-600">
+          <button type="submit" className="w-full rounded-lg bg-[#b91c1c] px-5 py-3 font-semibold text-white hover:bg-[#991b1b]">
             Simulate failed payment
           </button>
         </form>

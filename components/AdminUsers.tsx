@@ -136,7 +136,7 @@ export default function AdminUsers({ users, currentUserId, callerRole }: AdminUs
         onSelect={setRoleFilter}
       />
       {userError ? (
-        <p role="alert" className="mt-4 text-sm text-[#f87171]">{userError}</p>
+        <p role="alert" className="mt-4 text-sm text-red-700">{userError}</p>
       ) : null}
       {userNotice ? (
         <p role="status" className="mt-4 text-sm text-success">{userNotice}</p>

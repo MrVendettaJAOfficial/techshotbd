@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html {
@@ -11,8 +11,8 @@ html {
 }
 
 body {
-  background-color: #00162e;
-  color: #f1f7fe;
+  background-color: #ffffff;
+  color: #00162e;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 

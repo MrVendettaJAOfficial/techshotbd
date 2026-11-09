@@ -88,17 +88,17 @@ export default async function ProductPage({ params }: { params: { slug: string }
   return (
     <div className="mx-auto max-w-shell px-4 py-8">
       <nav aria-label="Breadcrumb" className="mb-6 text-sm text-muted">
-        <Link href="/" className="hover:text-brand">
+        <Link href="/" className="hover:text-brandDark">
           Home
         </Link>
         <span className="mx-2">/</span>
-        <Link href="/shop" className="hover:text-brand">
+        <Link href="/shop" className="hover:text-brandDark">
           Shop
         </Link>
         <span className="mx-2">/</span>
         <Link
           href={`/shop?category=${product.category}`}
-          className="hover:text-brand"
+          className="hover:text-brandDark"
         >
           {product.category}
         </Link>
@@ -111,7 +111,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
       <section className="mt-16">
         <div className="flex items-end justify-between gap-4">
           <h2 className="text-2xl font-bold text-text">You may also like</h2>
-          <Link href="/shop" className="shrink-0 text-sm font-semibold text-brand hover:underline">
+          <Link href="/shop" className="shrink-0 text-sm font-semibold text-ink hover:underline">
             View all
           </Link>
         </div>

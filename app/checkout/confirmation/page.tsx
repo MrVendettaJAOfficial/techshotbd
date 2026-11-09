@@ -44,7 +44,7 @@ export default function ConfirmationPage({
             incomplete. Your browser-saved orders are listed on the Orders page.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/" className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
+            <Link href="/" className="rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
               Back to home
             </Link>
             <Link href="/orders" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">
@@ -59,9 +59,9 @@ export default function ConfirmationPage({
   return (
     <main className="mx-auto max-w-[720px] px-4 py-10">
       <ol className="flex flex-wrap items-center gap-2 text-sm" aria-label="Checkout progress">
-        <li><Link href="/cart" className="font-medium text-brand hover:underline">Cart</Link></li>
+        <li><Link href="/cart" className="font-medium text-ink hover:underline">Cart</Link></li>
         <li className="text-muted">›</li>
-        <li><Link href="/checkout" className="font-medium text-brand hover:underline">Checkout</Link></li>
+        <li><Link href="/checkout" className="font-medium text-ink hover:underline">Checkout</Link></li>
         <li className="text-muted">›</li>
         <li className="font-semibold text-text" aria-current="step">Confirmation</li>
       </ol>
@@ -74,7 +74,7 @@ export default function ConfirmationPage({
         </p>
         <p className="mt-1 text-sm text-muted">
           Status: <span className="font-semibold text-text">{STATUS_LABELS[order.status] ?? order.status}</span>
-          {order.testMode && <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-300">TEST MODE</span>}
+          {order.testMode && <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-700">TEST MODE</span>}
         </p>
       </div>
 
@@ -135,7 +135,7 @@ export default function ConfirmationPage({
       </section>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        <Link href={`/orders/${order.id}`} className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
+        <Link href={`/orders/${order.id}`} className="rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
           Track this order
         </Link>
         <Link href="/" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">

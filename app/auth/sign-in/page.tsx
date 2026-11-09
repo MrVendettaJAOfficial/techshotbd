@@ -2,9 +2,9 @@
 // configured, sign-in reports that it is unavailable.
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import { AuthProvider, signIn, useAuth } from "@/lib/auth";
 import { Button, Card, Field, Input, SectionHeading } from "@/components/ui";
@@ -16,7 +16,10 @@ const formSchema = z.object({
 
 function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { refresh } = useAuth();
+  // ?reset=1: the user just set a new password via a recovery link.
+  const passwordReset = searchParams.get("reset") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -57,6 +60,14 @@ function SignInForm() {
         description="Welcome back. Sign in to shop and track your orders."
       />
       <Card>
+        {passwordReset && (
+          <p
+            role="status"
+            className="mb-4 rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-sm text-success"
+          >
+            Your password has been changed. Please sign in with your new password.
+          </p>
+        )}
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <Field label="Email" htmlFor="email" error={errors.email} required>
             <Input
@@ -79,10 +90,15 @@ function SignInForm() {
             />
           </Field>
           {formError ? (
-            <p role="alert" className="rounded-lg border border-[#b91c1c]/40 bg-[#b91c1c]/15 px-3 py-2 text-sm text-[#f87171]">
+            <p role="alert" className="rounded-lg border border-[#b91c1c]/40 bg-[#b91c1c]/15 px-3 py-2 text-sm text-red-700">
               {formError}
             </p>
           ) : null}
+          <div className="flex justify-end">
+            <Link href="/auth/forgot-password" className="text-sm font-medium text-ink hover:underline">
+              Forgot password?
+            </Link>
+          </div>
           <Button type="submit" className="w-full" size="lg" disabled={submitting}>
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
@@ -90,12 +106,12 @@ function SignInForm() {
         <div className="mt-5 space-y-2 border-t border-border pt-5 text-center text-sm">
           <p className="text-muted">
             No account yet?{" "}
-            <Link href="/auth/sign-up" className="font-medium text-brand hover:underline">
+            <Link href="/auth/sign-up" className="font-medium text-ink hover:underline">
               Create one
             </Link>
           </p>
           <p>
-            <Link href="/shop" className="font-medium text-brand hover:underline">
+            <Link href="/shop" className="font-medium text-ink hover:underline">
               Continue as guest
             </Link>
           </p>
@@ -111,7 +127,15 @@ function SignInForm() {
 export default function SignInPage() {
   return (
     <AuthProvider>
-      <SignInForm />
+      <Suspense
+        fallback={
+          <main className="mx-auto w-full max-w-md px-4 py-12">
+            <p className="text-muted">Loading…</p>
+          </main>
+        }
+      >
+        <SignInForm />
+      </Suspense>
     </AuthProvider>
   );
 }

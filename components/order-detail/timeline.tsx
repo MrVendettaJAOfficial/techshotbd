@@ -27,7 +27,7 @@ export default function OrderTimeline({ order }: OrderTimelineProps) {
     <section className="mt-6 rounded-2xl border border-border bg-panel p-5" aria-label="Order status">
       <h2 className="text-lg font-bold text-text">Status</h2>
       {timelineIndex === -1 ? (
-        <p className="mt-3 rounded-lg bg-red-500/20 px-4 py-3 text-sm font-semibold text-red-300">
+        <p className="mt-3 rounded-lg bg-red-500/20 px-4 py-3 text-sm font-semibold text-red-700">
           This order was{" "}
           {order.status === "refunded"
             ? "cancelled and refunded"
@@ -45,7 +45,7 @@ export default function OrderTimeline({ order }: OrderTimelineProps) {
               <li key={step.key} className="flex items-center gap-3">
                 <span
                   className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                    done ? "bg-success text-ink" : "bg-surface text-muted"
+                    done ? "bg-success text-white" : "bg-surface text-muted"
                   }`}
                   aria-hidden="true"
                 >

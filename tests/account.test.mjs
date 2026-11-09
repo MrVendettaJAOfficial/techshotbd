@@ -244,7 +244,11 @@ const accountServer = readSource("../lib/account-server.ts");
 test("sign-in, sign-up and email confirmation all land on /account with the success flag", () => {
   assert.match(signInPage, /router\.push\("\/account\?signed_in=1"\)/);
   assert.match(signUpPage, /router\.push\("\/account\?signed_in=1"\)/);
-  assert.match(callbackPage, /router\.replace\("\/account\?signed_in=1"\)/);
+  // The callback routes through getAuthCallbackDestination (recovery
+  // links go to /auth/reset-password instead); non-recovery links
+  // still land on /account?signed_in=1 — the destination rule is
+  // pinned in tests/password-reset.test.mjs.
+  assert.match(callbackPage, /getAuthCallbackDestination\(type\)/);
 });
 
 test("/account shows the signed-in success banner, name/email/role, orders, wishlist and sign-out", () => {

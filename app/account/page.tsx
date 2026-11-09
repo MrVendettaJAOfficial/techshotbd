@@ -53,6 +53,7 @@ import {
 } from "@/lib/checkout-store";
 import { btnGhost, btnPrimary } from "@/components/account/account-ui";
 import ProfileSection from "@/components/account/profile-section";
+import SecuritySection from "@/components/account/security-section";
 import AddressesSection, { type AddressFormState } from "@/components/account/addresses-section";
 import OrdersSection from "@/components/account/orders-section";
 import WishlistSection from "@/components/account/wishlist-section";
@@ -399,6 +400,8 @@ function AccountPageInner() {
         onSave={handleSaveProfile}
       />
 
+      <SecuritySection user={user} />
+
       <AddressesSection
         addresses={addresses}
         addressForm={addressForm}
@@ -415,12 +418,14 @@ function AccountPageInner() {
         onCancelForm={() => { setShowAddressForm(false); setEditingId(null); }}
       />
 
-      <WishlistSection
-        wishlist={wishlist}
-        notice={wishlistNotice}
-        onMoveToCart={(item) => { void moveWishlistToCart(item); }}
-        onRemove={(productId) => { void handleRemoveWishlist(productId); }}
-      />
+      <div id="wishlist" className="scroll-mt-20">
+        <WishlistSection
+          wishlist={wishlist}
+          notice={wishlistNotice}
+          onMoveToCart={(item) => { void moveWishlistToCart(item); }}
+          onRemove={(productId) => { void handleRemoveWishlist(productId); }}
+        />
+      </div>
 
       <OrdersSection orders={orders} />
     </main>

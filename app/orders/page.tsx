@@ -26,14 +26,14 @@ import {
 } from "@/components/admin-helpers";
 
 const STATUS_STYLES: Record<string, string> = {
-  pending_payment: "bg-amber-500/20 text-amber-300",
-  confirmed: "bg-brand/20 text-brandLight",
-  processing: "bg-brand/20 text-brandLight",
-  shipped: "bg-logoWhite/10 text-logoWhite",
-  delivered: "bg-success/20 text-emerald-300",
-  returned: "bg-slate-500/20 text-slate-300",
-  cancelled: "bg-red-500/20 text-red-300",
-  refunded: "bg-muted/20 text-gray-300",
+  pending_payment: "bg-amber-500/20 text-amber-700",
+  confirmed: "bg-brand/15 text-brandDark",
+  processing: "bg-brand/15 text-brandDark",
+  shipped: "bg-ink/10 text-ink",
+  delivered: "bg-success/15 text-brandDark",
+  returned: "bg-slate-500/15 text-slate-600",
+  cancelled: "bg-red-500/15 text-red-700",
+  refunded: "bg-muted/15 text-muted",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -134,7 +134,7 @@ export default function OrdersPage() {
         <div className="mt-8 rounded-2xl border border-border bg-panel p-10 text-center">
           <h2 className="text-xl font-bold text-text">No orders yet</h2>
           <p className="mt-2 text-muted">Orders you place will show up here with their status and totals.</p>
-          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
+          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
             Shop now
           </Link>
         </div>
@@ -186,11 +186,11 @@ export default function OrdersPage() {
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-text">{formatBDT(order.total_poisha)}</p>
-                  <span className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[order.status] ?? "bg-muted/20 text-gray-300"}`}>
+                  <span className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[order.status] ?? "bg-muted/15 text-muted"}`}>
                     {STATUS_LABELS[order.status] ?? order.status}
                   </span>
                   {order.testMode && (
-                    <span className="ml-2 inline-block rounded-full bg-amber-500/20 px-2 py-1 text-xs font-bold text-amber-300">TEST MODE</span>
+                    <span className="ml-2 inline-block rounded-full bg-amber-500/20 px-2 py-1 text-xs font-bold text-amber-700">TEST MODE</span>
                   )}
                 </div>
               </div>

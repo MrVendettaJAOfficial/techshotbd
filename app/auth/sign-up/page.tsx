@@ -115,7 +115,7 @@ function SignUpForm() {
             </p>
           ) : null}
           {formError ? (
-            <p role="alert" className="rounded-lg border border-[#b91c1c]/40 bg-[#b91c1c]/15 px-3 py-2 text-sm text-[#f87171]">
+            <p role="alert" className="rounded-lg border border-[#b91c1c]/40 bg-[#b91c1c]/15 px-3 py-2 text-sm text-red-700">
               {formError}
             </p>
           ) : null}
@@ -125,7 +125,7 @@ function SignUpForm() {
         </form>
         <p className="mt-5 border-t border-border pt-5 text-center text-sm text-muted">
           Already have an account?{" "}
-          <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+          <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
             Sign in
           </Link>
         </p>

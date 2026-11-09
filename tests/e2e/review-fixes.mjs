@@ -335,7 +335,7 @@ async function main() {
   const codId = await placeCodOrder(page);
   check("COD order is Confirmed in the mock DB", (await orderStatus(codId)) === "confirmed");
   check("COD order decremented stock by 1", (await iphoneStock()) === stockBefore - 1, `stock ${await iphoneStock()}`);
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle0" });
+  await page.goto(`${BASE}/admin?tab=orders`, { waitUntil: "networkidle0" });
   await sleep(1200);
   const orderNumber = (await text(page)).match(/TS-\d{8}-\d{4}/)?.[0] ?? "";
   // Realistic click: one real Playwright click, then the button must
@@ -404,13 +404,19 @@ async function main() {
   check("order page offers Cancel order", cancelled);
   await sleep(3000);
   const cancelText = await text(page);
+  const cancelNumber = cancelText.match(/TS-\d{8}-\d{4}/)?.[0] ?? "";
   check("cancel shows the stock-released notice only after the server confirms", cancelText.includes("Stock for these items has been released back to inventory."), cancelText.slice(0, 300));
   check("cancelled order shows Cancelled", cancelText.includes("Cancelled"));
   check("live order is cancelled in the mock DB", (await orderStatus(cancelId)) === "cancelled");
   check("cancel restored stock by 1", (await iphoneStock()) === stockBeforeCancel + 1, `stock ${await iphoneStock()}`);
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle0" });
+  await page.goto(`${BASE}/admin?tab=orders`, { waitUntil: "networkidle0" });
   await sleep(1200);
-  check("admin list shows the cancelled order", (await text(page)).includes("cancelled"));
+  // The check is the cancelled order's card ("Order TS-…"), not the
+  // bare word "cancelled": every status label on the tabbed admin
+  // list is capitalised ("Cancelled"), so a lowercase substring
+  // never matches — the old check only passed on the pre-tabs
+  // admin page, which had lowercase status text.
+  check("admin list shows the cancelled order", (await text(page)).includes(`Order ${cancelNumber}`), cancelNumber);
   const auditCancel = await auditFor(cancelId);
   check("customer cancel wrote an audit row", auditCancel.some((r) => r.action?.includes("customer-cancel")), JSON.stringify(auditCancel));
 
@@ -422,14 +428,14 @@ async function main() {
   const paidBefore = await paymentsFor(cardId);
   check("one paid payments row after test payment", paidBefore.length === 1 && paidBefore[0].status === "paid", JSON.stringify(paidBefore));
   const stockBeforeRefund = await iphoneStock();
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle0" });
+  await page.goto(`${BASE}/admin?tab=orders`, { waitUntil: "networkidle0" });
   await sleep(1200);
   // Find this order's card by its number: the order page shows the
   // number, and the admin list is newest first.
   await page.goto(`${BASE}/orders/${cardId}`, { waitUntil: "networkidle0" });
   await sleep(800);
   const cardNumber = (await text(page)).match(/TS-\d{8}-\d{4}/)?.[0] ?? "";
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle0" });
+  await page.goto(`${BASE}/admin?tab=orders`, { waitUntil: "networkidle0" });
   await sleep(1200);
   const refundClicked = await clickAdminButton(page, cardNumber, "Refund");
   check("admin Refund button clicked for the paid order", refundClicked);

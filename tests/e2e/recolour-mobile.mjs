@@ -7,12 +7,16 @@
 //   A. Wordmark — the header/footer lockup, Montserrat extra-bold,
 //      green BD, tagline visible desktop/laptop and hidden in the
 //      mobile header, always in the footer.
-//   B. Recolour — computed colours: page navy #00162E, solid buttons
-//      on the darker green #0B7A55 (not the full green, whose white
-//      text fails AA), discount badges on the darker orange #C2410C,
-//      the Flash deals link in the full orange #f97316, cards on
-//      #1B3850. No leftover blue anywhere (source-level, covered by
-//      tests/recolour.test.mjs; here the rendered styles are probed).
+//   B. Light theme (2026-11-09) — computed colours: page white
+//      #FFFFFF with navy text #00162E, solid buttons navy #00162E
+//      (hover #0A2438), header bar and footer navy, announcement
+//      bar still the button green #0B7A55 (it sits on navy), the
+//      Flash deals link in the full orange #f97316 on the navy
+//      header but the darker orange #C2410C in the white nav
+//      drawer, discount badges on the darker orange #C2410C,
+//      cards white. No leftover blue anywhere (source-level,
+//      covered by tests/recolour.test.mjs; here the rendered
+//      styles are probed).
 //   C. Mobile nav — hamburger only on mobile, opens the slide-in
 //      drawer with the category links; a link navigates; Escape and
 //      overlay tap close it and focus returns to the hamburger.
@@ -150,11 +154,17 @@ for (const { name, width, height } of WIDTHS) {
     return {
       body: cs("body"),
       announcement: cs("header > div:first-child"),
+      headerBar: cs("header > div:nth-child(2)"),
+      footer: cs("footer"),
       heroCta: cs("main a[href='/shop']"),
     };
   });
-  check(`${name}: page background is logo navy`, styles.body?.bg === rgb("#00162E"), styles.body?.bg);
+  check(`${name}: page background is white`, styles.body?.bg === rgb("#FFFFFF"), styles.body?.bg);
+  check(`${name}: body text is dark navy`, styles.body?.color === rgb("#00162E"), styles.body?.color);
   check(`${name}: announcement bar is button green`, styles.announcement?.bg === rgb("#0B7A55"), styles.announcement?.bg);
+  check(`${name}: header bar is navy`, styles.headerBar?.bg === rgb("#00162E"), styles.headerBar?.bg);
+  check(`${name}: footer is navy`, styles.footer?.bg === rgb("#00162E"), styles.footer?.bg);
+  check(`${name}: hero CTA is navy`, styles.heroCta?.bg === rgb("#00162E"), styles.heroCta?.bg);
   await noOverflow("home");
   await shot("home");
 
@@ -178,12 +188,13 @@ for (const { name, width, height } of WIDTHS) {
     for (const label of ["All categories", "Home", "Shop all", "Smartphones", "Laptops", "Audio", "Gaming", "Subscriptions", "Flash deals"]) {
       check(`mobile: nav drawer has "${label}"`, drawerLinks.some((t) => t.trim() === label));
     }
-    // Flash deals link inside the drawer stays orange.
+    // Flash deals link inside the drawer is the darker orange
+    // (the full orange fails AA as text on white).
     const flashColor = await page.evaluate(() => {
       const link = [...document.querySelectorAll('[data-testid="mobile-nav-drawer"] a')].find((a) => a.textContent.trim() === "Flash deals");
       return link ? getComputedStyle(link).color : null;
     });
-    check("mobile: drawer Flash deals link is orange", flashColor === rgb("#f97316"), flashColor);
+    check("mobile: drawer Flash deals link is darker orange", flashColor === rgb("#C2410C"), flashColor);
     await shot("nav-drawer-open");
     // A link navigates from the drawer.
     await page.locator('[data-testid="mobile-nav-drawer"] a', { hasText: "Smartphones" }).click();
@@ -256,7 +267,7 @@ for (const { name, width, height } of WIDTHS) {
   await page.goto(`${BASE}/shop?category=audio`, { waitUntil: "networkidle" });
   const audioPlaceholders = await page.locator('article [data-testid="product-placeholder"]').count();
   check(`${name}: physical product cards show photos, not placeholders`, audioPlaceholders === 0, `found=${audioPlaceholders}`);
-  // Add-to-cart button is the darker green; discount badge the darker orange.
+  // Add-to-cart button is navy; discount badge the darker orange.
   const cardStyles = await page.evaluate(() => {
     const btn = [...document.querySelectorAll("article button")].find((b) =>
       (b.textContent ?? "").includes("Add to Cart"),
@@ -269,7 +280,7 @@ for (const { name, width, height } of WIDTHS) {
       badgeBg: badge ? getComputedStyle(badge).backgroundColor : null,
     };
   });
-  check(`${name}: Add to Cart is button green`, cardStyles.btnBg === rgb("#0B7A55"), cardStyles.btnBg);
+  check(`${name}: Add to Cart is navy`, cardStyles.btnBg === rgb("#00162E"), cardStyles.btnBg);
   check(`${name}: discount badge is darker orange`, cardStyles.badgeBg === rgb("#C2410C"), cardStyles.badgeBg);
 
   // --- Product page: subscription placeholder, gallery ----------------------

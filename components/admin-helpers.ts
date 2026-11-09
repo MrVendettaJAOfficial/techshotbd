@@ -10,29 +10,33 @@
 // "manager", "customer". A legacy "seller" value grants nothing and
 // is treated like a customer here.
 
-export type AdminTabId = "overview" | "products" | "orders" | "users";
+export type AdminTabId = "overview" | "products" | "orders" | "messages" | "users";
 
 export const ADMIN_TABS: Array<{ id: AdminTabId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "products", label: "Products" },
   { id: "orders", label: "Orders" },
+  { id: "messages", label: "Messages" },
   { id: "users", label: "Users" },
 ];
 
 export function isAdminTab(value: string | null | undefined): value is AdminTabId {
   return (
-    value === "overview" || value === "products" || value === "orders" || value === "users"
+    value === "overview" || value === "products" || value === "orders" || value === "messages" || value === "users"
   );
 }
 
 /**
- * Which admin tabs a caller may see. Owner sees all four; co-admin
+ * Which admin tabs a caller may see. Owner sees all five; co-admin
  * and manager see everything except Users; anyone else sees none
  * (the dashboard gate shows the sign-in / access message instead).
+ * Messages is visible to all staff — managers can read the sent
+ * messages — but only the Owner and co-admins can SEND one
+ * (lib/roles.ts canSendBroadcasts, enforced in the server actions).
  */
 export function visibleAdminTabs(role: string | null | undefined): AdminTabId[] {
-  if (role === "admin") return ["overview", "products", "orders", "users"];
-  if (role === "co_admin" || role === "manager") return ["overview", "products", "orders"];
+  if (role === "admin") return ["overview", "products", "orders", "messages", "users"];
+  if (role === "co_admin" || role === "manager") return ["overview", "products", "orders", "messages"];
   return [];
 }
 

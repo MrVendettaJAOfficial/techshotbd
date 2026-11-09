@@ -92,7 +92,7 @@ export default function MobileNavDrawer({
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <span className="flex items-center gap-2.5">
             <LogoMark className="h-9 w-9" />
-            <span className="text-lg font-extrabold tracking-tight text-logoWhite">
+            <span className="text-lg font-extrabold tracking-tight text-ink">
               TechShot
             </span>
           </span>
@@ -116,8 +116,8 @@ export default function MobileNavDrawer({
                   onClick={onClose}
                   className={
                     link.accent
-                      ? "mt-1 flex items-center gap-2 rounded-xl bg-accent/15 px-3 py-2.5 text-accent transition hover:bg-accent/25"
-                      : "flex items-center gap-2 rounded-xl px-3 py-2.5 text-text transition hover:bg-panel hover:text-brandLight"
+                      ? "mt-1 flex items-center gap-2 rounded-xl bg-accent/15 px-3 py-2.5 text-accentDark transition hover:bg-accent/25"
+                      : "flex items-center gap-2 rounded-xl px-3 py-2.5 text-text transition hover:bg-panel hover:text-brandDark"
                   }
                 >
                   {link.label}

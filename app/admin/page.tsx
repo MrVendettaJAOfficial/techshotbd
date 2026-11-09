@@ -1,25 +1,32 @@
 // Admin dashboard — server component.
 //
 // The dashboard is split into tabs (?tab=overview|products|orders|
-// users, default overview). Only the active tab's data is fetched:
+// messages|users, default overview). Only the active tab's data is fetched:
 // Overview reads the figures from getAdminStats()
 // (lib/admin/stats.ts), Products fetches every live product (all
 // statuses) and the live categories from Supabase (see
 // lib/products/queries.ts), Orders fetches the live orders for the
-// admin (lib/orders-server.ts listAdminOrders), and Users — Owner
-// only — fetches the live users list (lib/auth-server listUsers).
+// admin (lib/orders-server.ts listAdminOrders), Messages fetches
+// the sent broadcast announcements
+// (lib/announcements-server.ts listAnnouncements — staff only),
+// and Users — Owner only — fetches the live users list
+// (lib/auth-server listUsers).
 // The dashboard renders the client shell, which still owns the
 // demo-auth session and the demo coupons. Product writes go through
 // the server actions in lib/products/actions.ts and order status
 // changes through lib/orders/actions.ts, so the shop and the
-// customer order pages reflect them immediately.
+// customer order pages reflect them immediately. Broadcasts go
+// through lib/announcements-server.ts (Owner / co-admin only) and
+// appear in every signed-in user's inbox (/inbox).
 
 import { AuthProvider } from "@/lib/auth";
 import { getCallerRole, getCurrentUser, listUsers } from "@/lib/auth-server";
+import { listAnnouncements } from "@/lib/announcements-server";
+import type { Announcement } from "@/lib/announcements";
 import { listAdminOrders } from "@/lib/orders-server";
 import { fetchAllProducts, type AdminUserItem } from "@/lib/products/queries";
 import { getAdminStats, type AdminStats } from "@/lib/admin/stats";
-import { isOwner } from "@/lib/roles";
+import { canSendBroadcasts, isOwner } from "@/lib/roles";
 import { isAdminTab, visibleAdminTabs, type AdminTabId } from "@/components/admin-helpers";
 import type { ListedOrder } from "@/components/AdminOrders";
 
@@ -55,6 +62,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   let configured = false;
   let users: AdminUserItem[] = [];
   let adminOrders: ListedOrder[] = [];
+  let announcements: Announcement[] = [];
+  let canSendMessages = false;
 
   if (tab === "overview") {
     stats = await getAdminStats().catch(() => null);
@@ -87,6 +96,16 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         pricePoisha: item.price_poisha,
       })),
     }));
+  } else if (tab === "messages") {
+    // Sent broadcast announcements, newest first. Empty when
+    // Supabase is not configured or migration 0009 has not been
+    // applied yet — the Messages tab says so instead of failing.
+    // Whether the caller may SEND is decided server-side from
+    // their role (Owner / co-admin only); the tab itself is
+    // visible to all staff.
+    announcements = await listAnnouncements().catch(() => []);
+    canSendMessages = canSendBroadcasts(callerRole);
+    configured = (await fetchAllProducts().catch(() => null))?.configured ?? false;
   } else if (tab === "users" && isOwner(callerRole)) {
     // Admin users list (lib/auth-server listUsers). Only the display
     // name, role and join date are passed to the client dashboard —
@@ -117,6 +136,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         configured={configured}
         users={users}
         initialOrders={adminOrders}
+        announcements={announcements}
+        canSendMessages={canSendMessages}
       />
     </AuthProvider>
   );

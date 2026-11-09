@@ -26,6 +26,12 @@ import { z } from "zod";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/client";
 import { ensureCurrentUserProfile, ensureProfile } from "./auth-server";
+import {
+  buildRecoveryRedirectTo,
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "./password-rules";
 
 export type UserRole = "customer" | "admin" | "co_admin" | "manager";
 
@@ -258,6 +264,115 @@ export async function signOut(): Promise<void> {
     await supabase.auth.signOut();
   } catch {
     // Already signed out / unconfigured — nothing to do.
+  }
+}
+
+/**
+ * Forgot password: email the user a recovery link. The link points
+ * at /auth/callback?type=recovery (see lib/password-rules.ts):
+ * the callback exchanges the code and sends the user to the
+ * set-new-password page. Supabase returns success even for an
+ * email with no account, and this function does the same — the
+ * message never reveals whether the email is registered.
+ */
+export async function requestPasswordReset(input: { email: string }): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
+  }
+  if (!isSupabaseConfigured()) throw notConfiguredError();
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    throw notConfiguredError();
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
+    redirectTo:
+      typeof window !== "undefined"
+        ? buildRecoveryRedirectTo(window.location.origin)
+        : undefined,
+  });
+  if (error) {
+    throw new Error("Could not send the reset email. Please try again.");
+  }
+}
+
+/**
+ * Set a new password from a recovery link: the caller must already
+ * hold the recovery session (established by the auth callback's
+ * code exchange). Throws a link-expired error when there is no
+ * usable session, so the page can point the user at a fresh link.
+ * The caller signs the user out after success — the recovery
+ * session must not linger — and sends them to sign-in.
+ */
+export async function updatePasswordAfterReset(input: {
+  password: string;
+  confirmPassword: string;
+}): Promise<void> {
+  const parsed = resetPasswordSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
+  }
+  if (!isSupabaseConfigured()) throw notConfiguredError();
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    throw notConfiguredError();
+  }
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
+  if (error) {
+    const message = error.message ?? "";
+    if (/session missing|expired|invalid|not authenticated/i.test(message)) {
+      throw new Error(
+        "This reset link has expired or was already used. Please request a new reset link.",
+      );
+    }
+    throw new Error("Could not change your password. Please try again.");
+  }
+}
+
+/**
+ * Change password for a signed-in user: the current password is
+ * verified first by signing in again with it (re-authentication),
+ * and only then is the password updated. A wrong current password
+ * is reported as such; nothing is changed in that case.
+ */
+export async function changePassword(input: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<void> {
+  const parsed = changePasswordSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
+  }
+  if (!isSupabaseConfigured()) throw notConfiguredError();
+  let supabase: SupabaseClient;
+  try {
+    supabase = untyped(createClient());
+  } catch {
+    throw notConfiguredError();
+  }
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const email = userData.user?.email;
+  if (userError || !email) {
+    throw new Error("Please sign in again, then try changing your password.");
+  }
+  const { error: reauthError } = await supabase.auth.signInWithPassword({
+    email,
+    password: parsed.data.currentPassword,
+  });
+  if (reauthError) {
+    if (/invalid login credentials/i.test(reauthError.message ?? "")) {
+      throw new Error("Your current password is incorrect. Please try again.");
+    }
+    throw new Error("Could not verify your current password. Please try again.");
+  }
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.newPassword });
+  if (error) {
+    throw new Error("Could not change your password. Please try again.");
   }
 }
 

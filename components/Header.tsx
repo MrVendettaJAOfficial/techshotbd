@@ -10,12 +10,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Heart, Menu, Search, ShoppingCart, User } from "lucide-react";
+import { Heart, Menu, Search, ShoppingCart } from "lucide-react";
 import { useRef, useState } from "react";
 import { useCart } from "../lib/cart-store";
 import Logo from "./Logo";
 import MiniCartDrawer from "./MiniCartDrawer";
 import MobileNavDrawer, { NAV_LINKS } from "./MobileNavDrawer";
+import ProfileMenu from "./ProfileMenu";
 
 export default function Header({ cartCount }: { cartCount?: number }) {
   const { count } = useCart();
@@ -43,7 +44,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
         </span>
       </div>
 
-      <div className="border-b border-border bg-surface">
+      <div className="border-b border-border bg-ink">
         <div className="mx-auto flex max-w-shell items-center gap-2 px-3 py-3 sm:gap-6 sm:px-4">
           {/* Mobile only: the hamburger opens the slide-in nav drawer.
               The horizontal category nav row below is hidden on mobile,
@@ -56,7 +57,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             aria-expanded={navOpen}
             onClick={() => setNavOpen(true)}
             data-testid="mobile-nav-button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text transition hover:bg-panel sm:hidden sm:h-10 sm:w-10"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/10 sm:hidden sm:h-10 sm:w-10"
           >
             <Menu size={20} />
           </button>
@@ -85,7 +86,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             />
             <button
               type="submit"
-              className="shrink-0 rounded-lg bg-brandDark px-3 py-1.5 text-sm font-semibold text-white hover:bg-brandDarker"
+              className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white hover:bg-inkLight"
             >
               Search
             </button>
@@ -102,17 +103,14 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             <Link
               href="/account"
               aria-label="Wishlist"
-              className="hidden h-9 w-9 items-center justify-center rounded-full text-text transition hover:bg-panel min-[400px]:flex sm:h-10 sm:w-10"
+              className="hidden h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 min-[400px]:flex sm:h-10 sm:w-10"
             >
               <Heart size={20} />
             </Link>
-            <Link
-              href="/account"
-              aria-label="My account"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-text transition hover:bg-panel sm:h-10 sm:w-10"
-            >
-              <User size={20} />
-            </Link>
+            {/* The profile icon opens the profile menu (dropdown)
+                instead of navigating: Profile, Orders, Inbox,
+                Wishlist, Settings, and Sign out / Sign in. */}
+            <ProfileMenu />
             <button
               type="button"
               ref={cartButtonRef}
@@ -169,7 +167,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
                   className={
                     link.accent
                       ? "rounded-full bg-accent/15 px-3 py-1.5 text-accent hover:bg-accent/25"
-                      : "rounded-full px-3 py-1.5 text-text hover:bg-panel hover:text-brand"
+                      : "rounded-full px-3 py-1.5 text-white hover:bg-white/10 hover:text-brandLight"
                   }
                 >
                   {link.label}

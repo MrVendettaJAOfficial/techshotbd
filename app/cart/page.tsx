@@ -24,7 +24,7 @@ import {
 } from "@/lib/checkout-store";
 
 const btnPrimary =
-  "inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker";
+  "inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight";
 const btnGhost =
   "inline-flex items-center justify-center rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text hover:border-brand";
 
@@ -177,7 +177,7 @@ export default function CartPage() {
 
       {amountToFreeDelivery > 0 ? (
         <div className="mt-4 rounded-lg border border-border bg-panel px-4 py-3 text-sm text-text">
-          Add <span className="font-semibold text-brandLight">{formatBDT(amountToFreeDelivery)}</span> more to unlock FREE delivery.
+          Add <span className="font-semibold text-brandDark">{formatBDT(amountToFreeDelivery)}</span> more to unlock FREE delivery.
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-success bg-panel px-4 py-3 text-sm text-success">
@@ -186,7 +186,7 @@ export default function CartPage() {
       )}
 
       {unknownSlugs.length > 0 && (
-        <div className="mt-4 rounded-lg border border-red-400 bg-panel px-4 py-3 text-sm text-red-400" role="alert">
+        <div className="mt-4 rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700" role="alert">
           Some items are no longer available and were left out of the total: {unknownSlugs.join(", ")}. Remove them below.
         </div>
       )}
@@ -196,7 +196,7 @@ export default function CartPage() {
           <p className="text-sm text-muted">
             Delivering to <span className="font-semibold text-text">{deliverCity}</span>
             {" · "}
-            <Link href="/account" className="font-medium text-brand hover:underline">Change</Link>
+            <Link href="/account" className="font-medium text-ink hover:underline">Change</Link>
           </p>
 
           <ul className="mt-4 space-y-4">
@@ -230,7 +230,7 @@ export default function CartPage() {
                         <button
                           type="button"
                           aria-label="Decrease quantity"
-                          className="px-3 py-1 text-lg text-text hover:text-brand"
+                          className="px-3 py-1 text-lg text-text hover:text-brandDark"
                           onClick={() => cart.setQuantity(item.slug, item.variant, item.quantity - 1)}
                         >
                           −
@@ -239,7 +239,7 @@ export default function CartPage() {
                         <button
                           type="button"
                           aria-label="Increase quantity"
-                          className="px-3 py-1 text-lg text-text hover:text-brand"
+                          className="px-3 py-1 text-lg text-text hover:text-brandDark"
                           onClick={() => cart.setQuantity(item.slug, item.variant, item.quantity + 1)}
                         >
                           +
@@ -247,7 +247,7 @@ export default function CartPage() {
                       </div>
                       <button
                         type="button"
-                        className="text-sm text-brand hover:underline"
+                        className="text-sm text-ink hover:underline"
                         onClick={() => {
                           saveForLater({ slug: item.slug, variant: item.variant, quantity: item.quantity });
                           cart.remove(item.slug, item.variant);

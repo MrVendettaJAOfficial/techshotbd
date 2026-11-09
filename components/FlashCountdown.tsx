@@ -75,10 +75,10 @@ export default function FlashCountdown({
       {boxes.map((box, i) => (
         <div key={box.label} className="flex items-center gap-2">
           <div className="flex min-w-14 flex-col items-center rounded-xl bg-ink px-2 py-2">
-            <span className="text-xl font-bold tabular-nums text-text">
+            <span className="text-xl font-bold tabular-nums text-white">
               {box.value}
             </span>
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-mutedNavy">
               {box.label}
             </span>
           </div>

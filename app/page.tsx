@@ -55,7 +55,7 @@ export default async function HomePage() {
       <section className="mx-auto max-w-shell px-4 pt-8">
         <div className="grid gap-6 rounded-3xl border border-border bg-panel p-6 sm:p-10 lg:grid-cols-2">
           <div className="flex flex-col justify-center">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brandDark">
               The Pro Collection
             </p>
             <h1 className="mt-3 text-4xl font-bold leading-tight text-text sm:text-5xl">
@@ -68,7 +68,7 @@ export default async function HomePage() {
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <Link
                 href="/shop"
-                className="inline-flex items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
+                className="inline-flex items-center gap-2 rounded-xl bg-ink px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight"
               >
                 Shop Now <ArrowRight size={16} />
               </Link>
@@ -102,8 +102,8 @@ export default async function HomePage() {
                 <Zap size={20} />
               </span>
               <div>
-                <p className="text-sm font-bold text-text">A18 Pro chip</p>
-                <p className="text-xs text-muted">Fastest iPhone chip ever</p>
+                <p className="text-sm font-bold text-white">A18 Pro chip</p>
+                <p className="text-xs text-mutedNavy">Fastest iPhone chip ever</p>
               </div>
             </div>
           </div>
@@ -123,7 +123,7 @@ export default async function HomePage() {
               key={item.title}
               className="flex items-start gap-3 rounded-2xl border border-border bg-panel p-4"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brandDark">
                 <item.icon size={20} />
               </span>
               <div>
@@ -142,7 +142,7 @@ export default async function HomePage() {
             <h2 className="text-2xl font-bold text-text">Shop by category</h2>
             <p className="mt-1 text-sm text-muted">Find your next upgrade, faster.</p>
           </div>
-          <Link href="/shop" className="shrink-0 text-sm font-semibold text-brand hover:underline">
+          <Link href="/shop" className="shrink-0 text-sm font-semibold text-ink hover:underline">
             View all
           </Link>
         </div>
@@ -155,7 +155,7 @@ export default async function HomePage() {
                 href={`/shop?category=${category.slug}`}
                 className="group rounded-2xl border border-border bg-panel p-5 transition hover:border-brand"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/15 text-brand transition group-hover:bg-brand group-hover:text-white">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/15 text-brandDark transition group-hover:bg-brand group-hover:text-white">
                   <Icon size={22} />
                 </span>
                 <p className="mt-4 text-base font-semibold text-text">{category.name}</p>
@@ -173,7 +173,7 @@ export default async function HomePage() {
             <h2 className="text-2xl font-bold text-text">Trending now</h2>
             <p className="mt-1 text-sm text-muted">What Bangladesh is buying this week.</p>
           </div>
-          <Link href="/shop" className="shrink-0 text-sm font-semibold text-brand hover:underline">
+          <Link href="/shop" className="shrink-0 text-sm font-semibold text-ink hover:underline">
             View all
           </Link>
         </div>
@@ -184,10 +184,10 @@ export default async function HomePage() {
 
       {/* Flash deals */}
       <section className="mx-auto max-w-shell px-4 pt-12">
-        <div className="rounded-3xl border-2 border-accent bg-panel p-6 sm:p-8">
+        <div className="rounded-3xl border-2 border-accentDark bg-panel p-6 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-accentDark">
                 Limited time
               </p>
               <h2 className="mt-1 text-2xl font-bold text-text">Flash deals</h2>
@@ -204,7 +204,7 @@ export default async function HomePage() {
                 <div className="mt-2">
                   <div className="h-2 overflow-hidden rounded-full bg-border">
                     <div
-                      className="h-full rounded-full bg-accent"
+                      className="h-full rounded-full bg-accentDark"
                       style={{ width: `${Math.min(100, (product.stock / 30) * 100)}%` }}
                     />
                   </div>
@@ -239,7 +239,7 @@ export default async function HomePage() {
       <section className="mx-auto max-w-shell px-4 pt-12">
         <div className="flex flex-col items-start justify-between gap-6 rounded-3xl border border-border bg-card p-6 sm:p-10 lg:flex-row lg:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brandDark">
               Gaming collection
             </p>
             <h2 className="mt-2 text-3xl font-bold text-text">Less lag. More legendary.</h2>
@@ -250,7 +250,7 @@ export default async function HomePage() {
           </div>
           <Link
             href="/shop?category=gaming"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-ink px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight"
           >
             Explore gaming <ArrowRight size={16} />
           </Link>
@@ -268,7 +268,7 @@ export default async function HomePage() {
             { icon: Headphones, title: "We've got your back.", text: "Real support from real people, before and after you buy." },
           ].map((item) => (
             <div key={item.title} className="rounded-2xl border border-border bg-panel p-5">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/15 text-brand">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/15 text-brandDark">
                 <item.icon size={22} />
               </span>
               <p className="mt-4 text-base font-semibold text-text">{item.title}</p>
@@ -300,7 +300,7 @@ export default async function HomePage() {
               </p>
               <Link
                 href={`/product/${plan.productSlug}`}
-                className="mt-5 inline-flex items-center justify-center rounded-xl bg-brandDark px-5 py-3 text-sm font-semibold text-white transition hover:bg-brandDarker"
+                className="mt-5 inline-flex items-center justify-center rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-inkLight"
               >
                 Get plan
               </Link>

@@ -42,7 +42,7 @@ export default function PaymentStep({
   return (
     <section className="rounded-2xl border border-border bg-panel p-5" aria-label="Payment options">
             <h2 className="text-lg font-bold text-text">
-              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brandDark text-sm text-white">3</span>
+              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink text-sm text-white">3</span>
               Payment options
             </h2>
             {step === 3 ? (
@@ -55,7 +55,7 @@ export default function PaymentStep({
                       role="tab"
                       aria-selected={paymentMethod === method.key}
                       onClick={() => onPaymentMethodChange(method.key)}
-                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${paymentMethod === method.key ? "border-brandDark bg-brandDark text-white" : "border-border bg-surface text-text hover:border-brand"}`}
+                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${paymentMethod === method.key ? "border-ink bg-ink text-white" : "border-border bg-surface text-text hover:border-brand"}`}
                     >
                       {method.label}
                     </button>
@@ -67,7 +67,7 @@ export default function PaymentStep({
 
                 {paymentMethod === "card" && (
                   <div className="mt-4 rounded-xl border border-border bg-surface p-4">
-                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm font-bold text-amber-300">
+                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm font-bold text-amber-700">
                       TEST MODE — do not enter real card details.
                     </p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -90,7 +90,7 @@ export default function PaymentStep({
 
                 {(paymentMethod === "bkash" || paymentMethod === "nagad") && (
                   <div className="mt-4 rounded-xl border border-border bg-surface p-4">
-                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm font-bold text-amber-300">
+                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm font-bold text-amber-700">
                       TEST MODE — {paymentMethod === "bkash" ? "bKash" : "Nagad"} test payment. No real money moves.
                     </p>
                     <div className="mt-4">

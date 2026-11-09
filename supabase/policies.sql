@@ -4,7 +4,8 @@
 -- (default deny). This file is idempotent: every policy is dropped first.
 --
 -- LIVE DATABASES apply the numbered migrations instead
--- (0006_roles, 0007_order_returned, 0008_product_warranty_specs).
+-- (0006_roles, 0007_order_returned, 0008_product_warranty_specs,
+-- 0009_announcements).
 -- This file mirrors those migrations (see "Fresh-install mirror"
 -- below) so a fresh install that only runs 0001 + this file reaches
 -- exactly the same state. Every mirrored statement is idempotent, so
@@ -105,7 +106,7 @@ as $$
 $$;
 
 -- ===========================================================================
--- Fresh-install mirror of migrations 0006–0008.
+-- Fresh-install mirror of migrations 0006–0009.
 -- Live databases apply the numbered migrations instead; this block
 -- exists so a fresh install (0001 + this file) reaches the same
 -- state. Every statement is idempotent, so applying both paths is
@@ -115,6 +116,9 @@ $$;
 --   * 0007: orders.status check gains 'returned'.
 --   * 0008: products gains warranty (text, nullable) and
 --     specifications (jsonb, not null, default '[]'::jsonb).
+--   * 0009: announcements table (broadcasts) — mirrored in its own
+--     section at the end of this file, not in this DO block, because
+--     it creates a table rather than widening a constraint.
 -- ===========================================================================
 do $$
 declare
@@ -640,6 +644,42 @@ create policy "coupons_admin_all" on public.coupons
   for all to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- ===========================================================================
+-- announcements (migration 0009) — fresh-install mirror.
+-- Live databases apply 0009 instead; this block exists so a fresh
+-- install (0001 + this file) reaches the same state. Every statement
+-- is idempotent, so applying both paths is safe. Do not edit one
+-- without the other.
+-- ===========================================================================
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) >= 1 and char_length(title) <= 200),
+  body text not null check (char_length(body) >= 1 and char_length(body) <= 2000),
+  kind text not null default 'notification' check (kind in ('notification', 'offer')),
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.announcements enable row level security;
+
+drop policy if exists "announcements_select_authenticated" on public.announcements;
+create policy "announcements_select_authenticated" on public.announcements
+  for select to authenticated
+  using (true);
+
+drop policy if exists "announcements_staff_insert" on public.announcements;
+create policy "announcements_staff_insert" on public.announcements
+  for insert to authenticated
+  with check (public.is_admin() or public.is_co_admin());
+
+drop policy if exists "announcements_staff_delete" on public.announcements;
+create policy "announcements_staff_delete" on public.announcements
+  for delete to authenticated
+  using (public.is_admin() or public.is_co_admin());
+
+create index if not exists announcements_created_at_idx
+  on public.announcements (created_at desc);
 
 -- ===========================================================================
 -- audit_log — ADMIN ONLY. No policy exists for anyone else, so audit

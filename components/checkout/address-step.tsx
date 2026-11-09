@@ -26,11 +26,11 @@ export default function AddressStep({
     <section className="rounded-2xl border border-border bg-panel p-5" aria-label="Shipping address">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-text">
-                <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brandDark text-sm text-white">1</span>
+                <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink text-sm text-white">1</span>
                 Shipping address
               </h2>
               {step !== 1 && (
-                <button type="button" className="text-sm text-brand hover:underline" onClick={onEdit}>
+                <button type="button" className="text-sm text-ink hover:underline" onClick={onEdit}>
                   Edit
                 </button>
               )}

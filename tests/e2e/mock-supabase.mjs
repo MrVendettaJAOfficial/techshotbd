@@ -6,8 +6,10 @@
 //
 // Tables: categories, products, product_images, product_variants,
 // profiles, addresses, wishlists, carts, cart_items, orders,
-// order_items, coupons, payments. Auth: any password grant succeeds
-// as user-1 (customer); GET /auth/v1/user accepts any Bearer token.
+// order_items, coupons, payments, announcements, audit_log. Auth:
+// any password grant succeeds as user-1 (customer); GET /auth/v1/user
+// accepts any Bearer token. POST /auth/v1/recover accepts any
+// recovery request (no email is sent — delivery is live-only).
 // RLS is intentionally permissive here — the
 // real RLS policies are verified by reading supabase/policies.sql, not by
 // this mock.
@@ -255,6 +257,13 @@ const db = {
       created_at: new Date(Date.now() - 2 * 864e5).toISOString(),
     },
   ],
+  // Broadcast announcements (migration 0009 — light-theme + inbox
+  // build, 2026-11-09): the generic REST layer below serves any
+  // table in `db`, so the admin send flow (service-role insert)
+  // and the inbox read (authenticated select) work end to end in
+  // the mock exactly like the real table. The mock has no RLS and
+  // sends no email — it only proves the app's read/write paths.
+  announcements: [],
   audit_log: [],
 };
 
@@ -464,7 +473,7 @@ async function handle(req, res) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
         "*",
     });
@@ -553,6 +562,14 @@ async function handle(req, res) {
         expires_in: 3600,
         user,
       });
+    }
+    if (path === "/auth/v1/recover") {
+      // Password recovery request (resetPasswordForEmail): accept
+      // and return 200 with no body, like Supabase does for a
+      // well-formed request. No email is sent by the mock — real
+      // delivery is a live-only check, never provable here.
+      await readBody(req);
+      return send(res, 200, {});
     }
     if (path === "/auth/v1/user") {
       const auth = req.headers.authorization || "";

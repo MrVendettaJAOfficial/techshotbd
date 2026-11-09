@@ -68,7 +68,7 @@ export default function AddressesSection({
         <button type="button" className={btnGhost} onClick={onNewAddress}>Add address</button>
       </div>
       {addressNotice && <p role="status" className="mt-3 text-sm text-success">{addressNotice}</p>}
-      {addressErrors.form && <p role="alert" className="mt-3 text-sm text-red-400">{addressErrors.form}</p>}
+      {addressErrors.form && <p role="alert" className="mt-3 text-sm text-red-700">{addressErrors.form}</p>}
 
       {addresses.length === 0 && !showAddressForm && (
         <p className="mt-3 text-sm text-muted">No addresses yet. Add your delivery address here.</p>
@@ -83,7 +83,7 @@ export default function AddressesSection({
                   {address.label ? `${address.label} — ` : ""}
                   {address.firstName} {address.lastName}
                   {address.isDefault && (
-                    <span className="ml-2 rounded-full bg-success/20 px-2 py-0.5 text-xs font-bold text-emerald-300">Default</span>
+                    <span className="ml-2 rounded-full bg-success/20 px-2 py-0.5 text-xs font-bold text-brandDark">Default</span>
                   )}
                 </p>
                 <p className="mt-1 text-muted">
@@ -103,7 +103,7 @@ export default function AddressesSection({
                 <button type="button" className={btnGhost} onClick={() => onEditAddress(address)}>Edit</button>
                 <button
                   type="button"
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-red-400 hover:border-red-400"
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-red-700 hover:border-red-700"
                   onClick={() => onDeleteAddress(address.id)}
                 >
                   Delete

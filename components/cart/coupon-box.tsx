@@ -48,11 +48,11 @@ export default function CouponBox({
                 </div>
               )}
               {couponMessage && (
-                <p className={`mt-2 text-sm ${couponError ? "text-red-400" : "text-success"}`}>
+                <p className={`mt-2 text-sm ${couponError ? "text-red-700" : "text-success"}`}>
                   {couponMessage}
                 </p>
               )}
-              {couponError && <p className="mt-1 text-sm text-red-400">{couponError}</p>}
+              {couponError && <p className="mt-1 text-sm text-red-700">{couponError}</p>}
               <p className="mt-2 text-xs text-muted">FIRST2000: ৳2,000 off on a first order above ৳50,000.</p>
             </div>
   );

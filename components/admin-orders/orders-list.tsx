@@ -219,7 +219,7 @@ export default function AdminOrders({ initialOrders, configured, callerRole }: A
         onSelect={setStatusFilter}
       />
       {orderError ? (
-        <p role="alert" className="mt-4 text-sm text-[#f87171]">{orderError}</p>
+        <p role="alert" className="mt-4 text-sm text-red-700">{orderError}</p>
       ) : null}
       {orders.length === 0 ? (
         <EmptyState

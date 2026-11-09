@@ -223,7 +223,7 @@ function OrderDetailInner() {
             This order is not in your browser&apos;s saved orders. It may have
             been placed in a different browser or before the preview data was cleared.
           </p>
-          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
+          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
             Back to my orders
           </Link>
         </div>
@@ -248,7 +248,7 @@ function OrderDetailInner() {
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-10">
-      <Link href="/orders" className="text-sm text-brand hover:underline">← Back to my orders</Link>
+      <Link href="/orders" className="text-sm text-ink hover:underline">← Back to my orders</Link>
       <OrderSummary order={order} notice={shownNotice} />
 
       <OrderTimeline order={order} />
@@ -274,7 +274,7 @@ function OrderDetailInner() {
           <p className="mt-2 text-sm text-text">
             {PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}
             {order.testMode && (
-              <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-300">TEST MODE</span>
+              <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-700">TEST MODE</span>
             )}
           </p>
           <p className="mt-1 text-sm text-muted">
@@ -312,7 +312,7 @@ function OrderDetailInner() {
             type="button"
             onClick={cancelOrder}
             disabled={cancelling}
-            className="mt-4 rounded-lg border border-red-400 px-5 py-2 font-semibold text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+            className="mt-4 rounded-lg border border-red-700 px-5 py-2 font-semibold text-red-700 hover:bg-red-500/10 disabled:opacity-50"
           >
             {cancelling ? "Cancelling…" : "Cancel order"}
           </button>
@@ -320,7 +320,7 @@ function OrderDetailInner() {
       )}
 
       <div className="mt-6">
-        <Link href="/orders" className="text-sm text-brand hover:underline">Back to my orders</Link>
+        <Link href="/orders" className="text-sm text-ink hover:underline">Back to my orders</Link>
       </div>
     </main>
   );

@@ -126,7 +126,7 @@ export default function MiniCartDrawer({
             <button
               type="button"
               onClick={closeAndRefocus}
-              className="mt-6 rounded-lg bg-brandDark px-5 py-3 text-sm font-semibold text-white hover:bg-brandDarker"
+              className="mt-6 rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-inkLight"
             >
               Continue shopping
             </button>
@@ -185,7 +185,7 @@ export default function MiniCartDrawer({
                           <button
                             type="button"
                             aria-label="Decrease quantity"
-                            className="px-3 py-1 text-lg text-text hover:text-brand"
+                            className="px-3 py-1 text-lg text-text hover:text-brandDark"
                             onClick={() =>
                               cart.setQuantity(
                                 item.slug,
@@ -202,7 +202,7 @@ export default function MiniCartDrawer({
                           <button
                             type="button"
                             aria-label="Increase quantity"
-                            className="px-3 py-1 text-lg text-text hover:text-brand"
+                            className="px-3 py-1 text-lg text-text hover:text-brandDark"
                             onClick={() =>
                               cart.setQuantity(
                                 item.slug,
@@ -239,7 +239,7 @@ export default function MiniCartDrawer({
               {amountToFreeDelivery > 0 ? (
                 <p className="rounded-lg bg-panel px-3 py-2 text-sm text-text">
                   Add{" "}
-                  <span className="font-semibold text-brandLight">
+                  <span className="font-semibold text-brandDark">
                     {formatBDT(amountToFreeDelivery)}
                   </span>{" "}
                   more to unlock free delivery.
@@ -256,7 +256,7 @@ export default function MiniCartDrawer({
               <Link
                 href="/checkout"
                 onClick={onClose}
-                className="mt-4 flex w-full items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker"
+                className="mt-4 flex w-full items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white transition hover:bg-inkLight"
               >
                 Checkout
               </Link>

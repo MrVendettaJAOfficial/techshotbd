@@ -193,7 +193,7 @@ export function PhotoViewer({
       data-testid="photo-viewer"
     >
       <div className="flex items-center justify-between px-4 py-3">
-        <p className="text-sm text-muted" data-testid="viewer-counter">
+        <p className="text-sm text-mutedNavy" data-testid="viewer-counter">
           Photo {index + 1} of {count}
         </p>
         <button
@@ -278,7 +278,7 @@ export function PhotoViewer({
             >
               <ZoomOut size={18} />
             </button>
-            <span className="w-14 text-center text-sm font-semibold text-text" data-testid="viewer-zoom-level">
+            <span className="w-14 text-center text-sm font-semibold text-white" data-testid="viewer-zoom-level">
               {Math.round(scale * 100)}%
             </span>
             <button
@@ -293,7 +293,7 @@ export function PhotoViewer({
             </button>
           </>
         ) : (
-          <p className="text-xs text-muted">Swipe to change photo · pinch to zoom</p>
+          <p className="text-xs text-mutedNavy">Swipe to change photo · pinch to zoom</p>
         )}
       </div>
 

@@ -138,7 +138,7 @@ export default function CouponsSection() {
               <Button type="submit">Add coupon</Button>
             </div>
             {couponError ? (
-              <p role="alert" className="text-sm text-[#f87171] sm:col-span-4">{couponError}</p>
+              <p role="alert" className="text-sm text-red-700 sm:col-span-4">{couponError}</p>
             ) : null}
             {couponNotice ? (
               <p role="status" className="text-sm text-success sm:col-span-4">{couponNotice}</p>

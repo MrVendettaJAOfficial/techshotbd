@@ -131,7 +131,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
           href={buildHref(searchParams, { category: undefined, page: undefined })}
           className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
             activeCategory === "all" && !flash
-              ? "border-brandDark bg-brandDark text-white"
+              ? "border-ink bg-ink text-white"
               : "border-border bg-panel text-text hover:border-brand"
           }`}
         >
@@ -143,7 +143,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             href={buildHref(searchParams, { category: c.slug, page: undefined, flash: undefined })}
             className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
               activeCategory === c.slug
-                ? "border-brandDark bg-brandDark text-white"
+                ? "border-ink bg-ink text-white"
                 : "border-border bg-panel text-text hover:border-brand"
             }`}
           >
@@ -292,7 +292,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             <div className="flex gap-2">
               <button
                 type="submit"
-                className="flex-1 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
+                className="flex-1 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight"
               >
                 Apply filters
               </button>
@@ -320,7 +320,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
               </p>
               <Link
                 href="/shop"
-                className="mt-5 rounded-xl bg-brandDark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
+                className="mt-5 rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight"
               >
                 Clear all filters
               </Link>
@@ -358,7 +358,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                       aria-current={n === currentPage ? "page" : undefined}
                       className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                         n === currentPage
-                          ? "border-brandDark bg-brandDark text-white"
+                          ? "border-ink bg-ink text-white"
                           : "border-border bg-panel text-text hover:border-brand"
                       }`}
                     >

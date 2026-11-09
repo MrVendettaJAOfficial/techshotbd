@@ -439,7 +439,7 @@ export default function ProductForm({ products, categories, canPublish, configur
                 </Button>
               </div>
               {uploadError ? (
-                <p role="alert" className="mt-2 text-sm text-[#f87171]">{uploadError}</p>
+                <p role="alert" className="mt-2 text-sm text-red-700">{uploadError}</p>
               ) : null}
               {uploadNotice ? (
                 <p role="status" className="mt-2 text-sm text-success">{uploadNotice}</p>
@@ -514,7 +514,7 @@ export default function ProductForm({ products, categories, canPublish, configur
             </div>
           </div>
           {formError ? (
-            <p role="alert" className="text-sm text-[#f87171] sm:col-span-2">{formError}</p>
+            <p role="alert" className="text-sm text-red-700 sm:col-span-2">{formError}</p>
           ) : null}
           {formNotice ? (
             <p role="status" className="text-sm text-success sm:col-span-2">{formNotice}</p>

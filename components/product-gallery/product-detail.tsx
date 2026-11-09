@@ -167,7 +167,7 @@ export function ProductDetail({
         </div>
 
         <div className="min-w-0">
-          <p className="text-sm font-medium text-brand">
+          <p className="text-sm font-medium text-brandDark">
             {product.brand} · {product.category}
           </p>
           <h1 className="mt-2 text-2xl font-bold leading-tight text-text sm:text-3xl">
@@ -187,7 +187,7 @@ export function ProductDetail({
               <span className="text-muted">No reviews yet</span>
             )}
             <span className="text-muted">·</span>
-            <span className={stock > 0 ? "font-medium text-success" : "font-medium text-red-400"}>
+            <span className={stock > 0 ? "font-medium text-success" : "font-medium text-red-700"}>
               {stock > 0 ? "In stock" : "Out of stock"}
             </span>
           </p>
@@ -268,7 +268,7 @@ export function ProductDetail({
                 type="button"
                 onClick={() => setQuantity((q) => Math.max(1, q - 1))}
                 aria-label="Decrease quantity"
-                className="flex h-11 w-11 items-center justify-center text-text hover:text-brand"
+                className="flex h-11 w-11 items-center justify-center text-text hover:text-brandDark"
               >
                 <Minus size={16} />
               </button>
@@ -279,7 +279,7 @@ export function ProductDetail({
                 type="button"
                 onClick={() => setQuantity((q) => Math.min(stock, q + 1))}
                 aria-label="Increase quantity"
-                className="flex h-11 w-11 items-center justify-center text-text hover:text-brand"
+                className="flex h-11 w-11 items-center justify-center text-text hover:text-brandDark"
               >
                 <Plus size={16} />
               </button>
@@ -294,7 +294,7 @@ export function ProductDetail({
               type="button"
               onClick={handleAdd}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               {added ? (
                 <>
@@ -310,7 +310,7 @@ export function ProductDetail({
               type="button"
               onClick={handleBuyNow}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               <Zap size={18} /> Buy Now
             </button>
@@ -334,20 +334,20 @@ export function ProductDetail({
 
           <div className="mt-6 space-y-3 rounded-2xl border border-border bg-panel p-4 text-sm">
             <p className="flex items-start gap-2.5 text-text">
-              <Truck size={18} className="mt-0.5 shrink-0 text-brand" />
+              <Truck size={18} className="mt-0.5 shrink-0 text-brandDark" />
               <span>
                 <span className="font-semibold">Deliver to Dhaka</span>
                 <span className="text-muted">
                   {" "}
                   — delivery in 1–3 working days, Bangladesh-wide.{" "}
                 </span>
-                <Link href="/account" className="font-medium text-brand hover:underline">
+                <Link href="/account" className="font-medium text-ink hover:underline">
                   Change
                 </Link>
               </span>
             </p>
             <p className="flex items-start gap-2.5 text-text">
-              <MapPin size={18} className="mt-0.5 shrink-0 text-brand" />
+              <MapPin size={18} className="mt-0.5 shrink-0 text-brandDark" />
               <span>
                 Pickup available in Dhaka and Chattogram. Division and district
                 selection happens at checkout.
@@ -360,7 +360,7 @@ export function ProductDetail({
           </div>
 
           <div className="mt-4 flex items-start gap-2.5 rounded-2xl border border-accent/50 bg-accent/10 p-4 text-sm">
-            <Tag size={18} className="mt-0.5 shrink-0 text-accent" />
+            <Tag size={18} className="mt-0.5 shrink-0 text-accentDark" />
             <p className="text-text">
               <span className="font-bold">FIRST2000</span> — get{" "}
               {formatBDT(FIRST2000_VALUE_POISHA)} off your first order above{" "}
@@ -466,7 +466,7 @@ export function ProductDetail({
                 <ReviewForm productSlug={product.slug} onReviewSaved={handleReviewSaved} />
               ) : (
                 <p className="mt-8 text-sm text-muted">
-                  <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+                  <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
                     Sign in to write a review
                   </Link>
                 </p>

@@ -48,12 +48,12 @@ export default function NewsletterForm() {
         />
         <button
           type="submit"
-          className="shrink-0 rounded-xl bg-brandDark px-5 py-3 text-sm font-semibold text-white transition hover:bg-brandDarker"
+          className="shrink-0 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-inkLight"
         >
           Subscribe
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       <p className="mt-2 text-xs text-muted">
         One email a week. No spam, unsubscribe anytime.
       </p>

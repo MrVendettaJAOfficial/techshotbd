@@ -15,7 +15,7 @@ type ButtonVariant = "primary" | "accent" | "outline" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-brandDark text-white hover:bg-brandDarker disabled:bg-brand/50",
+  primary: "bg-ink text-white hover:bg-inkLight disabled:bg-ink/50",
   accent: "bg-accentDark text-white hover:bg-accentDarker disabled:bg-accentDark/50",
   outline:
     "border border-border bg-transparent text-text hover:border-brand hover:text-text disabled:opacity-50",
@@ -63,8 +63,8 @@ const badgeTones: Record<string, string> = {
   accent: "bg-accentDark text-white border-accentDark",
   success: "bg-success/15 text-success border-success/40",
   muted: "bg-surface text-muted border-border",
-  danger: "bg-[#b91c1c]/15 text-[#f87171] border-[#b91c1c]/40",
-  warning: "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  danger: "bg-[#b91c1c]/15 text-red-700 border-[#b91c1c]/40",
+  warning: "bg-amber-500/15 text-amber-700 border-amber-500/40",
 };
 
 export function Badge({
@@ -123,12 +123,12 @@ export function Field({
     <div className="space-y-1.5">
       <label htmlFor={htmlFor} className="block text-sm font-medium text-text">
         {label}
-        {required ? <span className="text-brandLight"> *</span> : null}
+        {required ? <span className="text-brandDark"> *</span> : null}
       </label>
       {children}
       {hint && !error ? <p className="text-xs text-muted">{hint}</p> : null}
       {error ? (
-        <p role="alert" className="text-xs font-medium text-[#f87171]">
+        <p role="alert" className="text-xs font-medium text-red-700">
           {error}
         </p>
       ) : null}

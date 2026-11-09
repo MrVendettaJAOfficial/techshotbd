@@ -11,6 +11,7 @@ const config: Config = {
     extend: {
       colors: {
         ink: theme.colors.ink,
+        inkLight: theme.colors.inkLight,
         surface: theme.colors.surface,
         panel: theme.colors.panel,
         card: theme.colors.card,
@@ -28,6 +29,7 @@ const config: Config = {
         success: theme.colors.success,
         muted: theme.colors.muted,
         mutedLight: theme.colors.mutedLight,
+        mutedNavy: theme.colors.mutedNavy,
         text: theme.colors.text,
         textSoft: theme.colors.textSoft,
       },

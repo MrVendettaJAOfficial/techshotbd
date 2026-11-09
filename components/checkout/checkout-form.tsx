@@ -173,7 +173,7 @@ export default function CheckoutForm({
     <form onSubmit={handleSubmit} className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="space-y-6">
         {unknownSlugs.length > 0 && (
-          <p role="alert" className="rounded-lg border border-red-400 bg-panel px-4 py-3 text-sm text-red-400">
+          <p role="alert" className="rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700">
             Some items are no longer available and were left out of this order: {unknownSlugs.join(", ")}. Remove them from your cart to continue.
           </p>
         )}
@@ -190,11 +190,11 @@ export default function CheckoutForm({
         <section className="rounded-2xl border border-border bg-panel p-5" aria-label="Delivery options">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-text">
-              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brandDark text-sm text-white">2</span>
+              <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink text-sm text-white">2</span>
               Delivery options
             </h2>
             {step !== 2 && step === 3 && (
-              <button type="button" className="text-sm text-brand hover:underline" onClick={() => setStep(2)}>
+              <button type="button" className="text-sm text-ink hover:underline" onClick={() => setStep(2)}>
                 Edit
               </button>
             )}
@@ -247,7 +247,7 @@ export default function CheckoutForm({
         />
 
         {formMessage && (
-          <p role="alert" className="rounded-lg border border-red-400 bg-panel px-4 py-3 text-sm text-red-400">
+          <p role="alert" className="rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700">
             {formMessage}
           </p>
         )}
@@ -291,7 +291,7 @@ export default function CheckoutForm({
           </div>
         </dl>
         {errors.coupon && <p className={errCls}>{errors.coupon}</p>}
-        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker disabled:opacity-50">
+        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-ink px-5 py-3 font-semibold text-white transition hover:bg-inkLight disabled:opacity-50">
           {submitting ? "Placing your order…" : `Pay ${formatBDT(summary.total_poisha)} securely`}
         </button>
         <p className="mt-2 text-center text-xs text-muted">
@@ -299,7 +299,7 @@ export default function CheckoutForm({
             ? "No payment is taken now — pay on delivery."
             : "Test mode — no real payment is charged."}
         </p>
-        <Link href="/cart" className="mt-3 block text-center text-sm text-brand hover:underline">
+        <Link href="/cart" className="mt-3 block text-center text-sm text-ink hover:underline">
           Back to cart
         </Link>
       </aside>

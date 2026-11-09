@@ -4,15 +4,33 @@
 // with a `code` query parameter. The code is exchanged for a session
 // server-side via the exchangeAuthCode Server Action in
 // lib/auth-server.ts — the exchange must run on the server so the
-// session cookies can be set — then the user is sent to /account.
-// Without a code (or when the exchange fails) the user is sent to
-// sign-in with a generic message.
+// session cookies can be set — then the user is sent on.
+//
+// Which page they land on depends on the link type
+// (lib/password-rules.ts getAuthCallbackDestination):
+//   - recovery links (?type=recovery, from a forgot-password
+//     request) go to /auth/reset-password to set a new password;
+//   - everything else (sign-up confirmation, magic link) goes to
+//     /account?signed_in=1, as before.
+// The `type` arrives with the code: Supabase appends
+// `&type=recovery` to the redirect URL, and the redirect URL we
+// send with resetPasswordForEmail already carries `?type=recovery`
+// itself, so the callback sees it either way.
+//
+// Fallback: an older / non-PKCE link arrives as a URL fragment
+// (#access_token=...&type=recovery) instead of a code. The browser
+// Supabase client reads that fragment into a session on creation,
+// so the callback checks for a live session in that case and
+// routes the same way. Without a code, a token, or a session, the
+// user is sent to sign-in with a generic message.
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { exchangeAuthCode } from "@/lib/auth-server";
+import { getAuthCallbackDestination, parseRecoveryHash } from "@/lib/password-rules";
+import { createClient } from "@/lib/supabase/client";
 
 function AuthCallbackInner() {
   const router = useRouter();
@@ -24,14 +42,37 @@ function AuthCallbackInner() {
     if (started.current) return;
     started.current = true;
     const code = searchParams.get("code");
-    if (!code) {
+    const type = searchParams.get("type");
+    if (code) {
+      void exchangeAuthCode(code)
+        .then(() => {
+          router.replace(getAuthCallbackDestination(type));
+          router.refresh();
+        })
+        .catch(() => {
+          setError("Could not sign you in. Please try signing in again.");
+        });
+      return;
+    }
+    // No code: maybe a legacy implicit-flow link
+    // (#access_token=...&type=recovery). Creating the browser client
+    // lets Supabase read the fragment into a session.
+    const { isRecovery, hasAccessToken } = parseRecoveryHash(window.location.hash);
+    if (!hasAccessToken) {
       router.replace("/auth/sign-in");
       return;
     }
-    void exchangeAuthCode(code)
-      .then(() => {
-        router.replace("/account?signed_in=1");
-        router.refresh();
+    void createClient()
+      .auth.getSession()
+      .then(({ data }) => {
+        if (data.session) {
+          router.replace(
+            getAuthCallbackDestination(isRecovery ? "recovery" : null),
+          );
+          router.refresh();
+        } else {
+          setError("Could not sign you in. Please try signing in again.");
+        }
       })
       .catch(() => {
         setError("Could not sign you in. Please try signing in again.");
@@ -47,7 +88,7 @@ function AuthCallbackInner() {
             {error}
           </p>
           <p className="mt-6">
-            <Link href="/auth/sign-in" className="font-medium text-brand hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
               Go to sign-in
             </Link>
           </p>
@@ -59,7 +100,7 @@ function AuthCallbackInner() {
             You will be redirected to your account shortly.
           </p>
           <p className="mt-6">
-            <Link href="/" className="font-medium text-brand hover:underline">
+            <Link href="/" className="font-medium text-ink hover:underline">
               Go home now
             </Link>
           </p>
