@@ -7,13 +7,31 @@
 // enforces the visibility rule in code too — only status = 'active'
 // products are ever returned (see lib/catalog-rules.ts).
 //
+// SHARED DATA CACHE (lib/storefront-cache.ts, tag "catalog"):
+// getCatalog() reads through Next.js unstable_cache, so the catalogue
+// is fetched ONCE and shared across requests — the home, shop and
+// product pages all read the same cached copy, and a repeat visit
+// issues zero catalogue queries. The cache is purged on demand
+// (revalidateTag) by every write that changes catalogue-visible data
+// — product create / update / pause / delete, order placement (stock),
+// order cancel / refund / returned (stock restore) and review
+// submission (rating aggregate) — so an admin edit still shows on
+// the storefront immediately. The local fallback is NEVER cached
+// (it lives in getCatalog(), outside the cached function) and a
+// failed fetch throws instead of caching, so a transient outage can
+// never pin seed data or an empty list — the next visit retries
+// live. Per-user data is never cached here: cart, checkout, account,
+// orders and review-write eligibility all read live.
+//
 // When Supabase is not configured, or a live query fails, getCatalog()
 // falls back to the local seed catalogue (lib/data/catalog.ts) with a
 // console warning only — shoppers never see an error and no
 // configuration details are ever surfaced.
 
-import { cache } from "react";
-import { createClient } from "./server";
+import { unstable_cache } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, createPublicClient } from "./server";
+import { CATALOG_CACHE_TAG } from "../storefront-cache";
 import {
   CATEGORIES,
   FLASH_DEAL_ENDS_AT,
@@ -64,7 +82,15 @@ const PRODUCT_SELECT =
 
 const CATEGORY_SELECT = "id, slug, name, sort_order, is_active";
 
-type Supabase = ReturnType<typeof createClient>;
+// The two client factories return differently-shaped generic
+// instantiations of the same class (the @supabase/ssr client puts
+// the schema object in the slot the plain client uses for the
+// schema name — a version-skew typing artifact, not a runtime
+// difference: both are SupabaseClient instances with the same
+// .from() API). The shared fetch helpers below take the fully
+// loose client type, so either factory's client fits; the queries
+// themselves cast every result row, exactly as before.
+type Supabase = SupabaseClient<any, any, any, any, any>;
 
 /** Active categories, in display order. Throws on query failure. */
 async function fetchCategoryRows(supabase: Supabase): Promise<DbCategoryRow[]> {
@@ -204,10 +230,21 @@ function toLiveCatalog(
 /**
  * The live catalogue. Throws when Supabase is not configured or a
  * query fails — getCatalog() catches that and falls back to local data.
+ * A failure throws instead of returning a partial result, so the
+ * shared data cache below never caches a failure: the next visit
+ * retries the live fetch.
+ *
+ * The client is a parameter so the shared cache can read through the
+ * cookie-less public client (createPublicClient): the data cache
+ * forbids dynamic APIs, so createClient() — which reads cookies —
+ * cannot run inside it. The default is the request-scoped client,
+ * for a one-off read. Both clients return the same rows: the
+ * catalogue is public data under the anon RLS policies.
  */
-export async function getLiveCatalog(): Promise<LiveCatalog> {
+export async function getLiveCatalog(
+  supabase: Supabase = createClient(),
+): Promise<LiveCatalog> {
   if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
-  const supabase = createClient();
   const [categoryRows, productRows, reviewStats] = await Promise.all([
     fetchCategoryRows(supabase),
     fetchProductRows(supabase),
@@ -222,26 +259,45 @@ export async function getLiveCatalog(): Promise<LiveCatalog> {
 }
 
 /**
+ * The live catalogue, cached across requests under the "catalog" tag
+ * (see lib/storefront-cache.ts). The first visit after a product,
+ * order or review write fetches it once; every later visit — home,
+ * shop, product page, any searchParams — reads this copy and issues
+ * zero catalogue queries, until a write purges the tag.
+ *
+ * The fetch runs through the cookie-less public client, never the
+ * request-scoped one (see getLiveCatalog above), and the local
+ * fallback is deliberately NOT inside this function: a failed fetch
+ * throws, the error is never cached, and getCatalog() below falls
+ * back to local data for that visit only.
+ */
+const fetchCatalogCached = unstable_cache(
+  async (): Promise<LiveCatalog> => getLiveCatalog(createPublicClient()),
+  ["techshot-catalog"],
+  { tags: [CATALOG_CACHE_TAG] },
+);
+
+/**
  * Live catalogue when available, otherwise the local seed catalogue.
  * The fallback logs a console warning only — no user-visible error
- * and no configuration detail is ever leaked.
- *
- * Per-request cached (React cache()): a product page used to fetch
- * the catalogue three times per visit — once for the product, once
- * for related products, and once more for metadata — each fetch
- * being three Supabase round trips (categories + products +
- * reviews) plus a fourth, tolerant read of the product_categories
- * join table (see fetchProductCategorySlugs — a missing table is
- * an empty map, never a failure). The
- * metadata render and the page render share one request, so they now
- * share one fetch. The cache is per-request only: the next visit
- * re-fetches, so prices and stock are never stale — force-dynamic
- * freshness is unchanged.
+ * and no configuration detail is ever leaked. The fallback is
+ * returned per visit and never cached (see fetchCatalogCached
+ * above), so a transient outage can never pin seed data: the next
+ * visit retries the live fetch, and the next product / order /
+ * review write purges the tag anyway.
  */
-const fetchCatalog = cache(async (): Promise<LiveCatalog> => {
+export async function getCatalog(): Promise<LiveCatalog> {
   if (!isSupabaseConfigured()) return localCatalog();
   try {
-    return await getLiveCatalog();
+    const cached = await fetchCatalogCached();
+    // The data cache serializes to JSON, so the flashEndsAt Date
+    // comes back as an ISO string — revive it here, or the home
+    // page's flashEndsAt.getTime() throws on every cached read
+    // (the first, uncached read carries a real Date, which is why
+    // the crash only shows after the cache warms). Nothing else in
+    // the catalogue is a Date — products, categories and
+    // subscriptions are plain JSON-safe data.
+    return { ...cached, flashEndsAt: new Date(cached.flashEndsAt) };
   } catch (error) {
     console.warn(
       "TechShot: live catalogue unavailable, using local catalogue.",
@@ -249,8 +305,4 @@ const fetchCatalog = cache(async (): Promise<LiveCatalog> => {
     );
     return localCatalog();
   }
-});
-
-export async function getCatalog(): Promise<LiveCatalog> {
-  return fetchCatalog();
 }

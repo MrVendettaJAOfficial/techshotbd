@@ -14,7 +14,15 @@
 //
 // What is proven here (source-level; node --test has no browser):
 //   - the product page resolves product + related + metadata from a
-//     single getCatalog() call, which is per-request cached;
+//     single getCatalog() call, which is cross-request cached;
+//   - the catalogue + banners are cached across requests in the
+//     Next.js data cache (unstable_cache, tags "catalog" /
+//     "banners") and purged on demand by every write that changes
+//     catalogue-visible data — product writes, order placement
+//     (stock), order status changes (stock restore) and review
+//     submission (rating aggregate);
+//   - the home page is static (no force-dynamic) and revalidated on
+//     demand, while shop + product stay force-dynamic;
 //   - getAccountData() fetches addresses / wishlist / orders in
 //     parallel instead of one after another;
 //   - fetchAllProducts() / loadExtras() fetch categories + extras
@@ -25,8 +33,10 @@
 //     a photo is optimised once, not every minute;
 //   - nothing that makes the site safe or fresh was weakened to buy
 //     speed: the middleware auth gate still runs on /admin,
-//     force-dynamic is kept where freshness matters, and the cache
-//     is per-request only (prices / stock re-fetch every visit).
+//     force-dynamic is kept where freshness matters (shop, product),
+//     the home page's static render is revalidated on every
+//     product / banner write, and the local fallback is never
+//     cached — a failed fetch retries live on the next visit.
 //
 // What is NOT proven here: the actual timings. Those are measured
 // with the real servers (see progress.md for the before/after
@@ -54,10 +64,14 @@ test("product page: one catalogue fetch for product + related + metadata", () =>
   assert.match(src, /export const dynamic = "force-dynamic"/, "product page: still force-dynamic");
 });
 
-test("catalogue: getCatalog is per-request cached, old helpers removed", () => {
+test("catalogue: getCatalog is cross-request cached (data cache), old helpers removed", () => {
   const src = root("lib/supabase/catalog.ts");
-  assert.match(src, /import \{ cache \} from "react"/, "catalog: imports React cache()");
-  assert.match(src, /cache\(async/, "catalog: getCatalog is wrapped in cache()");
+  // The React cache() wrapper is gone: the catalogue is now cached
+  // across requests in the Next.js data cache, not per request.
+  assert.doesNotMatch(src, /import \{ cache \} from "react"/, "catalog: React cache() wrapper removed");
+  assert.match(src, /import \{ unstable_cache \} from "next\/cache"/, "catalog: uses unstable_cache");
+  assert.match(src, /unstable_cache\(/, "catalog: fetch is wrapped in unstable_cache");
+  assert.match(src, /tags: \[CATALOG_CACHE_TAG\]/, "catalog: cached under the catalog tag");
   assert.doesNotMatch(src, /getLiveProduct|getLiveRelated/, "catalog: removed helpers are gone");
   // Still one live fetch (categories + products in parallel) with
   // the local fallback when Supabase is down.
@@ -118,8 +132,13 @@ test("nothing safe or fresh was weakened to buy speed", () => {
   const middleware = root("middleware.ts");
   assert.match(middleware, /matcher:\s*\["\/admin\/:path\*"\]/, "middleware: still guards /admin");
   assert.match(middleware, /getUser/, "middleware: still validates the session");
-  // Freshness kept on the storefront pages.
-  for (const file of ["app/page.tsx", "app/shop/page.tsx", "app/product/[slug]/page.tsx"]) {
+  // Freshness kept on the storefront pages: shop + product are still
+  // force-dynamic, and the home page is static ONLY because every
+  // product / banner write revalidates it on demand.
+  for (const file of ["app/shop/page.tsx", "app/product/[slug]/page.tsx"]) {
     assert.match(root(file), /export const dynamic = "force-dynamic"/, `${file}: still force-dynamic`);
   }
+  assert.doesNotMatch(root("app/page.tsx"), /^export const dynamic = "force-dynamic"/m, "home: static, not force-dynamic");
+  assert.match(root("lib/products/actions/shared.ts"), /revalidatePath\("\/"\)/, "home: product writes revalidate /");
+  assert.match(root("lib/banners-server.ts"), /revalidatePath\("\/"\)/, "home: banner writes revalidate /");
 });

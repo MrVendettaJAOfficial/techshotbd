@@ -67,6 +67,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { revalidateCatalogCache } from "@/lib/storefront-cache";
 import { getCallerRole, getCurrentUser } from "@/lib/auth-server";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { restoreOrderStock } from "../stock";
@@ -233,6 +234,14 @@ export function revalidateOrderPages(orderId: string): void {
   revalidatePath("/admin");
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
+  // A cancel / refund / returned restores stock (see
+  // restoreStockAfterStatusChange above), and stock is
+  // catalogue-visible data — purge the "catalog" tag too, or the
+  // storefront would keep showing the pre-restore stock. Every
+  // status change purges, even those that do not touch stock: the
+  // volume is tiny, and missing a restore would be worse than a
+  // one-time re-fetch on the next storefront visit.
+  revalidateCatalogCache();
 }
 
 /**

@@ -247,5 +247,18 @@ export async function submitReview(
     }
     return { ok: false, message: "Could not save your review. Please try again." };
   }
+  // Deliberately NO revalidateTag here, even though the rating
+  // aggregate shown on the product card comes from the cached
+  // catalogue (see lib/supabase/catalog.ts): a server action that
+  // revalidates makes the client refresh the current route, and
+  // that refresh remounts the review form — wiping the thank-you
+  // notice and the just-written review, and resetting the gallery
+  // tab to Description so the review list is hidden (that is why
+  // the form's header comment says it never calls router.refresh(),
+  // proven by the Playwright run of 2026-11-09). The aggregate
+  // simply refreshes on the next product / order / banner write
+  // instead — and the reviews list itself is live per visit, so
+  // the new review shows there on the next load, and the form
+  // hands it to the parent from local state immediately.
   return { ok: true };
 }

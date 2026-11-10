@@ -18,10 +18,30 @@
 //      /checkout, and remove empties the cart to the empty state.
 //      The drawer is also checked at a mobile viewport (390px).
 //
-//   C. Skeletons — navigating to /shop, a product page and / shows
-//      the matching per-route skeleton instantly (before the
-//      data-driven content arrives), then the skeleton is replaced
-//      by the real content. A loading.tsx skeleton only renders
+//   C. Skeletons — navigating to a product page shows the matching
+//      per-route skeleton instantly (before the data-driven content
+//      arrives), then the skeleton is replaced by the real content.
+//      The home page is NOT in this section any more: since 2026-11-11
+//      it is static (see tests/storefront-cache.test.mjs), so it serves
+//      pre-rendered and no skeleton ever appears on / — the section
+//      proves that instead: with the same 2s mock delay, / still shows
+//      its content immediately, with no loading skeleton at all.
+//      /shop is the same story since 2026-11-11, for a different
+//      reason: it reads the catalogue from the shared data cache, so
+//      with a warm cache it never waits on the mock at all — even
+//      with the 2s delay it renders instantly, and no skeleton
+//      appears. That is the cache working, not a missing skeleton:
+//      the shop skeleton file itself (app/shop/loading.tsx, filters
+//      sidebar + 9-card grid + pulse blocks) is pinned by
+//      tests/skeletons.test.mjs, and it renders whenever /shop
+//      actually waits on data — a cold data cache, or just after a
+//      write purges the tag (proven by tests/e2e/storefront-cache.mjs,
+//      where a purge makes the next visit re-fetch). The section
+//      proves the warm-cache instant render for /shop instead, and
+//      the product page still proves the skeleton mechanism
+//      end-to-end (its reviews list and sign-in check are live per
+//      visit, so the 2s delay still makes it wait).
+//      A loading.tsx skeleton only renders
 //      while the page is waiting on data — against the mock, which
 //      answers in milliseconds, the page usually resolves before
 //      the shell flushes and no skeleton ever appears (verified by
@@ -400,16 +420,49 @@ async function main() {
       );
     }
 
-    // The /shop marker is a product title, not "Shop all": the shell
-    // itself contains visible "Shop all" pill / breadcrumb links.
-    await skeletonCheck("/shop", "lg:grid-cols-[260px_1fr]", IPHONE_TITLE);
+    // /shop with the 2s delay set and a warm data cache: the page
+    // reads the catalogue from the cache, never waits on the mock,
+    // and renders its content immediately with NO skeleton — the
+    // instant render is the cache working. (The shop skeleton file
+    // itself is pinned by tests/skeletons.test.mjs; it renders on
+    // a cold cache or after a purge.)
+    await page.goto(`${BASE}/shop`, { waitUntil: "commit" });
+    const shopWarm = await page.waitForFunction(
+      (title) => {
+        const content = (document.body?.innerText ?? "").includes(title);
+        const skeleton = !!document.querySelector('[aria-label="Loading"]');
+        if (content) return { content: true, skeleton };
+        return false;
+      },
+      IPHONE_TITLE,
+      { timeout: 15000, polling: 5 },
+    );
+    const shopWarmState = await shopWarm.jsonValue();
+    check("/shop: warm cache renders content immediately (no wait on the mock)", shopWarmState.content, `content=${shopWarmState.content}`);
+    check("/shop: warm cache shows no skeleton (nothing to wait for)", !shopWarmState.skeleton, `skeleton=${shopWarmState.skeleton}`);
     // Product page via client-side navigation from the shop (the
     // page is already showing the iPhone card on page one). The
     // marker is "Add to Cart", which exists only on the product page.
     await skeletonCheck(IPHONE, "aspect-square", "Add to Cart", async () => {
       await page.getByRole("link", { name: /Apple iPhone 16 Pro/ }).first().click();
     });
-    await skeletonCheck("/", "lg:grid-cols-2", "Trending now");
+    // Home is static since 2026-11-11: even with the 2s mock delay
+    // it serves pre-rendered, so its content is on screen
+    // immediately and no loading skeleton ever appears — that is
+    // the point of the static home, not a missing skeleton.
+    await page.goto(`${BASE}/`, { waitUntil: "commit" });
+    const homeStatic = await page.waitForFunction(
+      () => {
+        const content = (document.body?.innerText ?? "").includes("Trending now");
+        const skeleton = !!document.querySelector('[aria-label="Loading"]');
+        if (content) return { content: true, skeleton };
+        return false;
+      },
+      { timeout: 15000, polling: 5 },
+    );
+    const homeState = await homeStatic.jsonValue();
+    check("home: static content arrives immediately despite the 2s delay", homeState.content === true, JSON.stringify(homeState));
+    check("home: no loading skeleton on the static home page", homeState.skeleton === false, JSON.stringify(homeState));
   } finally {
     await setMockDelay(0);
   }

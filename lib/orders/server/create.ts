@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../../supabase/server";
+import { revalidateCatalogCache } from "../../storefront-cache";
 import { getProductForCartSlug } from "../../data/catalog";
 import { normalizeVariantLabel, variantMatchesOption } from "../../catalog-rules";
 import { computeTotals as pricingComputeTotals } from "../../pricing";
@@ -364,5 +365,9 @@ export async function createSupabaseOrder(
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
+  // Stock was decremented above, and stock is catalogue-visible data:
+  // purge the "catalog" tag so the storefront shows the new stock on
+  // the next visit instead of the cached pre-order figure.
+  revalidateCatalogCache();
   return { ok: true, order };
 }

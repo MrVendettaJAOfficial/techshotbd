@@ -2,6 +2,18 @@
 // shop by category, trending row, flash deals with live countdown,
 // brand partners, gaming collection, why choose us, digital
 // subscriptions, and newsletter.
+//
+// STATIC: no `export const dynamic = "force-dynamic"` here — the page
+// has no per-user data (getCatalog + listActiveBanners only, both
+// shared-cache reads), so it prerenders at build time and serves
+// from the edge with no function run and no database read at all.
+// A product or banner write revalidates it on demand
+// (revalidatePath("/") + the "catalog" / "banners" tags in
+// lib/storefront-cache.ts), so an admin edit still shows
+// immediately on the next visit. The flash countdown is a client
+// component (components/FlashCountdown) and keeps ticking in the
+// browser; the countdown end itself comes from the cached catalogue
+// (see lib/supabase/catalog.ts earliestFlashEndsAt).
 
 import Link from "next/link";
 import {
@@ -34,8 +46,6 @@ const CATEGORY_ICONS: Record<string, typeof Smartphone> = {
   accessories: RefreshCcw,
   "smart-home": ShieldCheck,
 };
-
-export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const [{ products, categories, subscriptions, flashEndsAt }, banners] = await Promise.all([

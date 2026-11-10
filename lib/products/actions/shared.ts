@@ -40,6 +40,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { revalidateCatalogCache } from "@/lib/storefront-cache";
 import { getCallerRole, getCurrentUser } from "@/lib/auth-server";
 import { canEditProducts, canManageProducts } from "@/lib/roles";
 
@@ -184,6 +185,11 @@ export function revalidateProductPages(slug: string, oldSlug?: string): void {
   revalidatePath("/shop");
   revalidatePath(`/product/${slug}`);
   if (oldSlug && oldSlug !== slug) revalidatePath(`/product/${oldSlug}`);
+  // The catalogue data cache (tag "catalog", lib/storefront-cache.ts)
+  // holds the same pages' data: without this, a price / title / pause
+  // change would sit in the cache and the storefront would keep
+  // showing the old product until the next banner write or restart.
+  revalidateCatalogCache();
 }
 
 export async function writeImages(

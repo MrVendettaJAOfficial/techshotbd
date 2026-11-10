@@ -47,7 +47,13 @@ function assertSkeletonBasics(name, src) {
   );
 }
 
-test("home skeleton (app/loading.tsx) mirrors the home page", () => {
+test("home skeleton (app/loading.tsx) mirrors the home page layout", () => {
+  // The home page itself is static since 2026-11-11 (see
+  // tests/storefront-cache.test.mjs), so it serves pre-rendered and
+  // no skeleton ever appears on / — but the file stays as the
+  // fallback loading UI for dynamic routes without their own
+  // skeleton, and it still mirrors the home page layout it was
+  // built from.
   assert.ok(existsSync(new URL("../app/loading.tsx", import.meta.url)));
   const src = root("app/loading.tsx");
   assertSkeletonBasics("app/loading.tsx", src);
