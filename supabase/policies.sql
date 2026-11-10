@@ -5,7 +5,7 @@
 --
 -- LIVE DATABASES apply the numbered migrations instead
 -- (0006_roles, 0007_order_returned, 0008_product_warranty_specs,
--- 0009_announcements).
+-- 0009_announcements, 0010_manager_product_update).
 -- This file mirrors those migrations (see "Fresh-install mirror"
 -- below) so a fresh install that only runs 0001 + this file reaches
 -- exactly the same state. Every mirrored statement is idempotent, so
@@ -29,12 +29,12 @@
 --     their own display_name / phone without being able to promote
 --     themselves (a policy alone cannot compare the old role with
 --     the new one).
---   * Staff (Owner / co_admin / manager) may INSERT and DELETE
---     products; UPDATE of products is Owner / co_admin only
---     (manager adds/deletes but does not edit/pause). Staff may
---     SELECT orders; UPDATE of orders is Owner / co_admin only
---     (manager is read-only on orders). Role changes and user
---     deletes are Owner-only.
+--   * Staff (Owner / co_admin / manager) may INSERT, UPDATE and
+--     DELETE products (UPDATE widened to all staff by 0010,
+--     2026-11-10: managers CAN edit products, including pausing
+--     them). Staff may SELECT orders; UPDATE of orders is Owner /
+--     co_admin only (manager is read-only on orders). Role changes
+--     and user deletes are Owner-only.
 --   * payments and audit_log have NO policy for non-admins at all, so
 --     they are invisible to everyone except admins (and the service
 --     role, which bypasses RLS).
@@ -300,8 +300,8 @@ create policy "categories_admin_all" on public.categories
 
 -- ===========================================================================
 -- products — visitors read active products only; sellers manage their own.
--- Staff may INSERT and DELETE products; UPDATE is Owner / co_admin
--- only (manager adds/deletes but does not edit/pause).
+-- Staff may INSERT, UPDATE and DELETE products (UPDATE widened to
+-- all staff by 0010, 2026-11-10).
 -- ===========================================================================
 drop policy if exists "products_select_active" on public.products;
 create policy "products_select_active" on public.products
@@ -335,9 +335,9 @@ create policy "products_admin_all" on public.products
   using (public.is_admin())
   with check (public.is_admin());
 
--- Staff (Owner / co_admin / manager) may INSERT and DELETE products;
--- UPDATE is Owner / co_admin only (manager adds/deletes but does
--- not edit/pause — deliberate). The Owner is already covered by
+-- Staff (Owner / co_admin / manager) may INSERT, UPDATE and DELETE
+-- products (UPDATE widened from co-admin-only to all staff by
+-- migration 0010, 2026-11-10). The Owner is already covered by
 -- products_admin_all above.
 drop policy if exists "products_staff_insert" on public.products;
 create policy "products_staff_insert" on public.products
@@ -350,10 +350,11 @@ create policy "products_staff_delete" on public.products
   using (public.is_staff());
 
 drop policy if exists "products_co_admin_update" on public.products;
-create policy "products_co_admin_update" on public.products
+drop policy if exists "products_staff_update" on public.products;
+create policy "products_staff_update" on public.products
   for update to authenticated
-  using (public.is_co_admin())
-  with check (public.is_co_admin());
+  using (public.is_staff())
+  with check (public.is_staff());
 
 -- ===========================================================================
 -- product_images — readable when the product is active; writable only by

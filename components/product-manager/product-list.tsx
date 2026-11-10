@@ -43,8 +43,8 @@ export function ProductList({
 }) {
   const router = useRouter();
 
-  // Manager adds and deletes products only — edit and pause/activate
-  // are hidden for that role (canEditProducts is false for manager).
+  // Edit and pause / activate are available to every staff role
+  // (owner, co-admin, manager — 2026-11-10 decision).
   const canEdit = canEditProducts(callerRole);
   const canManage = canManageProducts(callerRole);
 
@@ -144,8 +144,8 @@ export function ProductList({
                   ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {/* Manager adds and deletes only: Edit and
-                      Pause / Activate are hidden for that role. */}
+                  {/* Edit and Pause / Activate are shown to every
+                      staff role (owner, co-admin, manager). */}
                   {canEdit ? (
                     <>
                       <Button variant="outline" size="sm" onClick={() => onEdit(product)} disabled={!configured}>

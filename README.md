@@ -341,6 +341,8 @@ supabase/
   migrations/0006_roles.sql  Roles: co_admin + manager (Owner stays role "admin")
   migrations/0007_order_returned.sql  Adds "returned" order status (customer did not take the order)
   migrations/0008_product_warranty_specs.sql  Adds warranty + specifications to products
+  migrations/0009_announcements.sql  Admin broadcast announcements (in-app inbox messages)
+  migrations/0010_manager_product_update.sql  Managers may edit products incl. pause (2026-11-10) — written, NOT applied live yet
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/

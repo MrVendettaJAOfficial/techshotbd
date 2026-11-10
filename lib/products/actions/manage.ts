@@ -1,8 +1,8 @@
 // TechShot marketplace — pause / activate / delete product actions.
 //
 // Pause (hide from shoppers) or re-activate a product, and
-// delete a product. Owner / co-admin only for pause, any
-// staff role for delete — see the staff gate in
+// delete a product. Any staff role may pause; any staff role
+// may delete — see the staff gate in
 // lib/products/actions/shared.ts.
 
 "use server";
@@ -17,7 +17,7 @@ import {
   writeAudit,
 } from "./shared";
 
-/** Pause (hide from shoppers) or re-activate a product. Owner / co-admin only. */
+/** Pause (hide from shoppers) or re-activate a product. Any staff role (owner, co-admin, manager). */
 export async function setProductStatus(id: string, rawStatus: unknown): Promise<ProductActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: GENERIC_ERROR };

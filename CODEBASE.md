@@ -122,7 +122,7 @@ is the skeleton shown while it loads.
 
 | File | Job |
 |---|---|
-| `supabase/migrations/0001_initial_schema.sql` … `0008_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. |
+| `supabase/migrations/0001_initial_schema.sql` … `0010_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0010 widens products UPDATE to all staff (managers CAN edit products, 2026-11-10) — written, NOT applied live yet. |
 | `supabase/policies.sql` | Row Level Security: who may read/write each table |
 | `supabase/seed.sql` | Starting catalogue (12 products), categories, FIRST2000 coupon |
 

@@ -1,4 +1,5 @@
 -- Migration 0009 — admin broadcast announcements (2026-11-09).
+-- Applied live 2026-11-09.
 --
 -- Adds public.announcements: messages the store sends in-app to
 -- ALL signed-in users (notifications, offers, etc.), shown in the
@@ -35,14 +36,11 @@
 --     (lib/inbox-server.ts) that reads audit_log with the
 --     service-role client scoped to the caller's own order ids.
 --
--- *** NOT APPLIED LIVE YET — apply in the Supabase SQL Editor only
--- *** after the user's approval, like migrations 0002–0008 before
--- *** it. Until it is applied, the admin Messages tab reports that
--- *** broadcasts are unavailable and the inbox shows order updates
--- *** only: the server actions return a generic error / empty list
--- *** instead of failing the page. Safe to run once: the table is
--- *** created only if missing and the policies are dropped first.
--- *** No data is changed.
+-- *** APPLIED LIVE 2026-11-09 ("Success. No rows returned";
+-- *** table + 3 policies + index verified). The inbox and the
+-- *** admin Messages tab now work live. Safe to run once: the table
+-- *** is created only if missing and the policies are dropped
+-- *** first. No data is changed.
 
 create table if not exists public.announcements (
   id uuid primary key default gen_random_uuid(),

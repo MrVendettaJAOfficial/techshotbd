@@ -11,7 +11,7 @@
 //
 // The staff rules still apply exactly as before (see shared.ts):
 // create / delete / upload photos — owner, co-admin, manager;
-// update / pause — owner and co-admin ONLY.
+// update / pause — owner, co-admin, manager (2026-11-10).
 //
 // NOTE: this barrel deliberately has NO "use server" directive.
 // Next.js only allows async-function exports in a "use server" file,

@@ -590,9 +590,11 @@ test("migration 0009: announcements table with staff-only write, read for all si
   assert.equal(/scheduled_at|send_at/.test(migration), false);
   assert.equal(/announcement_reads/.test(migration), false);
   assert.equal((migration.match(/create table/g) ?? []).length, 1);
-  // Flagged as NOT applied live — approval first, like 0002–0008.
-  assert.match(migration, /NOT APPLIED LIVE YET/);
-  assert.match(migration, /after the user's approval/);
+  // Flagged as APPLIED live 2026-11-09 (verified: table + 3
+  // policies + index) — the NOT APPLIED marker was dropped when
+  // it was applied, like the other applied migrations.
+  assert.match(migration, /APPLIED LIVE 2026-11-09/);
+  assert.equal(/NOT APPLIED LIVE YET/.test(migration), false);
   // Mirrored in policies.sql (fresh-install path), same policies.
   const policies = read("supabase/policies.sql");
   assert.match(policies, /announcements_select_authenticated/);

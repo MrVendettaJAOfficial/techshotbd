@@ -10,13 +10,12 @@
 //
 // Roles (profiles.role, migration 0006):
 //   - "admin"    — the Owner. The only role that may manage users
-//     and the only role that may change orders or edit products
-//     alongside co_admin.
+//     and the only role that may change orders alongside co_admin.
 //   - "co_admin" — a co-admin: manages products (including edits),
 //     changes orders, and uses /admin, but may not manage users.
-//   - "manager"  — a manager: uses /admin, adds and deletes
-//     products, but may NOT edit/pause products and may NOT change
-//     orders.
+//   - "manager"  — a manager: uses /admin, adds, edits (including
+//     pausing) and deletes products, but may NOT change orders.
+//     (2026-11-10 decision: managers CAN edit products too.)
 //   - "customer" — a shopper. "seller" is a legacy value and is
 //     treated as customer everywhere (single-seller store: the
 //     owner is the only seller).
@@ -56,11 +55,15 @@ export function canManageProducts(role: string | null | undefined): boolean {
 }
 
 /**
- * Who may edit / pause a product: owner and co-admin only. A manager
- * adds and deletes products but does NOT edit or pause them.
+ * Who may edit / pause a product: any staff role — owner, co-admin
+ * and manager (2026-11-10 decision: a manager CAN edit products
+ * too, including pausing them). The database enforces the same
+ * rule once migration 0010 is applied (products_staff_update);
+ * until then a manager's edit is stopped by the old RLS policy
+ * and the server action returns a generic error, never a crash.
  */
 export function canEditProducts(role: string | null | undefined): boolean {
-  return role === "admin" || role === "co_admin";
+  return isStaff(role);
 }
 
 /** Who may change an order's status: owner and co-admin only. */

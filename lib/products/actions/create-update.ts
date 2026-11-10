@@ -1,8 +1,8 @@
 // TechShot marketplace — create / update product server actions.
 //
-// Staff only; update is owner / co-admin only (managers may
-// not edit) — see the staff gate in
-// lib/products/actions/shared.ts. All products are
+// Staff only; update is any staff role (owner / co-admin /
+// manager — 2026-11-10 decision: managers CAN edit) — see the
+// staff gate in lib/products/actions/shared.ts. All products are
 // store-owned (seller_id always null).
 
 "use server";
@@ -70,7 +70,7 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
   return { ok: true, slug: data.slug };
 }
 
-/** Update a product (owner / co-admin only — managers may not edit). */
+/** Update a product (any staff role — owner, co-admin, manager). Warranty and specifications are saved here too, so they share the same edit gate. */
 export async function updateProduct(id: string, rawInput: unknown): Promise<ProductActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: GENERIC_ERROR };

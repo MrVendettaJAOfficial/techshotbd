@@ -22,7 +22,8 @@
 //   8. a delivered order lets the signed-in owner submit a review,
 //      which appears with the updated count / average
 //   9. manager: no Advance / selector / Users tab, orders read-only,
-//      no Edit / Pause on products, can see the orders list
+//      but CAN Edit / Pause products (2026-11-10), can see the
+//      orders list
 //  10. co-admin: no Users tab, but CAN advance an order
 //  11. customer: /admin redirects away
 //  12. responsiveness at 1440 / 1280 / 390: no page overflow, the
@@ -668,7 +669,7 @@ async function main() {
   check("review count is now 3 real reviews", afterReview.includes("Based on 3 real reviews"), afterReview.slice(0, 400));
   check("review average updated to 4.7", afterReview.includes("4.7"));
 
-  // --- 9. Manager: read-only orders, no Users tab, no Edit/Pause ---
+  // --- 9. Manager: read-only orders, no Users tab, CAN Edit/Pause (2026-11-10) ---
   await mockRole("manager");
   await page.goto(`${BASE}/admin?tab=orders`, { waitUntil: "networkidle0" });
   await sleep(1200);
@@ -686,8 +687,8 @@ async function main() {
   const managerProducts = await text(page);
   check("manager sees the Products tab", managerProducts.includes("Apple iPhone 16 Pro"));
   const managerButtons = await page.evaluate(() => [...document.querySelectorAll("button")].map((b) => b.textContent.trim()));
-  check("manager sees no Edit buttons", !managerButtons.includes("Edit"));
-  check("manager sees no Pause / Activate buttons", !managerButtons.includes("Pause") && !managerButtons.includes("Activate"));
+  check("manager sees Edit buttons (2026-11-10: managers CAN edit)", managerButtons.includes("Edit"));
+  check("manager sees Pause / Activate buttons (2026-11-10)", managerButtons.includes("Pause") || managerButtons.includes("Activate"));
   check("manager still sees the Add product form", managerButtons.includes("Add product"));
   check("manager still sees Delete buttons", managerButtons.includes("Delete"));
 

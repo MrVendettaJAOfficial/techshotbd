@@ -6,8 +6,11 @@
 // (role "manager"). There are no seller accounts and no seller
 // approval flow. Who may do what (lib/roles.ts):
 //   * create / delete / upload photos — owner, co-admin, manager
-//   * update / pause (edit) — owner and co-admin ONLY. A manager
-//     attempting an edit gets an error, never a silent success.
+//   * update / pause (edit) — owner, co-admin, manager (2026-11-10:
+//     managers CAN edit products too, including pausing them).
+//     The database enforces the same rule once migration 0010 is
+//     applied; until then the old RLS policy stops a manager's
+//     edit and the action returns a generic error, never a crash.
 //
 // "use server": these run on the server only and are the enforcement
 // point for product writes. The service-role client bypasses RLS, so
@@ -16,7 +19,7 @@
 //
 //   * Unauthenticated -> generic error.
 //   * role must allow the action (see the header note): managers
-//     cannot edit or pause a product, customers cannot manage
+//     may edit or pause a product, customers cannot manage
 //     products at all.
 //   * Every product is store-owned: seller_id is always null on
 //     create, and updates never change it.
@@ -70,11 +73,11 @@ interface Actor {
 
 /**
  * Staff gate for product writes. "manage" covers create / delete /
- * photo upload (owner, co-admin, manager); "edit" covers update /
- * pause (owner and co-admin only — a manager attempting an edit
- * gets an error, never a silent success). The role is re-read from
- * the caller's profiles row (never from the browser) via
- * getCallerRole; a missing row is treated as a customer.
+ * photo upload and "edit" covers update / pause; both are any
+ * staff role (owner, co-admin, manager — 2026-11-10 decision).
+ * The role is re-read from the caller's profiles row (never from
+ * the browser) via getCallerRole; a missing row is treated as a
+ * customer.
  */
 export async function requireStaff(
   action: "manage" | "edit",
