@@ -6,6 +6,7 @@
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "../../supabase/server";
+import { getCurrentUser } from "../../auth-server/session";
 import type { StoredOrder } from "../../checkout-store";
 
 export interface DbProductRow {
@@ -54,27 +55,20 @@ export function untyped(client: unknown): SupabaseClient {
   return client as unknown as SupabaseClient;
 }
 
-// Per-request cached (React cache()): listSupabaseOrders and the
-// account page both ask for the signed-in user during one request,
-// and each call was a separate Auth round trip. The cache is
-// per-request only — the next request re-validates the session.
-const fetchSignedInUserId = cache(async (): Promise<string | null> => {
-  try {
-    const supabase = untyped(createClient());
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    return user?.id ?? null;
-  } catch {
-    return null;
-  }
-});
-
+// The signed-in user's id, or null. Delegates to the same cached
+// current-user read the admin page uses (lib/auth-server/session.ts
+// getCurrentUser): one request does ONE auth.getUser() no matter how
+// many of these helpers run, and the profiles role read is shared
+// too. (The separate getSignedInUser below is untouched: it is only
+// used by the local-order fallback in status.ts, which needs the
+// raw profile role and lower-cased email — not provably the same
+// values getCurrentUser returns.)
 export async function getSignedInUserId(): Promise<string | null> {
-  return fetchSignedInUserId();
+  const user = await getCurrentUser();
+  return user?.id ?? null;
 }
 
-/** Signed-in user with email + profile role, or null. Per-request cached — see fetchSignedInUserId above. */
+/** Signed-in user with email + profile role, or null. Per-request cached — see fetchSignedInUser below. */
 const fetchSignedInUser = cache(async (): Promise<{
   id: string;
   email: string;

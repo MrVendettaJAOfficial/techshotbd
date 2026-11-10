@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, createClient } from "../../supabase/server";
+import { getCallerRole } from "../../auth-server/session";
 import { isStaff } from "../../roles";
 import { EXPRESS_DELIVERY_POISHA } from "../../theme";
 import type { OrderItem, StoredOrder } from "../../checkout-store";
@@ -95,20 +96,19 @@ function toStoredOrder(
  */
 export async function listAdminOrders(): Promise<StoredOrder[]> {
   if (!isConfigured()) return [];
-  const userId = await getSignedInUserId();
-  if (!userId) return [];
+  // Staff check reuses getCallerRole() — the same per-request
+  // cached profiles read the admin page already did — instead of
+  // a second profiles query. The role is still re-read from the
+  // database on every request (React cache() is per-request only);
+  // the gate itself is unchanged.
+  const role = await getCallerRole();
+  if (!isStaff(role)) return [];
   let admin: SupabaseClient;
   try {
     admin = untyped(createAdminClient());
   } catch {
     return [];
   }
-  const { data: caller } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .maybeSingle();
-  if (!isStaff(caller?.role)) return [];
   const { data: rows, error } = await admin
     .from("orders")
     .select(ORDER_COLUMNS)

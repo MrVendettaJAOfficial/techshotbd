@@ -647,7 +647,7 @@ test("shop filter matches any of a product's categories", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Migrations 0011 + 0012: written, mirrored, NOT applied live.
+// Migrations 0011 + 0012 + 0013: written, mirrored, applied live.
 // ---------------------------------------------------------------------------
 
 test("migrations 0011, 0012 and 0013: shape, mirror, live status", () => {
@@ -671,10 +671,11 @@ test("migrations 0011, 0012 and 0013: shape, mirror, live status", () => {
   assert.match(joins, /'Flash deals', 'flash-deals', 10, true/);
   assert.match(joins, /p\.is_flash_deal = true/);
   // 0013 adds the banner kind (image-only redesign, 2026-11-10):
-  // written, NOT applied live yet. Idempotent add-column, no RLS
-  // change, no destructive change — the text columns stay.
+  // applied live 2026-11-11 ("Success. No rows returned"; kind
+  // column verified). Idempotent add-column, no RLS change, no
+  // destructive change — the text columns stay.
   const kind = readSource("supabase/migrations/0013_banner_kind.sql");
-  assert.match(kind, /NOT APPLIED LIVE YET/);
+  assert.match(kind, /APPLIED LIVE 2026-11-11/);
   assert.match(kind, /add column if not exists kind text not null default 'promotion'/);
   assert.match(kind, /check \(kind in \('promotion', 'offer'\)\)/);
   assert.match(kind, /comment on column public\.banners\.kind/);

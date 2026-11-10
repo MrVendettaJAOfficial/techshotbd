@@ -7,8 +7,8 @@
 -- (0006_roles, 0007_order_returned, 0008_product_warranty_specs,
 -- 0009_announcements, 0010_manager_product_update,
 -- 0011_banners, 0012_product_categories, 0013_banner_kind —
--- 0011 and 0012 were applied live 2026-11-10; 0013 is NOT
--- applied live yet, 2026-11-10).
+-- 0011 and 0012 were applied live 2026-11-10; 0013 was applied
+-- live 2026-11-11.
 -- This file mirrors those migrations (see "Fresh-install mirror"
 -- below) so a fresh install that only runs 0001 + this file reaches
 -- exactly the same state. Every mirrored statement is idempotent, so
@@ -125,7 +125,7 @@ $$;
 --   * 0011: banners table (hero carousel slides) and 0012:
 --     product_categories join table (multi-category products) —
 --     mirrored in their own sections at the end of this file, for
---     the same reason. Both are NOT APPLIED LIVE YET (2026-11-10).
+--     the same reason. Both were applied live 2026-11-10.
 -- ===========================================================================
 do $$
 declare
@@ -694,7 +694,8 @@ create index if not exists announcements_created_at_idx
 -- Live databases apply 0011 instead; this block exists so a fresh
 -- install (0001 + this file) reaches the same state. Every statement
 -- is idempotent, so applying both paths is safe. Do not edit one
--- without the other. NOT APPLIED LIVE YET (2026-11-10).
+-- without the other. Applied live 2026-11-10 (0011); kind column
+-- applied live 2026-11-11 (0013).
 -- ===========================================================================
 create table if not exists public.banners (
   id uuid primary key default gen_random_uuid(),
@@ -748,7 +749,7 @@ create index if not exists banners_active_sort_idx
 -- Live databases apply 0012 instead; this block exists so a fresh
 -- install (0001 + this file) reaches the same state. Every statement
 -- is idempotent, so applying both paths is safe. Do not edit one
--- without the other. NOT APPLIED LIVE YET (2026-11-10).
+-- without the other. Applied live 2026-11-10.
 -- ===========================================================================
 create table if not exists public.product_categories (
   product_id uuid not null references public.products (id) on delete cascade,

@@ -1,5 +1,6 @@
 -- Migration 0013 — banner kind (2026-11-10).
--- NOT APPLIED LIVE YET — written only, awaiting the user's yes.
+-- APPLIED LIVE 2026-11-11 ("Success. No rows returned"; kind
+-- column verified: text, default 'promotion').
 --
 -- Adds public.banners.kind: whether a banner is a "promotion" or
 -- an "offer". The admin Banners tab offers the two kinds in a

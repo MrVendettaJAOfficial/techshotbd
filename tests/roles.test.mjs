@@ -161,10 +161,15 @@ test("staff order listing admits every staff role, not just the Owner", () => {
   // lib/orders/actions.ts; this listing is the read side, so any
   // staff role may use it.
   // listAdminOrders now lives in lib/orders/server/list.ts (cleanup
-  // split of lib/orders-server.ts).
+  // split of lib/orders-server.ts). The staff check reuses
+  // getCallerRole() — the same per-request cached profiles read the
+  // admin page already did — instead of its own profiles query, so
+  // no second profiles round trip happens on the Orders tab.
   const server = read("lib/orders/server/list.ts");
-  assert.match(server, /if \(!isStaff\(caller\?\.role\)\) return \[\];/);
+  assert.match(server, /const role = await getCallerRole\(\);/);
+  assert.match(server, /if \(!isStaff\(role\)\) return \[\];/);
   assert.equal(/if \(caller\?\.role !== "admin"\) return \[\];/.test(server), false);
+  assert.equal(/\.from\("profiles"\)/.test(server), false);
 });
 
 // ---------------------------------------------------------------------------

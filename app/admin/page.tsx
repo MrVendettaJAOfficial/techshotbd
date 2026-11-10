@@ -12,6 +12,14 @@
 // (lib/announcements-server.ts listAnnouncements — staff only),
 // and Users — Owner only — fetches the live users list
 // (lib/auth-server listUsers).
+// Banners, Messages and Orders used to fetch the whole product
+// catalogue as well, only for the `configured` flag — five extra
+// round trips on every tab tap. They now read
+// isSupabaseConfigured() (lib/supabase/server.ts), an env-var-only
+// check with zero round trips: the flag means "Supabase is
+// configured" in exactly the way those sections use it (form
+// enabled / live data vs demo fallback), and a down database is
+// still reported by each section's own error handling.
 // The dashboard renders the client shell, which still owns the
 // demo-auth session and the demo coupons. Product writes go through
 // the server actions in lib/products/actions.ts and order status
@@ -24,6 +32,7 @@
 
 import { AuthProvider } from "@/lib/auth";
 import { getCallerRole, getCurrentUser, listUsers } from "@/lib/auth-server";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { listAnnouncements } from "@/lib/announcements-server";
 import type { Announcement } from "@/lib/announcements";
 import { listBanners } from "@/lib/banners-server";
@@ -86,18 +95,15 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     // their role (any staff role); the tab itself is visible to
     // all staff.
     banners = await listBanners().catch(() => []);
-    configured = (await fetchAllProducts().catch(() => null))?.configured ?? false;
+    configured = isSupabaseConfigured();
   } else if (tab === "orders") {
-    const [orders, productResult] = await Promise.all([
-      // Live orders for the admin list. Empty when Supabase is not
-      // configured or the caller is not staff; the dashboard then
-      // falls back to the local demo orders.
-      listAdminOrders().catch(() => []),
-      // Only for the `configured` flag, which decides the demo
-      // fallback in the orders section.
-      fetchAllProducts(),
-    ]);
-    configured = productResult.configured;
+    // Live orders for the admin list. Empty when Supabase is not
+    // configured or the caller is not staff; the dashboard then
+    // falls back to the local demo orders. `configured` is the
+    // env-var-only check (see the header note) — it decides the
+    // demo fallback in the orders section.
+    const orders = await listAdminOrders().catch(() => []);
+    configured = isSupabaseConfigured();
     adminOrders = orders.map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
@@ -120,7 +126,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     // visible to all staff.
     announcements = await listAnnouncements().catch(() => []);
     canSendMessages = canSendBroadcasts(callerRole);
-    configured = (await fetchAllProducts().catch(() => null))?.configured ?? false;
+    configured = isSupabaseConfigured();
   } else if (tab === "users" && isOwner(callerRole)) {
     // Admin users list (lib/auth-server listUsers). Only the display
     // name, role and join date are passed to the client dashboard —

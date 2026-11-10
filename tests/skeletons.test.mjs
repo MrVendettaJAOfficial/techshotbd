@@ -99,9 +99,14 @@ test("admin skeleton mirrors the admin dashboard", () => {
   assert.ok(existsSync(new URL("../app/admin/loading.tsx", import.meta.url)));
   const src = root("app/admin/loading.tsx");
   assertSkeletonBasics("app/admin/loading.tsx", src);
-  // Admin layout: title, Add-product form card, product rows, then
-  // the Orders / Coupons / Users sections.
-  assert.match(src, /max-w-shell/, "admin skeleton: shell width");
-  assert.match(src, /sm:grid-cols-2/, "admin skeleton: form field grid");
-  assert.match(src, /flex items-center justify-between/, "admin skeleton: product rows");
+  // Admin layout mirrors the tabbed dashboard shell
+  // (components/admin/dashboard-shell.tsx): max-w-5xl, px-4 py-12,
+  // header with title + signed-in line + Sign out button, the six
+  // tab pills, then content mt-8.
+  assert.match(src, /max-w-5xl/, "admin skeleton: shell width");
+  assert.match(src, /px-4 py-12/, "admin skeleton: shell padding");
+  assert.match(src, /TAB_LABELS/, "admin skeleton: tab bar");
+  assert.match(src, /"Overview", "Products", "Banners", "Orders", "Messages", "Users"/, "admin skeleton: six tabs");
+  assert.match(src, /role="tablist"/, "admin skeleton: tab list");
+  assert.match(src, /mt-8/, "admin skeleton: content below the tab bar");
 });

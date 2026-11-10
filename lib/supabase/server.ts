@@ -10,12 +10,34 @@
 //                         only (order creation, stock updates, payment
 //                         callbacks, admin actions). Bypasses RLS, so
 //                         callers must enforce their own checks.
+//   isSupabaseConfigured() — zero-round-trip "is Supabase configured"
+//                         check: env vars only, no network. Pages
+//                         that only need the configured flag (the
+//                         admin Banners / Messages / Orders tabs) use
+//                         this instead of a throwaway catalogue query.
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./types";
+
+/**
+ * True when the Supabase env vars are all set. Zero round trips —
+ * it reads process.env only, so it never waits on the database.
+ * It answers "is the install configured", not "is the database
+ * reachable": with the vars set and the database down it still
+ * returns true, and the callers' own queries then fail with their
+ * generic errors (the Banners / Messages / Orders sections already
+ * handle that). Never log or return which variable is missing.
+ */
+export function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}
 
 export function createClient() {
   const cookieStore = cookies();
