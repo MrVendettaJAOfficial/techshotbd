@@ -7,13 +7,14 @@
 //   A. Wordmark — the header/footer lockup, Montserrat extra-bold,
 //      green BD, tagline visible desktop/laptop and hidden in the
 //      mobile header, always in the footer.
-//   B. Light theme (2026-11-09) — computed colours: page white
-//      #FFFFFF with navy text #00162E, solid buttons navy #00162E
-//      (hover #0A2438), header bar and footer navy, announcement
-//      bar still the button green #0B7A55 (it sits on navy), the
-//      Flash deals link in the full orange #f97316 on the navy
-//      header but the darker orange #C2410C in the white nav
-//      drawer, discount badges on the darker orange #C2410C,
+//   B. Light theme (2026-11-09) + green buttons (2026-11-10) —
+//      computed colours: page white #FFFFFF with navy text #00162E,
+//      solid buttons green #0B7A55 (hover #096B49, never white text
+//      on the full green #0F9A70), header bar and footer navy,
+//      announcement bar still the button green #0B7A55 (it sits on
+//      navy), the Flash deals link in the full orange #f97316 on
+//      the navy header but the darker orange #C2410C in the white
+//      nav drawer, discount badges on the darker orange #C2410C,
 //      cards white. No leftover blue anywhere (source-level,
 //      covered by tests/recolour.test.mjs; here the rendered
 //      styles are probed).
@@ -156,7 +157,7 @@ for (const { name, width, height } of WIDTHS) {
       announcement: cs("header > div:first-child"),
       headerBar: cs("header > div:nth-child(2)"),
       footer: cs("footer"),
-      heroCta: cs("main a[href='/shop']"),
+      heroCta: cs("[data-testid='hero-cta']"),
     };
   });
   check(`${name}: page background is white`, styles.body?.bg === rgb("#FFFFFF"), styles.body?.bg);
@@ -164,7 +165,7 @@ for (const { name, width, height } of WIDTHS) {
   check(`${name}: announcement bar is button green`, styles.announcement?.bg === rgb("#0B7A55"), styles.announcement?.bg);
   check(`${name}: header bar is navy`, styles.headerBar?.bg === rgb("#00162E"), styles.headerBar?.bg);
   check(`${name}: footer is navy`, styles.footer?.bg === rgb("#00162E"), styles.footer?.bg);
-  check(`${name}: hero CTA is navy`, styles.heroCta?.bg === rgb("#00162E"), styles.heroCta?.bg);
+  check(`${name}: hero CTA is green`, styles.heroCta?.bg === rgb("#0B7A55"), styles.heroCta?.bg);
   await noOverflow("home");
   await shot("home");
 
@@ -185,7 +186,7 @@ for (const { name, width, height } of WIDTHS) {
     await sleep(400);
     check("mobile: nav drawer opens", await page.locator('[data-testid="mobile-nav-drawer"]').isVisible());
     const drawerLinks = await page.locator('[data-testid="mobile-nav-drawer"] a').allTextContents();
-    for (const label of ["All categories", "Home", "Shop all", "Smartphones", "Laptops", "Audio", "Gaming", "Subscriptions", "Flash deals"]) {
+    for (const label of ["All categories", "Home", "Smartphones", "Laptops", "Audio", "Gaming", "Subscriptions", "Flash deals"]) {
       check(`mobile: nav drawer has "${label}"`, drawerLinks.some((t) => t.trim() === label));
     }
     // Flash deals link inside the drawer is the darker orange
@@ -280,7 +281,7 @@ for (const { name, width, height } of WIDTHS) {
       badgeBg: badge ? getComputedStyle(badge).backgroundColor : null,
     };
   });
-  check(`${name}: Add to Cart is navy`, cardStyles.btnBg === rgb("#00162E"), cardStyles.btnBg);
+  check(`${name}: Add to Cart is green`, cardStyles.btnBg === rgb("#0B7A55"), cardStyles.btnBg);
   check(`${name}: discount badge is darker orange`, cardStyles.badgeBg === rgb("#C2410C"), cardStyles.badgeBg);
 
   // --- Product page: subscription placeholder, gallery ----------------------

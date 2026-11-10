@@ -662,14 +662,14 @@ test("admin: Messages tab exists for all staff; Users stays Owner-only", () => {
     // Re-implemented here from the source text is not the point —
     // the visible-tabs rule is pinned by the strings below plus
     // the admin page test. This checks the tab list itself.
-    ["overview", "products", "orders", "messages", "users"].map((id) =>
+    ["overview", "products", "banners", "orders", "messages", "users"].map((id) =>
       helpers.includes(`"${id}"`),
     ),
-    [true, true, true, true, true],
+    [true, true, true, true, true, true],
   );
-  // Owner sees all five; co-admin / manager see all but Users.
-  assert.match(helpers, /return \["overview", "products", "orders", "messages", "users"\];/);
-  assert.match(helpers, /return \["overview", "products", "orders", "messages"\];/);
+  // Owner sees all six; co-admin / manager see all but Users.
+  assert.match(helpers, /return \["overview", "products", "banners", "orders", "messages", "users"\];/);
+  assert.match(helpers, /return \["overview", "products", "banners", "orders", "messages"\];/);
 });
 
 test("admin: Messages tab fetches announcements server-side and renders the section", () => {

@@ -66,6 +66,20 @@ export function canEditProducts(role: string | null | undefined): boolean {
   return isStaff(role);
 }
 
+/**
+ * Who may manage the hero banners (add / edit / reorder / toggle /
+ * delete): any staff role — owner, co-admin and manager, the same
+ * rule as managing products. A banner is store content like a
+ * product, not a message to users (broadcasts stay Owner /
+ * co-admin only). The database enforces the same rule once
+ * migration 0011 is applied (banners_staff_*); until then a
+ * banner write is stopped by the missing table and the server
+ * action returns a generic error, never a crash.
+ */
+export function canManageBanners(role: string | null | undefined): boolean {
+  return isStaff(role);
+}
+
 /** Who may change an order's status: owner and co-admin only. */
 export function canChangeOrders(role: string | null | undefined): boolean {
   return role === "admin" || role === "co_admin";

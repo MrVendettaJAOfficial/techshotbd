@@ -1,17 +1,19 @@
 // Admin dashboard shell (client component) — tab shell.
 //
 // The dashboard is split into tabs driven by the ?tab= search param
-// (Overview / Products / Orders / Messages / Users), so tabs are shareable and
+// (Overview / Products / Banners / Orders / Messages / Users), so tabs are shareable and
 // survive refresh. The server page fetches only what the active tab
 // needs. Which tabs exist for the caller depends on their role:
-// Owner sees all five, co-admin and manager see everything except
+// Owner sees all six, co-admin and manager see everything except
 // Users, and the Users tab is Owner-only — a non-owner who navigates
 // to ?tab=users directly gets an access-denied message, not the
 // content. Role helpers come from lib/roles.ts.
 //
 // Product management lives in components/ProductManager.tsx and is
 // backed by Supabase through lib/products/actions.ts — the shop
-// reflects every change there. Orders live in
+// reflects every change there. Banners live in ./banners-section
+// (hero carousel slides, server actions in lib/banners-server.ts —
+// any staff role may manage them). Orders live in
 // components/AdminOrders.tsx (status tabs + manual status selector,
 // server actions in lib/orders/actions.ts). Messages live in
 // ./messages-section (broadcast announcements to all users, server
@@ -50,7 +52,9 @@ import TabBar from "@/components/TabBar";
 import { ADMIN_TABS, visibleAdminTabs, type AdminTabId } from "@/components/admin-helpers";
 import CouponsSection from "./coupons-section";
 import MessagesSection from "./messages-section";
+import BannersSection from "./banners-section";
 import type { Announcement } from "@/lib/announcements";
+import type { Banner } from "@/lib/banners";
 
 import type { CategoryOption, ProductListItem } from "@/lib/products/types";
 import type { AdminUserItem } from "@/lib/products/queries";
@@ -75,6 +79,10 @@ interface AdminDashboardProps {
   announcements: Announcement[];
   /** True only for the Owner and co-admins (decided server-side). */
   canSendMessages: boolean;
+  /** Every hero banner, lowest sort_order first. Only fetched for the Banners tab. */
+  banners: Banner[];
+  /** True for any staff role (decided server-side). */
+  canManageBanners: boolean;
 }
 
 export default function AdminDashboard({
@@ -89,6 +97,8 @@ export default function AdminDashboard({
   initialOrders,
   announcements,
   canSendMessages,
+  banners,
+  canManageBanners,
 }: AdminDashboardProps) {
   const router = useRouter();
   const { user, loading, signOutUser } = useAuth();
@@ -110,10 +120,10 @@ export default function AdminDashboard({
         />
         <Card>
           <p className="text-sm text-muted">
-            Sign in with a staff account to manage products, orders, messages, coupons and users.
+            Sign in with a staff account to manage products, banners, orders, messages, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
-            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
               Sign in
             </Link>
           </p>
@@ -135,10 +145,10 @@ export default function AdminDashboard({
         <Card>
           <p className="text-sm text-muted">
             This account does not have admin access. Sign in with a staff account to manage
-            products, orders, messages, coupons and users.
+            products, banners, orders, messages, coupons and users.
           </p>
           <p className="mt-4 text-center text-sm text-muted">
-            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
               Sign in
             </Link>
           </p>
@@ -204,6 +214,14 @@ export default function AdminDashboard({
           />
         )}
 
+        {tab === "banners" && (
+          <BannersSection
+            banners={banners}
+            canManage={canManageBanners}
+            configured={configured}
+          />
+        )}
+
         {tab === "orders" && (
           <AdminOrders initialOrders={initialOrders} configured={configured} callerRole={effectiveRole} />
         )}
@@ -230,7 +248,7 @@ export default function AdminDashboard({
       </div>
 
       <p className="mt-8 text-sm">
-        <Link href="/shop" className="font-medium text-ink hover:underline">
+        <Link href="/shop" className="font-medium text-brandDark hover:underline">
           View the shop
         </Link>
       </p>

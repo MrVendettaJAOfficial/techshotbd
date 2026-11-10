@@ -23,15 +23,10 @@
 -- once: the policy is dropped first, so re-running is idempotent.
 -- No data is changed.
 --
--- NOTE — written, NOT applied live: this file only takes effect
--- once it is run in the SQL Editor. Until then the live database
--- still has the 0006 policy, so a manager updating a product
--- directly through PostgREST/REST is denied by RLS (403, no
--- crash). Edits made through the admin UI go through the
--- server actions, which use the service-role client (bypassing
--- RLS) and already allow managers after this build — so the UI
--- edit works before the migration, and the migration brings the
--- database rule into line with the app rule.
+-- NOTE — APPLIED LIVE 2026-11-10 ("Success. No rows returned";
+-- products_staff_update verified present, products_co_admin_update
+-- gone). The live database rule now matches the app rule: a
+-- manager may update products directly as well as through the UI.
 
 drop policy if exists "products_co_admin_update" on public.products;
 create policy "products_staff_update" on public.products

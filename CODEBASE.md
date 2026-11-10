@@ -50,7 +50,7 @@ is the skeleton shown while it loads.
 
 | Route | File | Job |
 |---|---|---|
-| `/` | `app/page.tsx` | Home: hero, flash sale, product grid |
+| `/` | `app/page.tsx` | Home: hero banner carousel, flash sale, product grid |
 | `/shop` | `app/shop/page.tsx` | Product listing with filters |
 | `/product/[slug]` | `app/product/[slug]/page.tsx` | One product: gallery, variants, reviews |
 | `/cart` | `app/cart/page.tsx` | Cart page (thin composition; pieces in `components/cart/`) |
@@ -60,7 +60,7 @@ is the skeleton shown while it loads.
 | `/orders` | `app/orders/page.tsx` | Customer's orders, tabbed by status |
 | `/orders/[id]` | `app/orders/[id]/page.tsx` | One order: tracker, items, cancel (pieces in `components/order-detail/`) |
 | `/account` | `app/account/page.tsx` | Profile, addresses, orders, wishlist (pieces in `components/account/`) |
-| `/admin` | `app/admin/page.tsx` + `AdminDashboard.tsx` | Admin tabs: Overview, Products, Orders, Users (pieces in `components/admin*/`) |
+| `/admin` | `app/admin/page.tsx` + `AdminDashboard.tsx` | Admin tabs: Overview, Products, Banners, Orders, Messages, Users (pieces in `components/admin*/`) |
 | `/auth/*` | `app/auth/sign-in`, `sign-up`, `callback` | Sign-in, sign-up, OAuth callback |
 | `/api/payments/callback` | `app/api/payments/callback/route.ts` | Signed test-payment callback |
 
@@ -74,7 +74,8 @@ is the skeleton shown while it loads.
 | `components/checkout/` | Checkout steps: `checkout-form.tsx`, `address-step.tsx`, `payment-step.tsx` |
 | `components/order-detail/` | Order page pieces: `summary.tsx`, `timeline.tsx`, `items.tsx` |
 | `components/account/` | Account page pieces: `profile-section.tsx`, `addresses-section.tsx`, `orders-section.tsx`, `wishlist-section.tsx` |
-| `components/admin/` | Admin dashboard shell (`dashboard-shell.tsx`) and coupons (`coupons-section.tsx`) |
+| `components/admin/` | Admin dashboard shell (`dashboard-shell.tsx`), banners (`banners-section.tsx`), messages/broadcasts (`messages-section.tsx`) and coupons (`coupons-section.tsx`) |
+| `components/HeroCarousel.tsx` | Home hero banner carousel: admin banners when any is active, otherwise the top three products; follows the product gallery exactly (desktop auto-slide 4.5s, pause on hover/focus/hidden tab/reduced-motion, arrows + dots; mobile swipe, no auto-slide); capped at 380px tall on desktop |
 | `components/admin-orders/` | Admin orders tab: `orders-list.tsx`, `status-controls.tsx` (status selector, Advance, Cancel, Refund) |
 | `components/Header.tsx`, `Footer.tsx` | Site header (cart button + mini-cart) and footer |
 | `components/Logo.tsx` | Brand wordmark: owner's real TS mark file (`public/images/techshot-logo.svg`) + "TechShot" in extra-bold Montserrat + green "BD", tagline; header hides the tagline on mobile, footer always shows it |
@@ -92,6 +93,8 @@ is the skeleton shown while it loads.
 | `lib/catalog-rules.ts` | Barrel for `lib/catalog/` |
 | `lib/data/catalog/` | Fallback catalogue used when Supabase is not configured: `seed-products.ts` (the products), `types.ts`, `helpers.ts` |
 | `lib/products/actions/` | Product server actions: `upload.ts` (photo upload), `create-update.ts`, `manage.ts` (status, delete), `shared.ts` (staff gate, writers) |
+| `lib/banners.ts`, `lib/banners/process-banner-image.ts`, `lib/banners-server.ts` | Hero banners: pure rules + the 1600 x 640 wide size (`BANNER_IMAGE_WIDTH_PX` / `BANNER_IMAGE_HEIGHT_PX`, one source of truth), sharp cover-crop to 1600 x 640 before Storage (never upscales), server actions for list/add/edit/toggle/delete/upload — staff only, any staff role (same rule as products) |
+| `lib/hero-slides.ts` | Hero slides: banner → slide, top products → fallback slides (the home page never shows an empty hero) |
 | `lib/products/process-image.ts` | Upload crop: sharp-crops an uploaded photo to the universal 1200x1200 square before Storage (photos smaller than 1200 in both dimensions are kept as-is, never upscaled) |
 | `lib/products/validation/upload.ts` | `PRODUCT_IMAGE_SIZE_PX` (1200, the one universal size) + `PRODUCT_IMAGE_SIZE_NOTE` (the admin warning text, built from the constant) |
 | `lib/products/validation.ts` | Barrel for `lib/products/validation/` (`slug-money`, `image-paths`, `variants`, `upload`, `schema`) |
@@ -113,7 +116,7 @@ is the skeleton shown while it loads.
 | `lib/payments/` | Payment adapter: `index.ts`, `test-adapter.ts` (test mode only) |
 | `lib/gallery.ts` | Gallery helpers (auto-slide timing, swipe, pinch) |
 | `lib/storage-images.ts` | Product photo URLs → public Storage bucket |
-| `lib/pricing.ts`, `lib/theme.ts` | BDT prices / delivery rules, colours |
+| `lib/pricing.ts`, `lib/theme.ts` | BDT prices / delivery rules, colours. Solid buttons are green (`brandDark #0B7A55`, hover `brandDarker #096B49`) — never white text on the full green `#0F9A70` (3.57:1, fails AA); see `tests/recolour.test.mjs` |
 | `lib/supabase/` | Supabase clients (`client.ts`, `server.ts`), catalogue fetch (`catalog.ts`), database types (`types.ts`) |
 | `lib/demo-store.ts` | Local demo data used when Supabase is not configured |
 | `middleware.ts` | Route guard: `/admin` needs a signed-in staff role |
@@ -122,13 +125,13 @@ is the skeleton shown while it loads.
 
 | File | Job |
 |---|---|
-| `supabase/migrations/0001_initial_schema.sql` … `0010_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0010 widens products UPDATE to all staff (managers CAN edit products, 2026-11-10) — written, NOT applied live yet. |
+| `supabase/migrations/0001_initial_schema.sql` … `0012_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0011 adds the `banners` table (hero slides), 0012 adds the `product_categories` join table + the "Flash deals" category — both written, NOT applied live yet. 0010 widened products UPDATE to all staff (managers CAN edit products, 2026-11-10) and is applied live. |
 | `supabase/policies.sql` | Row Level Security: who may read/write each table |
 | `supabase/seed.sql` | Starting catalogue (12 products), categories, FIRST2000 coupon |
 
 ## Tests — `tests/`
 
-- `tests/*.test.mjs` — unit tests, run with `npm test` (281 tests).
+- `tests/*.test.mjs` — unit tests, run with `npm test` (411 tests).
   Some tests read source files as text to pin a mechanism in place;
   when code moves, update the *read path* in the test, never weaken
   the assertion.
@@ -136,7 +139,12 @@ is the skeleton shown while it loads.
   (`mock-supabase.mjs`, port 3101): `smoke.mjs` (buy a product end to
   end), `roles-admin-tabs.mjs`, `mini-cart-variant-photos.mjs`,
   `gallery.mjs`, `review-fixes.mjs`, `storage-images.mjs`,
-  `responsive-gallery.mjs`, `orders-fresh-browser.mjs`.
+  `responsive-gallery.mjs`, `orders-fresh-browser.mjs`,
+  `green-hero-flash.mjs` (green buttons, hero carousel, banner admin,
+  flash deals, multi-category — at 1440 / 1280 / 390),
+  `recolour-mobile.mjs`, `light-theme-auth-inbox.mjs`,
+  `manager-edit-products.mjs`, `logo-header.mjs`, `image-size.mjs`,
+  `hydration.mjs`.
 - `tests/ts-hooks.mjs` — test loader: resolves the `@/` alias and
   extensionless imports. It only resolves real files, never
   directories (a same-named folder must not shadow its barrel file).
@@ -160,7 +168,7 @@ is the skeleton shown while it loads.
 ## How to check your change
 
 ```bash
-npm test          # unit tests (281)
+npm test          # unit tests (411)
 npx tsc --noEmit  # types
 npm run lint      # lint
 npm run build     # production build — must pass; it catches things

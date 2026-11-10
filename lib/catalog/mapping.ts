@@ -20,6 +20,7 @@ import type {
   MappedSubscription,
   ReviewStats,
 } from "./db-types";
+import { FLASH_DEALS_SLUG } from "./db-types";
 import { deriveBrand, deriveVariant, isColourName, isStorageVariantName } from "./brands-variants";
 import { buildSpecs } from "./specs-gallery";
 
@@ -46,6 +47,33 @@ export function categorySlugForRow(row: DbProductRow): string {
     if (first && first.slug) return first.slug;
   }
   return "uncategorized";
+}
+
+/**
+ * Every category slug for a row: the primary category first, then
+ * the extra memberships from the product_categories join table
+ * (migration 0012), deduplicated. A row with no join rows has
+ * exactly one entry — its primary category — so old data and the
+ * seed keep working unchanged.
+ */
+export function categorySlugsForRow(row: DbProductRow): string[] {
+  const primary = categorySlugForRow(row);
+  const extra = (row.category_slugs ?? []).filter(
+    (slug): slug is string => typeof slug === "string" && slug !== "",
+  );
+  return [...new Set([primary, ...extra])];
+}
+
+/**
+ * True when a row is a flash deal: EITHER the legacy is_flash_deal
+ * flag (kept so products flagged before migration 0012 keep
+ * showing until the admin re-tags them) OR membership in the
+ * "Flash deals" category (the way the product form tags one now).
+ * This IS the admin control for the flash-deal section — there is
+ * no separate flash-deal form.
+ */
+export function isFlashDealRow(row: DbProductRow): boolean {
+  return row.is_flash_deal === true || categorySlugsForRow(row).includes(FLASH_DEALS_SLUG);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,9 +111,10 @@ export function mapDbProductToCatalog(row: DbProductRow, reviewStats?: ReviewSta
   const stock = toNonNegativeInt(row.stock, 0);
   const rating = Number(reviewStats?.rating ?? 0);
   const category = categorySlugForRow(row);
+  const categorySlugs = categorySlugsForRow(row);
   const isSubscription = category === "subscriptions";
   const description = (row.description ?? "").trim();
-  const flash = row.is_flash_deal === true;
+  const flash = isFlashDealRow(row);
 
   const images = [...(row.product_images ?? [])].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
@@ -155,6 +184,7 @@ export function mapDbProductToCatalog(row: DbProductRow, reviewStats?: ReviewSta
     review_count: reviewCount,
     stock,
     category,
+    categorySlugs,
     brand: deriveBrand(row.title),
     flash,
     condition: "New",
@@ -220,13 +250,14 @@ export function publicProductsToCatalog(
 }
 
 /**
- * Earliest flash_ends_at among the given rows (flash deals only), or
+ * Earliest flash_ends_at among the given rows (flash deals only —
+ * by flag or by Flash deals membership, see isFlashDealRow), or
  * undefined when no flash deal carries an end time.
  */
 export function earliestFlashEndsAt(rows: DbProductRow[]): Date | undefined {
   let earliest: Date | undefined;
   for (const row of rows ?? []) {
-    if (!row.is_flash_deal || !row.flash_ends_at) continue;
+    if (!isFlashDealRow(row) || !row.flash_ends_at) continue;
     const endsAt = new Date(row.flash_ends_at);
     if (Number.isNaN(endsAt.getTime())) continue;
     if (!earliest || endsAt.getTime() < earliest.getTime()) earliest = endsAt;
@@ -235,7 +266,8 @@ export function earliestFlashEndsAt(rows: DbProductRow[]): Date | undefined {
 }
 
 /**
- * Related products for a detail page: same-category products first,
+ * Related products for a detail page: products sharing ANY category
+ * with it first (a product in two categories is related to both),
  * then everything else, excluding the product itself.
  */
 export function relatedProducts(
@@ -243,11 +275,16 @@ export function relatedProducts(
   product: MappedProduct,
   n: number,
 ): MappedProduct[] {
+  const slugs = new Set(product.categorySlugs ?? [product.category]);
+  const sharesCategory = (p: MappedProduct): boolean => {
+    const other = p.categorySlugs ?? [p.category];
+    return other.some((slug) => slugs.has(slug));
+  };
   const sameCategory = products.filter(
-    (p) => p.slug !== product.slug && p.category === product.category,
+    (p) => p.slug !== product.slug && sharesCategory(p),
   );
   const others = products.filter(
-    (p) => p.slug !== product.slug && p.category !== product.category,
+    (p) => p.slug !== product.slug && !sharesCategory(p),
   );
   return [...sameCategory, ...others].slice(0, Math.max(0, n));
 }

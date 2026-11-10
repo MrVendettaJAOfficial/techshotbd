@@ -126,7 +126,7 @@ export default function MiniCartDrawer({
             <button
               type="button"
               onClick={closeAndRefocus}
-              className="mt-6 rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-inkLight"
+              className="mt-6 rounded-lg bg-brandDark px-5 py-3 text-sm font-semibold text-white hover:bg-brandDarker"
             >
               Continue shopping
             </button>
@@ -256,7 +256,7 @@ export default function MiniCartDrawer({
               <Link
                 href="/checkout"
                 onClick={onClose}
-                className="mt-4 flex w-full items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white transition hover:bg-inkLight"
+                className="mt-4 flex w-full items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker"
               >
                 Checkout
               </Link>

@@ -53,7 +53,11 @@ export default function ProductForm({ products, categories, canPublish, configur
   const canManage = canManageProducts(callerRole);
 
   const [title, setTitle] = useState("");
-  const [categorySlug, setCategorySlug] = useState("");
+  // Every category this product belongs to, in tick order — the
+  // first is the product's main (primary) category. Ticking
+  // "Flash deals" puts the product in the home-page flash-deal
+  // section (migration 0012, product_categories join table).
+  const [categorySlugs, setCategorySlugs] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [priceTaka, setPriceTaka] = useState("");
   const [compareAtTaka, setCompareAtTaka] = useState("");
@@ -93,7 +97,7 @@ export default function ProductForm({ products, categories, canPublish, configur
 
   function resetForm(): void {
     setTitle("");
-    setCategorySlug("");
+    setCategorySlugs([]);
     setDescription("");
     setPriceTaka("");
     setCompareAtTaka("");
@@ -112,7 +116,15 @@ export default function ProductForm({ products, categories, canPublish, configur
   function startEdit(product: ProductListItem): void {
     setEditingId(product.id);
     setTitle(product.title);
-    setCategorySlug(product.categorySlug ?? "");
+    // The product's full category list, primary first; a product
+    // saved before multi-category support has only the primary.
+    setCategorySlugs(
+      product.categorySlugs.length > 0
+        ? [...product.categorySlugs]
+        : product.categorySlug
+          ? [product.categorySlug]
+          : [],
+    );
     setDescription(product.description);
     setPriceTaka(String(product.pricePoisha / 100));
     setCompareAtTaka(product.compareAtPoisha === null ? "" : String(product.compareAtPoisha / 100));
@@ -138,6 +150,12 @@ export default function ProductForm({ products, categories, canPublish, configur
     setFormNotice(null);
     setUploadError(null);
     setUploadNotice(null);
+  }
+
+  function toggleCategory(slug: string): void {
+    setCategorySlugs((current) =>
+      current.includes(slug) ? current.filter((s) => s !== slug) : [...current, slug],
+    );
   }
 
   function setSpecification(index: number, field: "key" | "value", value: string): void {
@@ -234,7 +252,10 @@ export default function ProductForm({ products, categories, canPublish, configur
     }
     const input = {
       title,
-      categorySlug,
+      // Primary = first ticked category (the server action keeps
+      // the rest as join rows); the schema still requires one.
+      categorySlug: categorySlugs[0] ?? "",
+      categorySlugs,
       description,
       priceTaka: Number(priceTaka),
       compareAtTaka: compareAtTaka.trim() === "" ? null : Number(compareAtTaka),
@@ -290,16 +311,48 @@ export default function ProductForm({ products, categories, canPublish, configur
           <Field label="Title" htmlFor="product-title" required>
             <Input id="product-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Product title" disabled={formDisabled} />
           </Field>
-          <Field label="Category" htmlFor="product-category" required>
-            <Select id="product-category" value={categorySlug} onChange={(e) => setCategorySlug(e.target.value)} disabled={formDisabled}>
-              <option value="">Choose a category</option>
-              {categories.map((category) => (
-                <option key={category.slug} value={category.slug}>
-                  {category.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <fieldset disabled={formDisabled}>
+            <legend className="mb-1 block text-sm font-medium text-text">
+              Categories <span className="text-red-700" aria-hidden="true">*</span>
+            </legend>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {categories.map((category) => {
+                const checked = categorySlugs.includes(category.slug);
+                return (
+                  <label
+                    key={category.slug}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                      checked
+                        ? "border-brand bg-brand/10 font-medium text-text"
+                        : "border-border bg-surface text-text hover:border-brand"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCategory(category.slug)}
+                      disabled={formDisabled}
+                      data-testid={`category-checkbox-${category.slug}`}
+                      className="h-4 w-4 accent-[#0B7A55]"
+                    />
+                    {category.name}
+                    {category.slug === "flash-deals" ? (
+                      <span className="ml-auto rounded-full bg-accentDark px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Flash deal
+                      </span>
+                    ) : null}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              Tick every category this product belongs to. Ticking “Flash deals” puts it in the
+              home-page flash-deal section; the first ticked category is the product’s main category.
+              {categorySlugs.length === 0
+                ? " Choose at least one."
+                : ` Main: ${categories.find((c) => c.slug === categorySlugs[0])?.name ?? categorySlugs[0]}.`}
+            </p>
+          </fieldset>
           <Field label="Price (৳)" htmlFor="product-price" required>
             <Input id="product-price" type="number" min="0" step="1" value={priceTaka} onChange={(e) => setPriceTaka(e.target.value)} placeholder="e.g. 1499" disabled={formDisabled} />
           </Field>

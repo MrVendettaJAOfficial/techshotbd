@@ -294,7 +294,7 @@ export function ProductDetail({
               type="button"
               onClick={handleAdd}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               {added ? (
                 <>
@@ -310,7 +310,7 @@ export function ProductDetail({
               type="button"
               onClick={handleBuyNow}
               disabled={stock <= 0}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brandDark px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
             >
               <Zap size={18} /> Buy Now
             </button>
@@ -341,7 +341,7 @@ export function ProductDetail({
                   {" "}
                   — delivery in 1–3 working days, Bangladesh-wide.{" "}
                 </span>
-                <Link href="/account" className="font-medium text-ink hover:underline">
+                <Link href="/account" className="font-medium text-brandDark hover:underline">
                   Change
                 </Link>
               </span>
@@ -466,7 +466,7 @@ export function ProductDetail({
                 <ReviewForm productSlug={product.slug} onReviewSaved={handleReviewSaved} />
               ) : (
                 <p className="mt-8 text-sm text-muted">
-                  <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+                  <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
                     Sign in to write a review
                   </Link>
                 </p>

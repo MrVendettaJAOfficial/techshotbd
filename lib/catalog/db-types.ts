@@ -43,6 +43,14 @@ export interface DbProductRow {
   id?: string;
   category_id?: string | null;
   category_slug?: string | null;
+  /**
+   * Every category slug the product belongs to, primary included
+   * (loader-filled from the product_categories join table,
+   * migration 0012). Missing / empty means "primary category
+   * only" — rows written before the join table existed keep
+   * working with no migration of their own.
+   */
+  category_slugs?: string[] | null;
   title: string;
   slug: string;
   description?: string | null;
@@ -103,6 +111,14 @@ export function aggregateReviewStats(
   return stats;
 }
 
+/**
+ * The "Flash deals" category slug. Ticking it in the product form
+ * puts a product in the home-page flash-deal section (see
+ * lib/catalog/mapping.ts isFlashDealRow); the seed and migration
+ * 0012 both create the category under this slug.
+ */
+export const FLASH_DEALS_SLUG = "flash-deals";
+
 /** The storefront Product shape (mirrors lib/data/catalog.ts Product). */
 export interface MappedProduct {
   slug: string;
@@ -114,6 +130,16 @@ export interface MappedProduct {
   review_count: number;
   stock: number;
   category: string;
+  /**
+   * Every category this product belongs to, the primary category
+   * first (see MappedProduct.category). The product form's
+   * checkbox list writes these through the product_categories
+   * join table (migration 0012); a product with no join rows has
+   * exactly one entry — its primary category. The shop filter
+   * matches any entry, and the flash-deal section reads membership
+   * in "flash-deals" (see lib/catalog/mapping.ts isFlashDealRow).
+   */
+  categorySlugs: string[];
   brand: string;
   badge?: string;
   flash?: boolean;

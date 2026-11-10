@@ -3,24 +3,29 @@
 // supplied by the user on 2026-11-08, recoloured 2026-11-09 to the
 // owner's own logo palette, then flipped 2026-11-09 to the LIGHT
 // theme: white page backgrounds, dark navy text, navy header/footer
-// and navy primary buttons — navy blue and white, like the logo.
-// Solid colours only — no gradients anywhere in the site. These
-// tokens are the single source of truth for colour; components must
-// use them, never hard-coded one-off values.
+// — navy blue and white, like the logo — and on 2026-11-10 the
+// primary buttons and links went GREEN (brandDark #0B7A55), the
+// green of the logo, because the user asked for green buttons and
+// highlights throughout the site. Solid colours only — no gradients
+// anywhere in the site. These tokens are the single source of truth
+// for colour; components must use them, never hard-coded one-off values.
 //
 // Logo palette (read from the owner's SVG): navy #00162E, emerald
 // green #0F9A70, off-white #F1F7FE, dark slate #283246. The page is
-// white, panels are the off-white, navy is the header, the footer
-// and the primary buttons, and the logo green is now a SECONDARY
-// accent only — the logo, success states and small highlights —
-// never the primary button or link colour. Orange #f97316 is kept
-// ONLY where it means a deal or a discount (flash deals, discount
-// badges, coupon boxes).
+// white, panels are the off-white, navy is the header and the
+// footer; the logo green is now the PRIMARY button and link colour
+// (solid buttons on brandDark #0B7A55, links and green highlights
+// in brandDark too), and orange #f97316 is kept ONLY where it means
+// a deal or a discount (flash deals, discount badges, coupon boxes).
 //
 // Contrast (WCAG, computed, not guessed — see tests/recolour.test.mjs):
 //   * Navy text #00162E on white is 18.19:1; white text on navy is
-//     18.19:1. Primary buttons are bg-ink with white text, hover
-//     bg-inkLight #0A2438 (white text 15.88:1).
+//     18.19:1. Primary buttons are bg-brandDark with white text
+//     (5.34:1), hover bg-brandDarker #096B49 (white text 6.54:1).
+//     White text on the FULL green #0F9A70 is 3.57:1 — it FAILS —
+//     so no solid button ever uses bg-brand; buttons are always
+//     brandDark, and the full green stays for text/icons on navy,
+//     borders, tints and fills on light, and the logo itself.
 //   * The full green #0F9A70 as text on white is 3.57:1 — it FAILS
 //     AA for normal text. Green text on light backgrounds is
 //     therefore always the darker tint brandDark #0B7A55 (5.34:1 on
@@ -66,8 +71,10 @@ export const theme = {
     // Secondary accent: the logo green. `brand` is the full green,
     // for text/icons on navy, borders, tints and fills on light;
     // `brandDark` is the darker tint green text on light uses so
-    // it passes AA (see above). Green is never a primary button
-    // or link colour any more — those are navy.
+    // it passes AA (see above) — and, since 2026-11-10, the solid
+    // button and link colour: every primary button is bg-brandDark
+    // with white text (5.34:1), hover bg-brandDarker (6.54:1). The
+    // full green never carries white text (3.57:1, fails AA).
     brand: "#0F9A70",
     brandDark: "#0B7A55",
     brandDarker: "#096B49",

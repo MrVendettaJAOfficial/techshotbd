@@ -131,7 +131,7 @@ export function ProductList({
                   <p className="mt-1 text-sm text-muted">
                     {formatBDT(product.pricePoisha)}
                     {product.compareAtPoisha !== null ? ` (was ${formatBDT(product.compareAtPoisha)})` : ""} · Stock: {product.stock} ·{" "}
-                    {product.categoryName}
+                    {product.categoryNames.join(", ")}
                   </p>
                   {product.description ? <p className="mt-1 text-sm text-muted">{product.description}</p> : null}
                   {product.variants.length > 0 ? (

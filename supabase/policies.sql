@@ -5,7 +5,9 @@
 --
 -- LIVE DATABASES apply the numbered migrations instead
 -- (0006_roles, 0007_order_returned, 0008_product_warranty_specs,
--- 0009_announcements, 0010_manager_product_update).
+-- 0009_announcements, 0010_manager_product_update,
+-- 0011_banners, 0012_product_categories — 0011 and 0012 are
+-- NOT applied live yet, 2026-11-10).
 -- This file mirrors those migrations (see "Fresh-install mirror"
 -- below) so a fresh install that only runs 0001 + this file reaches
 -- exactly the same state. Every mirrored statement is idempotent, so
@@ -119,6 +121,10 @@ $$;
 --   * 0009: announcements table (broadcasts) — mirrored in its own
 --     section at the end of this file, not in this DO block, because
 --     it creates a table rather than widening a constraint.
+--   * 0011: banners table (hero carousel slides) and 0012:
+--     product_categories join table (multi-category products) —
+--     mirrored in their own sections at the end of this file, for
+--     the same reason. Both are NOT APPLIED LIVE YET (2026-11-10).
 -- ===========================================================================
 do $$
 declare
@@ -681,6 +687,106 @@ create policy "announcements_staff_delete" on public.announcements
 
 create index if not exists announcements_created_at_idx
   on public.announcements (created_at desc);
+
+-- ===========================================================================
+-- banners (migration 0011) — fresh-install mirror.
+-- Live databases apply 0011 instead; this block exists so a fresh
+-- install (0001 + this file) reaches the same state. Every statement
+-- is idempotent, so applying both paths is safe. Do not edit one
+-- without the other. NOT APPLIED LIVE YET (2026-11-10).
+-- ===========================================================================
+create table if not exists public.banners (
+  id uuid primary key default gen_random_uuid(),
+  image_path text not null default '',
+  headline text not null check (char_length(headline) >= 1 and char_length(headline) <= 120),
+  subcopy text not null default '' check (char_length(subcopy) <= 300),
+  cta_label text not null default '' check (char_length(cta_label) <= 40),
+  cta_href text not null default '/shop' check (cta_href like '/%'),
+  sort_order int not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.banners enable row level security;
+
+drop policy if exists "banners_select_active" on public.banners;
+create policy "banners_select_active" on public.banners
+  for select to anon, authenticated
+  using (active = true);
+
+drop policy if exists "banners_select_staff" on public.banners;
+create policy "banners_select_staff" on public.banners
+  for select to authenticated
+  using (public.is_staff());
+
+drop policy if exists "banners_staff_insert" on public.banners;
+create policy "banners_staff_insert" on public.banners
+  for insert to authenticated
+  with check (public.is_staff());
+
+drop policy if exists "banners_staff_update" on public.banners;
+create policy "banners_staff_update" on public.banners
+  for update to authenticated
+  using (public.is_staff())
+  with check (public.is_staff());
+
+drop policy if exists "banners_staff_delete" on public.banners;
+create policy "banners_staff_delete" on public.banners
+  for delete to authenticated
+  using (public.is_staff());
+
+create index if not exists banners_active_sort_idx
+  on public.banners (active, sort_order, created_at);
+
+-- ===========================================================================
+-- product_categories (migration 0012) — fresh-install mirror.
+-- Live databases apply 0012 instead; this block exists so a fresh
+-- install (0001 + this file) reaches the same state. Every statement
+-- is idempotent, so applying both paths is safe. Do not edit one
+-- without the other. NOT APPLIED LIVE YET (2026-11-10).
+-- ===========================================================================
+create table if not exists public.product_categories (
+  product_id uuid not null references public.products (id) on delete cascade,
+  category_id uuid not null references public.categories (id) on delete cascade,
+  primary key (product_id, category_id)
+);
+
+alter table public.product_categories enable row level security;
+
+drop policy if exists "product_categories_select_public" on public.product_categories;
+create policy "product_categories_select_public" on public.product_categories
+  for select to anon, authenticated
+  using (true);
+
+drop policy if exists "product_categories_staff_insert" on public.product_categories;
+create policy "product_categories_staff_insert" on public.product_categories
+  for insert to authenticated
+  with check (public.is_staff());
+
+drop policy if exists "product_categories_staff_delete" on public.product_categories;
+create policy "product_categories_staff_delete" on public.product_categories
+  for delete to authenticated
+  using (public.is_staff());
+
+create index if not exists product_categories_category_idx
+  on public.product_categories (category_id, product_id);
+
+-- The "Flash deals" category itself (idempotent) and the membership
+-- for every product already flagged is_flash_deal = true — the same
+-- two inserts migration 0012 runs, so a fresh install and a migrated
+-- live database reach the same state.
+insert into public.categories (name, slug, sort_order, is_active) values
+  ('Flash deals', 'flash-deals', 10, true)
+on conflict (slug) do nothing;
+
+insert into public.product_categories (product_id, category_id)
+select p.id, c.id
+from public.products p
+cross join public.categories c
+where p.is_flash_deal = true
+  and c.slug = 'flash-deals'
+on conflict (product_id, category_id) do nothing;
 
 -- ===========================================================================
 -- audit_log — ADMIN ONLY. No policy exists for anyone else, so audit

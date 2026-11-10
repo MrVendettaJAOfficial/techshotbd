@@ -134,7 +134,7 @@ export default function OrdersPage() {
         <div className="mt-8 rounded-2xl border border-border bg-panel p-10 text-center">
           <h2 className="text-xl font-bold text-text">No orders yet</h2>
           <p className="mt-2 text-muted">Orders you place will show up here with their status and totals.</p>
-          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
+          <Link href="/" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
             Shop now
           </Link>
         </div>

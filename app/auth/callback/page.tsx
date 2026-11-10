@@ -88,7 +88,7 @@ function AuthCallbackInner() {
             {error}
           </p>
           <p className="mt-6">
-            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
               Go to sign-in
             </Link>
           </p>
@@ -100,7 +100,7 @@ function AuthCallbackInner() {
             You will be redirected to your account shortly.
           </p>
           <p className="mt-6">
-            <Link href="/" className="font-medium text-ink hover:underline">
+            <Link href="/" className="font-medium text-brandDark hover:underline">
               Go home now
             </Link>
           </p>

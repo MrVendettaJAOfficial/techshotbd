@@ -34,6 +34,15 @@ export interface ProductListItem {
   status: ProductStatus;
   categorySlug: string | null;
   categoryName: string;
+  /**
+   * Every category this product belongs to, primary first
+   * (product_categories join table, migration 0012) — the admin
+   * form pre-ticks these. A product with no join rows has exactly
+   * one entry, its primary category.
+   */
+  categorySlugs: string[];
+  /** Display names for categorySlugs, in the same order. */
+  categoryNames: string[];
   /** Always null: every product is store-owned (single-seller store).
    *  Kept because the products table still has the seller_id column. */
   sellerId: string | null;
