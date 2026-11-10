@@ -284,7 +284,7 @@ app/
   orders/             Order list and detail (pieces in components/order-detail/)
   account/            Customer account (pieces in components/account/)
   auth/               Sign in, sign up, auth callback
-  admin/              Admin dashboard tabs: Overview, Products, Orders, Users
+  admin/              Admin dashboard tabs: Overview, Products, Banners, Orders, Messages, Users
   error.tsx           Generic error boundary
   loading.tsx         Loading skeleton (home; also the fallback for routes without their own file)
   shop/loading.tsx    Shop skeleton (filters + grid)
@@ -296,6 +296,7 @@ components/
   ui.tsx              Shared primitives: Button, Card, Badge, Input, Select, Field, EmptyState, SectionHeading
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
+  HeroCarousel.tsx    Home hero banner carousel (admin banners, product fallback; same behaviour as the product gallery)
   MiniCartDrawer.tsx  Slide-over mini cart (header cart button; same cart store as /cart)
   Logo.tsx            Brand wordmark: TS monogram, TechShot + green BD, tagline (Montserrat via next/font/google, code-built, no image)
   product-gallery/    Product photos: gallery (slider), photo-viewer (fullscreen zoom), product-detail, review-form
@@ -304,7 +305,7 @@ components/
   checkout/           Checkout steps: checkout-form, address-step, payment-step
   order-detail/       Order page pieces: summary, timeline, items
   account/            Account page pieces: profile, addresses, orders, wishlist
-  admin/              Admin dashboard shell + coupons section
+  admin/              Admin dashboard shell + banners, messages and coupons sections
   admin-orders/       Admin orders tab: orders-list, status-controls
   Header.tsx / Footer.tsx
 lib/
@@ -313,6 +314,10 @@ lib/
   catalog/            Pure catalogue rules: db-types, brands-variants, mapping, specs-gallery
   supabase/catalog.ts Live catalogue reads from Supabase
   products/           Product server actions (upload, create-update, manage), validation, server reads
+  banners.ts          Banner rules + the 1600 x 640 wide banner size (single source of truth)
+  banners/            Banner photo crop: sharp cover-crops to 1600 x 640 before Storage
+  banners-server.ts   Banner server actions (list/add/edit/toggle/delete, upload)
+  hero-slides.ts      Hero slides: banner -> slide, top products -> fallback slides
   cart-store.ts       Cart state (Supabase when signed in, localStorage fallback)
   checkout/           Checkout browser store: types, storage (localStorage), validation
   cart/server/        Server cart sync (Supabase carts/cart_items)
@@ -342,7 +347,9 @@ supabase/
   migrations/0007_order_returned.sql  Adds "returned" order status (customer did not take the order)
   migrations/0008_product_warranty_specs.sql  Adds warranty + specifications to products
   migrations/0009_announcements.sql  Admin broadcast announcements (in-app inbox messages)
-  migrations/0010_manager_product_update.sql  Managers may edit products incl. pause (2026-11-10) — written, NOT applied live yet
+  migrations/0010_manager_product_update.sql  Managers may edit products incl. pause (applied live 2026-11-10)
+  migrations/0011_banners.sql  Hero banner slides (admin-managed) — written, NOT applied live yet
+  migrations/0012_product_categories.sql  Multi-category join table + "Flash deals" category — written, NOT applied live yet
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/
@@ -360,6 +367,10 @@ tests/
   profile.test.mjs    Profile creation rules (sign-in creates a missing profile, never admin, never overwrite)
   account.test.mjs    Account dashboard rules (address/wishlist mapping, order merge, sign-in banner + dashboard wiring)
   roles.test.mjs      Roles + admin tabs + order-status rules (node:test)
+  recolour.test.mjs   Green buttons + highlights, contrast, no duplicate nav/footer links
+  green-hero-flash.test.mjs  Hero carousel + banners + flash deals + multi-category (node:test)
+  admin-tabs.test.mjs Admin tab visibility by role (incl. Banners)
+  profile-menu-inbox.test.mjs  Profile menu, inbox + admin messages/broadcasts
   order-status.test.mjs  Order status transitions incl. returned, manual set
   gallery.test.mjs    Gallery slider / viewer / multi-photo rules
   e2e/                Mock Supabase + Playwright click-through (see "End-to-end checks")

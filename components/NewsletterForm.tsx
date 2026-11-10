@@ -48,7 +48,7 @@ export default function NewsletterForm() {
         />
         <button
           type="submit"
-          className="shrink-0 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-inkLight"
+          className="shrink-0 rounded-xl bg-brandDark px-5 py-3 text-sm font-semibold text-white transition hover:bg-brandDarker"
         >
           Subscribe
         </button>

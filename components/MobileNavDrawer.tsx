@@ -23,7 +23,6 @@ import { LogoMark } from "./Logo";
 export const NAV_LINKS = [
   { label: "All categories", href: "/shop" },
   { label: "Home", href: "/" },
-  { label: "Shop all", href: "/shop" },
   { label: "Smartphones", href: "/shop?category=smartphones" },
   { label: "Laptops", href: "/shop?category=laptops" },
   { label: "Audio", href: "/shop?category=audio" },

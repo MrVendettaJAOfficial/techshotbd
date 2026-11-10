@@ -30,7 +30,7 @@ export default function AddressStep({
                 Shipping address
               </h2>
               {step !== 1 && (
-                <button type="button" className="text-sm text-ink hover:underline" onClick={onEdit}>
+                <button type="button" className="text-sm text-brandDark hover:underline" onClick={onEdit}>
                   Edit
                 </button>
               )}

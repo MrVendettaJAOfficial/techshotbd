@@ -223,7 +223,7 @@ function OrderDetailInner() {
             This order is not in your browser&apos;s saved orders. It may have
             been placed in a different browser or before the preview data was cleared.
           </p>
-          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
+          <Link href="/orders" className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
             Back to my orders
           </Link>
         </div>
@@ -248,7 +248,7 @@ function OrderDetailInner() {
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-10">
-      <Link href="/orders" className="text-sm text-ink hover:underline">← Back to my orders</Link>
+      <Link href="/orders" className="text-sm text-brandDark hover:underline">← Back to my orders</Link>
       <OrderSummary order={order} notice={shownNotice} />
 
       <OrderTimeline order={order} />
@@ -320,7 +320,7 @@ function OrderDetailInner() {
       )}
 
       <div className="mt-6">
-        <Link href="/orders" className="text-sm text-ink hover:underline">Back to my orders</Link>
+        <Link href="/orders" className="text-sm text-brandDark hover:underline">Back to my orders</Link>
       </div>
     </main>
   );

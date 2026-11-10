@@ -13,15 +13,19 @@
 // 2026-11-09 (light theme): the site flipped to navy blue and
 // white, like the logo — white page backgrounds, dark navy text,
 // navy header/footer and navy primary buttons. Green #0F9A70 is
-// now a SECONDARY accent only (logo, success states, small
+// a SECONDARY accent only (logo, success states, small
 // highlights); it is no longer the primary button/link colour.
-// The header cart button and announcement bar stay green because
-// they sit directly on the navy header (navy-on-navy would be
-// unreadable); the homepage feature icon tile and the filter count
-// badge stay green as small highlights. The full green and the
-// light green fail AA as text on white, so green text on light is
-// always the darker tint brandDark #0B7A55, and brandLight #4CC9A4
-// is a navy-only token now.
+//
+// 2026-11-10 (green buttons): the user asked for green buttons and
+// highlights throughout the site, so the primary buttons and links
+// went GREEN — solid buttons on the darker tint brandDark #0B7A55
+// (white text 5.34:1, hover brandDarker #096B49), links and green
+// highlights in brandDark too. Navy stays for the header, the
+// footer and the page chrome only. The full green #0F9A70 still
+// fails AA as text on white (3.57:1) and as a button background
+// with white text, so it stays for text/icons on navy, borders,
+// tints and fills on light, and the logo itself — never for a
+// solid button or small text on white.
 //
 // These tests pin the rules down in source: the token values and
 // their Tailwind mappings, the WCAG contrast calls (computed here,
@@ -121,17 +125,22 @@ test("tailwind maps the new tokens to classes", () => {
 // ---------------------------------------------------------------------------
 
 test("contrast: white text passes AA on navy, navy text passes AA on white", () => {
-  // This is WHY primary buttons are bg-ink (navy) with white text.
+  // This is WHY primary buttons are bg-brandDark (green) with white
+  // text (5.34:1), hover bg-brandDarker (6.54:1) — and why the full
+  // green can never be a button colour (white on #0F9A70 is 3.57:1).
   assert.ok(contrast("#FFFFFF", "#00162E") >= 4.5, "white on navy");
   assert.ok(contrast("#00162E", "#FFFFFF") >= 4.5, "navy text on white");
   assert.ok(contrast("#F1F7FE", "#00162E") >= 4.5, "off-white on navy");
-  assert.ok(contrast("#FFFFFF", "#0A2438") >= 4.5, "white on inkLight (button hover)");
+  assert.ok(contrast("#FFFFFF", "#0B7A55") >= 4.5, "white text on brandDark button");
+  assert.ok(contrast("#FFFFFF", "#096B49") >= 4.5, "white text on brandDarker hover");
+  assert.ok(contrast("#FFFFFF", "#0F9A70") < 4.5, "white text on full green FAILS — never a button");
   assert.ok(contrast("#00162E", "#F1F7FE") >= 4.5, "navy text on panel");
 });
 
 test("contrast: the full green fails as text on white, the darker tint passes", () => {
   // This is WHY green text on light is always brandDark, never brand,
-  // and why green is no longer the link colour (links are navy ink).
+  // and why green is now the link colour too (links are brandDark).
+  assert.ok(contrast("#0F9A70", "#FFFFFF") < 4.5, "full green text on white FAILS");
   assert.ok(contrast("#0F9A70", "#FFFFFF") < 4.5, "full green text on white must fail AA");
   assert.ok(contrast("#0F9A70", "#F1F7FE") < 4.5, "full green text on panel must fail AA");
   assert.ok(contrast("#0B7A55", "#FFFFFF") >= 4.5, "brandDark green text on white");
@@ -182,7 +191,8 @@ test("contrast: warning amber and error red text pass AA on light", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Light theme: white page, navy chrome, navy primary buttons.
+// Light theme: white page, navy chrome, GREEN primary buttons
+// (2026-11-10 — buttons and links went green; see the header).
 // ---------------------------------------------------------------------------
 
 test("globals.css sets a light page: white background, navy text", () => {
@@ -206,39 +216,46 @@ test("header bar and footer are navy", () => {
   assert.doesNotMatch(codeOnly(read("components/Footer.tsx")), /text-muted"/);
 });
 
-test("primary buttons are navy: the shared Button primary variant", () => {
-  assert.match(read("components/ui.tsx"), /primary: "bg-ink text-white hover:bg-inkLight disabled:bg-ink\/50"/);
+test("primary buttons are green: the shared Button primary variant", () => {
+  assert.match(read("components/ui.tsx"), /primary: "bg-brandDark text-white hover:bg-brandDarker disabled:bg-brandDark\/50"/);
 });
 
-test("green is not a resting link or button colour any more", () => {
+test("green is the resting button and link colour now", () => {
   // No resting text-brand anywhere in app/ or components/: links are
-  // navy ink now, green text on light is always brandDark.
+  // brandDark green now, green text on light is always brandDark —
+  // the full green fails AA on white, so it never carries text there.
   for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
     const src = codeOnly(readFileSync(file, "utf8"));
-    assert.doesNotMatch(src, /\btext-brand(?![A-Za-z])/, `${file} still uses green as a resting text colour`);
+    assert.doesNotMatch(src, /\btext-brand(?![A-Za-z])/, `${file} still uses full green as a resting text colour`);
   }
-  // And bg-brandDark survives only in the four documented keepers:
-  // the header announcement bar + cart button (both sit on navy),
-  // the homepage feature icon tile, the filter count badge, and the
-  // generic brand Badge tone in ui.tsx (a small highlight).
-  const allowed = new Set([
-    "components/Header.tsx",
-    "app/page.tsx",
-    "components/FilterDrawer.tsx",
-    "components/ui.tsx",
-  ]);
+  // And no solid button is navy any more. The only padded navy
+  // left in the code is the FlashCountdown number tiles
+  // (bg-ink px-2 py-2 — a display tile, not a button); every button
+  // is bg-brandDark (or bg-success, the same token) with white
+  // text. The other navy keepers are chrome only (header/footer
+  // backgrounds, the fullscreen viewer, the checkout step circles,
+  // the on-photo badge/heart overlays, the shipped status chip).
   for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
-    const rel = path.relative(fileURLToPath(new URL("../", import.meta.url)), file);
     const src = codeOnly(readFileSync(file, "utf8"));
-    if (/\bbg-brandDark\b/.test(src)) {
-      assert.ok(allowed.has(rel), `${rel} uses bg-brandDark outside the documented keepers`);
+    for (const hit of src.matchAll(/bg-ink px-(\d+)/g)) {
+      assert.equal(hit[1], "2", `${file} still uses navy as a button background (px-${hit[1]})`);
     }
+    assert.doesNotMatch(src, /"bg-ink text-white/, `${file} still has a navy button with white text`);
   }
+  // The documented green keepers are still there: the header
+  // announcement bar + cart button (both sit on navy), the homepage
+  // feature icon tile, the filter count badge, and the generic brand
+  // Badge tone in ui.tsx (a small highlight).
   assert.match(read("components/Header.tsx"), /bg-brandDark px-4 py-2 text-center/);
   assert.match(read("components/Header.tsx"), /rounded-xl bg-brandDark px-2\.5 py-2\.5/);
-  assert.match(read("app/page.tsx"), /rounded-xl bg-brandDark text-white/);
+  assert.match(read("components/HeroCarousel.tsx"), /rounded-xl bg-brandDark text-white/);
+  assert.match(read("app/page.tsx"), /rounded-xl bg-brandDark px-6 py-3\.5/);
   assert.match(read("components/FilterDrawer.tsx"), /rounded-full bg-brandDark px-1\.5/);
   assert.match(read("components/ui.tsx"), /brand: "bg-brandDark text-white border-brandDark"/);
+  // And the hero CTA, the shop Apply button and the test-pay button
+  // are green with white text.
+  assert.match(read("components/HeroCarousel.tsx"), /rounded-xl bg-brandDark px-6 py-3\.5 text-sm font-semibold text-white/);
+  assert.match(read("app/checkout/test-pay/page.tsx"), /rounded-lg bg-success px-5 py-3 font-semibold text-white/);
 });
 
 test("no light-invisible tints remain in app/ or components/", () => {

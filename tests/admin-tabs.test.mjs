@@ -45,12 +45,12 @@ import {
 } from "../components/admin-helpers.ts";
 
 test("owner sees all five admin tabs", () => {
-  assert.deepEqual(visibleAdminTabs("admin"), ["overview", "products", "orders", "messages", "users"]);
+  assert.deepEqual(visibleAdminTabs("admin"), ["overview", "products", "banners", "orders", "messages", "users"]);
 });
 
 test("co-admin and manager see everything except Users", () => {
-  assert.deepEqual(visibleAdminTabs("co_admin"), ["overview", "products", "orders", "messages"]);
-  assert.deepEqual(visibleAdminTabs("manager"), ["overview", "products", "orders", "messages"]);
+  assert.deepEqual(visibleAdminTabs("co_admin"), ["overview", "products", "banners", "orders", "messages"]);
+  assert.deepEqual(visibleAdminTabs("manager"), ["overview", "products", "banners", "orders", "messages"]);
 });
 
 test("customers, legacy sellers and signed-out callers see no admin tabs", () => {
@@ -63,8 +63,9 @@ test("customers, legacy sellers and signed-out callers see no admin tabs", () =>
 test("admin tab ids are the five known tabs", () => {
   assert.deepEqual(
     ADMIN_TABS.map((tab) => tab.id),
-    ["overview", "products", "orders", "messages", "users"],
+    ["overview", "products", "banners", "orders", "messages", "users"],
   );
+  assert.equal(isAdminTab("banners"), true);
   assert.equal(isAdminTab("orders"), true);
   assert.equal(isAdminTab("messages"), true);
   assert.equal(isAdminTab("coupons"), false);

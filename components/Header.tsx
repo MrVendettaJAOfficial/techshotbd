@@ -86,7 +86,7 @@ export default function Header({ cartCount }: { cartCount?: number }) {
             />
             <button
               type="submit"
-              className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white hover:bg-inkLight"
+              className="shrink-0 rounded-lg bg-brandDark px-3 py-1.5 text-sm font-semibold text-white hover:bg-brandDarker"
             >
               Search
             </button>

@@ -161,7 +161,7 @@ export default function InboxPage() {
           </p>
           <Link
             href="/auth/sign-in"
-            className="mt-4 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight"
+            className="mt-4 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker"
           >
             Sign in
           </Link>
@@ -188,7 +188,7 @@ export default function InboxPage() {
           </p>
           <Link
             href="/shop"
-            className="mt-6 inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight"
+            className="mt-6 inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker"
           >
             Shop now
           </Link>

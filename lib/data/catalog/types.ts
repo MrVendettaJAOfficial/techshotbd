@@ -26,6 +26,16 @@ export type Product = {
   review_count: number;
   stock: number;
   category: string;
+  /**
+   * Every category this product belongs to, the primary category
+   * first. A product with no extra memberships has exactly one
+   * entry — its primary category. The shop filter matches any
+   * entry; the flash-deal section reads membership in "flash-deals".
+   * The local seed catalogue fills this in the PRODUCTS export
+   * (lib/data/catalog/seed-products.ts); the live mapper fills it
+   * from the product_categories join table.
+   */
+  categorySlugs: string[];
   brand: string;
   badge?: string;
   flash?: boolean;

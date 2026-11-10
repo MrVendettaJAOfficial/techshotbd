@@ -63,6 +63,26 @@ export const productInputSchema = z.object({
     .min(1, "Please choose a category.")
     .max(100)
     .regex(/^[a-z0-9-]+$/, "Please choose a valid category."),
+  /**
+   * Every category the product belongs to, the primary category
+   * first (migration 0012, product_categories join table). The
+   * form's checkbox list sends this; the server action keeps the
+   * first entry as the primary category (products.category_id)
+   * and writes the rest as join rows. At most 20 categories;
+   * unknown slugs are dropped server-side, so a stale checkbox
+   * can never break a save. Empty means "primary category only".
+   */
+  categorySlugs: z
+    .array(
+      z
+        .string()
+        .trim()
+        .max(100)
+        .regex(/^[a-z0-9-]+$/, "Please choose valid categories."),
+    )
+    .max(20, "A product can belong to at most 20 categories.")
+    .optional()
+    .default([]),
   description: z.string().trim().max(2000, "Description must be 2,000 characters or fewer.").optional().default(""),
   priceTaka: z.number().finite("Price must be a number.").min(0, "Price must be ৳0 or more.").max(100_000_000, "Price is too large."),
   compareAtTaka: z

@@ -24,7 +24,7 @@ import {
 } from "@/lib/checkout-store";
 
 const btnPrimary =
-  "inline-flex items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight";
+  "inline-flex items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker";
 const btnGhost =
   "inline-flex items-center justify-center rounded-lg border border-border bg-panel px-4 py-2 text-sm font-medium text-text hover:border-brand";
 
@@ -196,7 +196,7 @@ export default function CartPage() {
           <p className="text-sm text-muted">
             Delivering to <span className="font-semibold text-text">{deliverCity}</span>
             {" · "}
-            <Link href="/account" className="font-medium text-ink hover:underline">Change</Link>
+            <Link href="/account" className="font-medium text-brandDark hover:underline">Change</Link>
           </p>
 
           <ul className="mt-4 space-y-4">
@@ -247,7 +247,7 @@ export default function CartPage() {
                       </div>
                       <button
                         type="button"
-                        className="text-sm text-ink hover:underline"
+                        className="text-sm text-brandDark hover:underline"
                         onClick={() => {
                           saveForLater({ slug: item.slug, variant: item.variant, quantity: item.quantity });
                           cart.remove(item.slug, item.variant);

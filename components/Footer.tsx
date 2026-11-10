@@ -1,18 +1,18 @@
 // Site footer (server component): brand, link groups using real routes,
 // contact email, payment methods as text chips, and copyright.
+//
+// The footer links only what the navbar does NOT carry: "Here to
+// help" (account / orders / cart / checkout) and "The TechShot way"
+// (Admin). The old Discover group (Shop all, Smartphones, Laptops,
+// Audio, Gaming, Flash deals, Subscriptions) was removed 2026-11-10:
+// every one of those destinations is already a navbar link, so
+// keeping them in the footer meant the same page twice in the
+// header/footer chrome. The navbar is the primary place for
+// category links; the footer keeps only the account/help/admin ones.
 
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import Logo from "./Logo";
-
-const DISCOVER_LINKS = [
-  { label: "Shop all", href: "/shop" },
-  { label: "Smartphones", href: "/shop?category=smartphones" },
-  { label: "Laptops", href: "/shop?category=laptops" },
-  { label: "Audio", href: "/shop?category=audio" },
-  { label: "Gaming", href: "/shop?category=gaming" },
-  { label: "Flash deals", href: "/shop?flash=1" },
-];
 
 const HELP_LINKS = [
   { label: "My account", href: "/account" },
@@ -23,7 +23,6 @@ const HELP_LINKS = [
 
 const TECHSHOT_LINKS = [
   { label: "Admin", href: "/admin" },
-  { label: "Subscriptions", href: "/shop?category=subscriptions" },
 ];
 
 const PAYMENTS = ["VISA", "Mastercard", "bKash", "Nagad", "COD"];
@@ -31,7 +30,7 @@ const PAYMENTS = ["VISA", "Mastercard", "bKash", "Nagad", "COD"];
 export default function Footer() {
   return (
     <footer className="border-t border-border bg-ink">
-      <div className="mx-auto grid max-w-shell gap-10 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mx-auto grid max-w-shell gap-10 px-4 py-12 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <Logo tagline="always" />
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-mutedNavy">
@@ -44,21 +43,6 @@ export default function Footer() {
             </a>
           </p>
         </div>
-
-        <nav aria-label="Discover">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-white">
-            Discover
-          </h3>
-          <ul className="mt-4 space-y-2.5 text-sm text-mutedNavy">
-            {DISCOVER_LINKS.map((link) => (
-              <li key={link.label}>
-                <Link href={link.href} className="hover:text-brandLight">
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
 
         <nav aria-label="Here to help">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-white">

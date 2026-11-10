@@ -114,6 +114,58 @@ export async function loadCategory(admin: AdminClient, slug: string): Promise<{ 
   return { id: data.id, name: data.name };
 }
 
+/**
+ * Load several categories by slug (for the multi-category form):
+ * every slug that matches a row comes back, in the order the
+ * caller asked for; unknown slugs are dropped silently, so a
+ * stale or mistyped extra category can never break a save. The
+ * primary category is loaded separately by loadCategory above.
+ */
+export async function loadCategoriesBySlugs(
+  admin: AdminClient,
+  slugs: string[],
+): Promise<Array<{ id: string; slug: string; name: string }>> {
+  const wanted = [...new Set(slugs.map((slug) => slug.trim()).filter((slug) => slug !== ""))];
+  if (wanted.length === 0) return [];
+  const { data, error } = await admin.from("categories").select("id, slug, name").in("slug", wanted);
+  if (error || !data) return [];
+  const bySlug = new Map<string, { id: string; slug: string; name: string }>(
+    (data as Array<{ id: string; slug: string; name: string }>).map((row) => [row.slug, row]),
+  );
+  return wanted
+    .map((slug) => bySlug.get(slug))
+    .filter((row): row is { id: string; slug: string; name: string } => !!row);
+}
+
+/**
+ * Sync a product's extra category memberships (product_categories
+ * join table, migration 0012): delete the product's current rows,
+ * then insert one row per category id. The primary category is
+ * stored on products.category_id, NOT here — callers pass only
+ * the extra categories (primary first is restored by the mapper:
+ * categorySlugsForRow always puts the primary slug first). Like
+ * writeImages / writeVariants, a failed membership write must not
+ * fail the product write — and when the table does not exist yet
+ * (migration 0012 not applied) the delete + insert fail silently
+ * and the product keeps its primary category only.
+ */
+export async function writeCategories(
+  admin: AdminClient,
+  productId: string,
+  categoryIds: string[],
+): Promise<void> {
+  try {
+    await admin.from("product_categories").delete().eq("product_id", productId);
+    const ids = [...new Set(categoryIds)];
+    if (ids.length === 0) return;
+    await admin
+      .from("product_categories")
+      .insert(ids.map((category_id) => ({ product_id: productId, category_id })));
+  } catch {
+    // A failed membership row must not fail the product write.
+  }
+}
+
 export async function writeAudit(admin: AdminClient, actorId: string, action: string, entityId: string): Promise<void> {
   try {
     await admin.from("audit_log").insert({

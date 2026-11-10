@@ -194,7 +194,7 @@ export default function CheckoutForm({
               Delivery options
             </h2>
             {step !== 2 && step === 3 && (
-              <button type="button" className="text-sm text-ink hover:underline" onClick={() => setStep(2)}>
+              <button type="button" className="text-sm text-brandDark hover:underline" onClick={() => setStep(2)}>
                 Edit
               </button>
             )}
@@ -291,7 +291,7 @@ export default function CheckoutForm({
           </div>
         </dl>
         {errors.coupon && <p className={errCls}>{errors.coupon}</p>}
-        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-ink px-5 py-3 font-semibold text-white transition hover:bg-inkLight disabled:opacity-50">
+        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker disabled:opacity-50">
           {submitting ? "Placing your order…" : `Pay ${formatBDT(summary.total_poisha)} securely`}
         </button>
         <p className="mt-2 text-center text-xs text-muted">
@@ -299,7 +299,7 @@ export default function CheckoutForm({
             ? "No payment is taken now — pay on delivery."
             : "Test mode — no real payment is charged."}
         </p>
-        <Link href="/cart" className="mt-3 block text-center text-sm text-ink hover:underline">
+        <Link href="/cart" className="mt-3 block text-center text-sm text-brandDark hover:underline">
           Back to cart
         </Link>
       </aside>

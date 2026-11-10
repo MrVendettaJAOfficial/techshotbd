@@ -157,7 +157,7 @@ export default function CheckoutPage() {
 
       <ol className="mt-4 flex flex-wrap items-center gap-2 text-sm" aria-label="Checkout progress">
         <li>
-          <Link href="/cart" className="font-medium text-ink hover:underline">Cart</Link>
+          <Link href="/cart" className="font-medium text-brandDark hover:underline">Cart</Link>
         </li>
         <li className="text-muted">›</li>
         <li className="font-semibold text-text" aria-current="step">Checkout</li>

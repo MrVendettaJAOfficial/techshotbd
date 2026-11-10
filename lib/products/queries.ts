@@ -88,10 +88,26 @@ function toListItems(
   categoriesById: Map<string, CategoryRow>,
   imagesByProduct: Map<string, string[]>,
   variantsByProduct: Map<string, ProductVariantItem[]>,
+  categoriesByProduct: Map<string, string[]>,
 ): ProductListItem[] {
+  const nameBySlug = new Map<string, string>();
+  for (const category of categoriesById.values()) {
+    nameBySlug.set(category.slug, category.name);
+  }
   return rows.map((row) => {
     const category = row.category_id ? categoriesById.get(row.category_id) : undefined;
     const imagePaths = imagesByProduct.get(row.id) ?? [];
+    // Primary first, then the extra memberships from the join
+    // table, deduplicated — a product with no join rows has only
+    // its primary category here.
+    const categorySlugs = [
+      ...new Set(
+        [category?.slug, ...(categoriesByProduct.get(row.id) ?? [])].filter(
+          (slug): slug is string => typeof slug === "string" && slug !== "",
+        ),
+      ),
+    ];
+    const categoryNames = categorySlugs.map((slug) => nameBySlug.get(slug) ?? slug);
     return {
       id: row.id,
       title: row.title,
@@ -103,6 +119,8 @@ function toListItems(
       status: row.status === "active" || row.status === "paused" || row.status === "draft" ? row.status : "draft",
       categorySlug: category?.slug ?? null,
       categoryName: category?.name ?? "General",
+      categorySlugs,
+      categoryNames,
       sellerId: row.seller_id,
       imagePath: imagePaths[0] ?? null,
       imagePaths,
@@ -120,10 +138,17 @@ async function loadExtras(
 ): Promise<{
   imagesByProduct: Map<string, string[]>;
   variantsByProduct: Map<string, ProductVariantItem[]>;
+  /** Extra category ids per product, from the product_categories
+   *  join table (migration 0012). Empty when the table does not
+   *  exist yet — the product then shows under its primary category
+   *  only (see toListItems), so a missing migration never fails
+   *  the admin list. */
+  categoriesByProduct: Map<string, string[]>;
 }> {
   const imagesByProduct = new Map<string, string[]>();
   const variantsByProduct = new Map<string, ProductVariantItem[]>();
-  if (productIds.length === 0) return { imagesByProduct, variantsByProduct };
+  const categoriesByProduct = new Map<string, string[]>();
+  if (productIds.length === 0) return { imagesByProduct, variantsByProduct, categoriesByProduct };
 
   // Images and variants are independent queries — run them in
   // parallel instead of one after another.
@@ -162,7 +187,28 @@ async function loadExtras(
     });
     variantsByProduct.set(variant.product_id, list);
   }
-  return { imagesByProduct, variantsByProduct };
+
+  // Extra category memberships (migration 0012). Tolerant: the
+  // table does not exist until the migration is applied, and a
+  // missing table must not fail the admin list — an empty map
+  // means "primary category only" for every product.
+  try {
+    const { data: memberships } = await admin
+      .from("product_categories")
+      .select("product_id, category_id")
+      .in("product_id", productIds);
+    for (const row of (memberships ?? []) as Array<{
+      product_id: string;
+      category_id: string;
+    }>) {
+      const list = categoriesByProduct.get(row.product_id) ?? [];
+      if (!list.includes(row.category_id)) list.push(row.category_id);
+      categoriesByProduct.set(row.product_id, list);
+    }
+  } catch {
+    // No join table yet: every product keeps its primary only.
+  }
+  return { imagesByProduct, variantsByProduct, categoriesByProduct };
 }
 
 /** Live categories for the product form (active categories only). */
@@ -200,14 +246,23 @@ export async function fetchAllProducts(): Promise<ProductQueryResult> {
     // to run one after another, three serial Supabase round trips
     // before the page could render).
     const productIds = (productsData as ProductRow[]).map((row) => row.id);
-    const [{ data: categoryRows }, { imagesByProduct, variantsByProduct }] = await Promise.all([
+    const [{ data: categoryRows }, { imagesByProduct, variantsByProduct, categoriesByProduct }] = await Promise.all([
       admin.from("categories").select("id, slug, name, is_active"),
       loadExtras(admin, productIds),
     ]);
     const categoryRowsTyped = (categoryRows ?? []) as CategoryRow[];
     const categoriesById = new Map<string, CategoryRow>(categoryRowsTyped.map((row) => [row.id, row]));
+    // The join table carries category ids; the list items carry
+    // slugs — resolve here, dropping ids with no category row.
+    const categorySlugsByProduct = new Map<string, string[]>();
+    for (const [productId, categoryIds] of categoriesByProduct) {
+      const slugs = categoryIds
+        .map((id) => categoriesById.get(id)?.slug)
+        .filter((slug): slug is string => typeof slug === "string" && slug !== "");
+      if (slugs.length > 0) categorySlugsByProduct.set(productId, slugs);
+    }
     return {
-      products: toListItems(productsData as ProductRow[], categoriesById, imagesByProduct, variantsByProduct),
+      products: toListItems(productsData as ProductRow[], categoriesById, imagesByProduct, variantsByProduct, categorySlugsByProduct),
       categories: categoryRowsTyped
         .filter((row) => row.is_active)
         .map((row) => ({ slug: row.slug, name: row.name })),
