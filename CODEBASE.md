@@ -75,7 +75,7 @@ is the skeleton shown while it loads.
 | `components/order-detail/` | Order page pieces: `summary.tsx`, `timeline.tsx`, `items.tsx` |
 | `components/account/` | Account page pieces: `profile-section.tsx`, `addresses-section.tsx`, `orders-section.tsx`, `wishlist-section.tsx` |
 | `components/admin/` | Admin dashboard shell (`dashboard-shell.tsx`), banners (`banners-section.tsx`), messages/broadcasts (`messages-section.tsx`) and coupons (`coupons-section.tsx`) |
-| `components/HeroCarousel.tsx` | Home hero banner carousel: admin banners when any is active, otherwise the top three products; follows the product gallery exactly (desktop auto-slide 4.5s, pause on hover/focus/hidden tab/reduced-motion, arrows + dots; mobile swipe, no auto-slide); capped at 380px tall on desktop |
+| `components/HeroCarousel.tsx` | Home hero banner carousel, IMAGE-ONLY since 2026-11-10: one full-bleed banner photo per slide (380px desktop / ~200px mobile), all slides stacked and crossfaded, auto-loop on every device (4.5s, paused on hover/focus/hidden tab/reduced-motion), any manual pick resets the timer, dots overlaid on a dark pill, arrows on hover (desktop only), swipe + keyboard. Headline survives only as alt text. |
 | `components/admin-orders/` | Admin orders tab: `orders-list.tsx`, `status-controls.tsx` (status selector, Advance, Cancel, Refund) |
 | `components/Header.tsx`, `Footer.tsx` | Site header (cart button + mini-cart) and footer |
 | `components/Logo.tsx` | Brand wordmark: owner's real TS mark file (`public/images/techshot-logo.svg`) + "TechShot" in extra-bold Montserrat + green "BD", tagline; header hides the tagline on mobile, footer always shows it |
@@ -93,8 +93,8 @@ is the skeleton shown while it loads.
 | `lib/catalog-rules.ts` | Barrel for `lib/catalog/` |
 | `lib/data/catalog/` | Fallback catalogue used when Supabase is not configured: `seed-products.ts` (the products), `types.ts`, `helpers.ts` |
 | `lib/products/actions/` | Product server actions: `upload.ts` (photo upload), `create-update.ts`, `manage.ts` (status, delete), `shared.ts` (staff gate, writers) |
-| `lib/banners.ts`, `lib/banners/process-banner-image.ts`, `lib/banners-server.ts` | Hero banners: pure rules + the 1600 x 640 wide size (`BANNER_IMAGE_WIDTH_PX` / `BANNER_IMAGE_HEIGHT_PX`, one source of truth), sharp cover-crop to 1600 x 640 before Storage (never upscales), server actions for list/add/edit/toggle/delete/upload — staff only, any staff role (same rule as products) |
-| `lib/hero-slides.ts` | Hero slides: banner → slide, top products → fallback slides (the home page never shows an empty hero) |
+| `lib/banners.ts`, `lib/banners/process-banner-image.ts`, `lib/banners-server.ts` | Hero banners: pure rules (kind "promotion" / "offer", sort order) + the 1600 x 640 wide size (`BANNER_IMAGE_WIDTH_PX` / `BANNER_IMAGE_HEIGHT_PX`, one source of truth), sharp cover-crop to 1600 x 640 before Storage (never upscales), server actions for list/add/edit/toggle/delete/upload — staff only, any staff role (same rule as products). Stored headline is derived from the kind (alt text only); headline/subcopy/button columns are unused for visible rendering since the image-only redesign but kept in the DB. |
+| `lib/hero-slides.ts` | Hero slides: banner → slide (`{ image, alt }`), top products → fallback slides (the home page never shows an empty hero) |
 | `lib/products/process-image.ts` | Upload crop: sharp-crops an uploaded photo to the universal 1200x1200 square before Storage (photos smaller than 1200 in both dimensions are kept as-is, never upscaled) |
 | `lib/products/validation/upload.ts` | `PRODUCT_IMAGE_SIZE_PX` (1200, the one universal size) + `PRODUCT_IMAGE_SIZE_NOTE` (the admin warning text, built from the constant) |
 | `lib/products/validation.ts` | Barrel for `lib/products/validation/` (`slug-money`, `image-paths`, `variants`, `upload`, `schema`) |
@@ -125,13 +125,13 @@ is the skeleton shown while it loads.
 
 | File | Job |
 |---|---|
-| `supabase/migrations/0001_initial_schema.sql` … `0012_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0011 adds the `banners` table (hero slides), 0012 adds the `product_categories` join table + the "Flash deals" category — both written, NOT applied live yet. 0010 widened products UPDATE to all staff (managers CAN edit products, 2026-11-10) and is applied live. |
+| `supabase/migrations/0001_initial_schema.sql` … `0013_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0011 adds the `banners` table (hero slides) and 0012 adds the `product_categories` join table + the "Flash deals" category — both applied live 2026-11-10. 0013 adds the `kind` column to `banners` ("promotion" / "offer") — written, NOT applied live yet. 0010 widened products UPDATE to all staff (managers CAN edit products, 2026-11-10) and is applied live. |
 | `supabase/policies.sql` | Row Level Security: who may read/write each table |
 | `supabase/seed.sql` | Starting catalogue (12 products), categories, FIRST2000 coupon |
 
 ## Tests — `tests/`
 
-- `tests/*.test.mjs` — unit tests, run with `npm test` (411 tests).
+- `tests/*.test.mjs` — unit tests, run with `npm test` (412 tests).
   Some tests read source files as text to pin a mechanism in place;
   when code moves, update the *read path* in the test, never weaken
   the assertion.
@@ -168,7 +168,7 @@ is the skeleton shown while it loads.
 ## How to check your change
 
 ```bash
-npm test          # unit tests (411)
+npm test          # unit tests (412)
 npx tsc --noEmit  # types
 npm run lint      # lint
 npm run build     # production build — must pass; it catches things

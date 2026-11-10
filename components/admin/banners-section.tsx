@@ -4,6 +4,19 @@
 // the home-page hero carousel slides, and the list of banners,
 // lowest sort_order first, with show / hide and delete.
 //
+// IMAGE-ONLY since the 2026-11-10 redesign: the carousel shows
+// just the banner photo, so the form asks for a photo, a kind
+// (Promotion / Offer) and the sort order — the promotion / offer
+// text must be INSIDE the image itself. The headline, subcopy and
+// button text are no longer shown anywhere.
+//
+// NOTE: the headline / subcopy / cta_label / cta_href columns are
+// UNUSED for visible rendering since that redesign (kept in the
+// database for existing rows, never dropped). The server derives
+// the stored headline from the kind ("Promotion banner" / "Offer
+// banner") — it is only the slide's alt text. Do not add form
+// fields for them back.
+//
 // Adding, editing, toggling and deleting go through the server
 // actions in lib/banners-server.ts, which enforce any-staff
 // (lib/roles.ts canManageBanners) on every call — hiding the form
@@ -43,15 +56,15 @@ import {
   uploadBannerImage,
 } from "@/lib/banners-server";
 import {
-  BANNER_CTA_LABEL_MAX,
-  BANNER_HEADLINE_MAX,
   BANNER_IMAGE_SIZE_NOTE,
-  BANNER_SUBCOPY_MAX,
+  BANNER_KIND_LABELS,
+  BANNER_KINDS,
   bannerImageSrc,
   validateBannerInput,
   type Banner,
+  type BannerKind,
 } from "@/lib/banners";
-import { Button, Card, Field, Input, SectionHeading } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, SectionHeading, Select } from "@/components/ui";
 import ProductImage from "@/components/ProductImage";
 
 // A notice left by the previous mount, consumed once below — the
@@ -77,10 +90,7 @@ export default function BannersSection({
   const router = useRouter();
 
   const [imagePath, setImagePath] = useState("");
-  const [headline, setHeadline] = useState("");
-  const [subcopy, setSubcopy] = useState("");
-  const [ctaLabel, setCtaLabel] = useState("");
-  const [ctaHref, setCtaHref] = useState("/shop");
+  const [kind, setKind] = useState<BannerKind>("promotion");
   const [sortOrder, setSortOrder] = useState("0");
   const [active, setActive] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -104,10 +114,7 @@ export default function BannersSection({
 
   function resetForm(): void {
     setImagePath("");
-    setHeadline("");
-    setSubcopy("");
-    setCtaLabel("");
-    setCtaHref("/shop");
+    setKind("promotion");
     setSortOrder("0");
     setActive(true);
     setEditingId(null);
@@ -119,10 +126,7 @@ export default function BannersSection({
   function startEdit(banner: Banner): void {
     setEditingId(banner.id);
     setImagePath(banner.imagePath);
-    setHeadline(banner.headline);
-    setSubcopy(banner.subcopy);
-    setCtaLabel(banner.ctaLabel);
-    setCtaHref(banner.ctaHref);
+    setKind(banner.kind);
     setSortOrder(String(banner.sortOrder));
     setActive(banner.active);
     setError(null);
@@ -148,7 +152,7 @@ export default function BannersSection({
     setUploadNotice(null);
     setUploading(true);
     const formData = new FormData();
-    formData.append("headline", headline);
+    formData.append("kind", kind);
     formData.append("banner", files[0]);
     const result = await uploadBannerImage(formData).catch(() => ({
       ok: false as const,
@@ -170,10 +174,7 @@ export default function BannersSection({
     setNotice(null);
     const validated = validateBannerInput({
       imagePath,
-      headline,
-      subcopy,
-      ctaLabel,
-      ctaHref,
+      kind,
       sortOrder: Number(sortOrder),
       active,
     });
@@ -196,7 +197,10 @@ export default function BannersSection({
       setError(result.error);
       return;
     }
-    const savedHeadline = validated.value.headline;
+    // The stored headline is derived from the kind (see
+    // lib/banners-server.ts) — it is the slide's alt text, and the
+    // notice names the banner by it.
+    const savedHeadline = `${BANNER_KIND_LABELS[validated.value.kind]} banner`;
     const message = editingId
       ? `Banner "${savedHeadline}" was updated.`
       : `Banner "${savedHeadline}" was added. It shows on the home page when it is active.`;
@@ -253,7 +257,7 @@ export default function BannersSection({
     <div>
       <SectionHeading
         title="Banners"
-        description="The slides of the home-page hero carousel, lowest sort order first. When no banner is active, the home page shows the top products instead — it never shows an empty hero."
+        description="The slides of the home-page hero carousel, lowest sort order first. The carousel shows only the banner photo — put the promotion or offer text INTO the image itself; no headline, subcopy or button text is shown any more. When no banner is active, the home page shows the top products instead — it never shows an empty hero."
       />
       {!configured ? (
         <div className="mb-6 rounded-xl border border-brand/40 bg-brand/10 px-4 py-3 text-sm text-text" role="alert">
@@ -318,56 +322,24 @@ export default function BannersSection({
             </div>
             {imagePath.trim() !== "" ? (
               <div className="mt-3 overflow-hidden rounded-xl border border-border">
-                <ProductImage src={bannerImageSrc({ imagePath })} alt={headline.trim() === "" ? "Banner photo" : headline} />
+                <ProductImage src={bannerImageSrc({ imagePath })} alt={BANNER_KIND_LABELS[kind] + " banner"} />
               </div>
             ) : null}
           </div>
-          <Field label="Headline" htmlFor="banner-headline" required>
-            <Input
-              id="banner-headline"
-              value={headline}
-              onChange={(e) => setHeadline(e.target.value)}
-              placeholder="e.g. Eid Mega Sale"
+          <Field label="Kind" htmlFor="banner-kind" hint="Promotion or Offer — the badge the saved banner shows, and the alt text of the slide.">
+            <Select
+              id="banner-kind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as BannerKind)}
               disabled={formDisabled}
-              maxLength={BANNER_HEADLINE_MAX}
-              data-testid="banner-headline"
-            />
-          </Field>
-          <Field label="Button link" htmlFor="banner-cta-href" required>
-            <Input
-              id="banner-cta-href"
-              value={ctaHref}
-              onChange={(e) => setCtaHref(e.target.value)}
-              placeholder="/shop"
-              disabled={formDisabled}
-              data-testid="banner-cta-href"
-            />
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Subcopy" htmlFor="banner-subcopy">
-              <textarea
-                id="banner-subcopy"
-                value={subcopy}
-                onChange={(e) => setSubcopy(e.target.value)}
-                placeholder="One line under the headline"
-                disabled={formDisabled}
-                rows={2}
-                maxLength={BANNER_SUBCOPY_MAX}
-                data-testid="banner-subcopy"
-                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition placeholder:text-muted focus:border-brand"
-              />
-            </Field>
-          </div>
-          <Field label="Button label" htmlFor="banner-cta-label">
-            <Input
-              id="banner-cta-label"
-              value={ctaLabel}
-              onChange={(e) => setCtaLabel(e.target.value)}
-              placeholder="e.g. Shop the sale (empty hides the button)"
-              disabled={formDisabled}
-              maxLength={BANNER_CTA_LABEL_MAX}
-              data-testid="banner-cta-label"
-            />
+              data-testid="banner-kind"
+            >
+              {BANNER_KINDS.map((value) => (
+                <option key={value} value={value}>
+                  {BANNER_KIND_LABELS[value]}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="Sort order" htmlFor="banner-sort-order">
             <Input
@@ -427,16 +399,15 @@ export default function BannersSection({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-text">
-                    {banner.headline}{" "}
+                    <Badge tone={banner.kind === "offer" ? "accent" : "brand"}>
+                      {BANNER_KIND_LABELS[banner.kind]}
+                    </Badge>{" "}
                     <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${banner.active ? "bg-brand/15 text-brandDark" : "bg-panel text-muted"}`}>
                       {banner.active ? "Active" : "Hidden"}
                     </span>
                   </p>
-                  {banner.subcopy !== "" ? (
-                    <p className="mt-1 text-sm text-muted">{banner.subcopy}</p>
-                  ) : null}
                   <p className="mt-1 text-sm text-muted">
-                    Button: {banner.ctaLabel === "" ? "—" : `"${banner.ctaLabel}"`} → {banner.ctaHref} · Order: {banner.sortOrder}
+                    {banner.headline} · Order: {banner.sortOrder}
                     {banner.imagePath === "" ? " · No photo (logo placeholder)" : ` · Photo: ${banner.imagePath}`}
                   </p>
                 </div>

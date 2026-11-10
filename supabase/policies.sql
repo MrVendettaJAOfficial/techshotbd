@@ -6,8 +6,9 @@
 -- LIVE DATABASES apply the numbered migrations instead
 -- (0006_roles, 0007_order_returned, 0008_product_warranty_specs,
 -- 0009_announcements, 0010_manager_product_update,
--- 0011_banners, 0012_product_categories — 0011 and 0012 are
--- NOT applied live yet, 2026-11-10).
+-- 0011_banners, 0012_product_categories, 0013_banner_kind —
+-- 0011 and 0012 were applied live 2026-11-10; 0013 is NOT
+-- applied live yet, 2026-11-10).
 -- This file mirrors those migrations (see "Fresh-install mirror"
 -- below) so a fresh install that only runs 0001 + this file reaches
 -- exactly the same state. Every mirrored statement is idempotent, so
@@ -698,6 +699,9 @@ create index if not exists announcements_created_at_idx
 create table if not exists public.banners (
   id uuid primary key default gen_random_uuid(),
   image_path text not null default '',
+  -- Kind (migration 0013): "promotion" or "offer" — the admin
+  -- badge and the derived headline (the slide's alt text only).
+  kind text not null default 'promotion' check (kind in ('promotion', 'offer')),
   headline text not null check (char_length(headline) >= 1 and char_length(headline) <= 120),
   subcopy text not null default '' check (char_length(subcopy) <= 300),
   cta_label text not null default '' check (char_length(cta_label) <= 40),

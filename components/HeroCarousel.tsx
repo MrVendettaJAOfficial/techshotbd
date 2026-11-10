@@ -1,35 +1,47 @@
-// Hero banner carousel (client component) — the home-page hero.
+// Hero banner carousel (client component) — the home-page hero,
+// IMAGE-ONLY since the 2026-11-10 redesign.
 //
-// Replaces the old static hero (one panel + a decorative "01 / 03"
-// pager that never moved). Slides come from the admin-managed
-// banners when any is active, otherwise from the top products
-// (the fallback in lib/hero-slides.ts), so the home page never
-// shows an empty hero.
+// The whole section shows just the banner photo: no headline,
+// subcopy, button or price text anywhere. Slides come from the
+// admin-managed banners when any is active, otherwise from the top
+// products (the fallback in lib/hero-slides.ts), so the home page
+// never shows an empty hero. The text the admin used to type
+// (headline / subcopy / button) now lives INSIDE the banner image
+// itself — the banner's headline survives only as the slide's alt
+// text (accessibility), never as visible text.
 //
 // Behaviour follows the product gallery (components/product-gallery/
-// gallery.tsx) exactly, so shoppers meet one carousel language:
-//   * Desktop (hover-capable pointer): auto-advances every
-//     GALLERY_AUTO_SLIDE_MS (4.5s) while nobody is looking at it —
-//     hovering, focusing or opening the page in a hidden tab pauses
-//     it; prefers-reduced-motion turns it off entirely; arrows
-//     appear on hover / focus; dots are always there.
-//   * Mobile (touch): no auto-advance, no arrows — swipe left /
-//     right to change slides, like the phone's own gallery.
-//   * Keyboard arrows work when the carousel is focused.
+// gallery.tsx) where it can, with two deliberate differences:
+// auto-advance runs on ALL devices (touch included — the user
+// asked for a continuous loop of images), and every slide is
+// rendered at once, stacked and crossfaded, so a photo can never
+// linger mismatched with a different slide (the old carousel
+// swapped the text instantly while the previous photo was still
+// showing).
 //
-// Restrained on purpose: the slide is capped at 380px tall on
-// desktop (a banner strip, not a full-viewport takeover), the photo
-// panel is 176px tall on a phone, and the text is one headline +
-// one line of subcopy + one button — the user asked for banners
-// that are not "too much". A slide with no image shows the
-// TechShot logo placeholder, never a blank area.
+//   * Auto-advance every GALLERY_AUTO_SLIDE_MS (4.5s), paused on
+//     hover / focus / hidden tab / reduced-motion. ANY manual
+//     navigation (dot, arrow, swipe, keyboard) RESETS the timer —
+//     a `tick` state the interval effect depends on — so a manual
+//     pick is never immediately overridden by the old timer.
+//     Wraps around both directions.
+//   * Dots are overlaid at the bottom centre of the image, on a
+//     small dark translucent pill so they read over any photo.
+//   * Arrows are overlaid at the left/right edges, visible on
+//     hover / focus on desktop only (the gallery's canHover gate);
+//     on mobile swipe + dots, no arrows.
+//   * Keyboard arrows work when the region is focused.
+//
+// Restrained on purpose: 380px tall on desktop, about 200px on a
+// phone (a banner strip, not a full-viewport takeover). A slide
+// with no image shows the TechShot logo placeholder, never a
+// blank area.
 
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { ArrowRight, ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { GALLERY_AUTO_SLIDE_MS, nextGalleryIndex, prevGalleryIndex, swipeDirection } from "../lib/gallery";
 import type { HeroSlide } from "../lib/hero-slides";
 import ProductPlaceholder from "./ProductPlaceholder";
@@ -41,17 +53,23 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   const [canHover, setCanHover] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [hidden, setHidden] = useState(false);
+  // Reset token for the auto-advance timer: every manual
+  // navigation bumps it, which restarts the interval (see the
+  // effect below), so the old timer can never fire straight after
+  // a manual pick and undo it.
+  const [tick, setTick] = useState(0);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
 
   const count = slides.length;
   // The parent never passes an empty list (the fallback covers it),
   // but guard anyway: no slide, no carousel.
-  const slide = count > 0 ? slides[Math.min(active, count - 1)] : undefined;
+  const current = count > 0 ? Math.min(active, count - 1) : 0;
 
   // Pointer + motion capabilities are client-only: read them after
-  // mount so the server render matches (no slider, no arrows, on
-  // the server). A touch device reports hover: none, so it never
-  // gets the auto-slider or the arrows — swipe is its navigation.
+  // mount so the server render matches (no arrows on the server).
+  // A touch device reports hover: none, so it never gets the
+  // arrows — swipe is its navigation — but it DOES get the
+  // auto-advance loop, unlike the old carousel.
   useEffect(() => {
     const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -71,21 +89,26 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
     };
   }, []);
 
-  // The slider only runs on desktop, only with more than one slide,
-  // and only while nobody is looking at the hero: hovering,
-  // focusing or hiding the tab all pause it.
-  const autoSlide =
-    count > 1 && canHover && !reducedMotion && !hovered && !focused && !hidden;
+  // The slider runs on every device with more than one slide, and
+  // only while nobody is looking at the hero: hovering, focusing
+  // or hiding the tab all pause it, and prefers-reduced-motion
+  // turns it off entirely. It depends on `tick`, so any manual
+  // navigation restarts the 4.5s wait from the pick.
+  const autoSlide = count > 1 && !reducedMotion && !hovered && !focused && !hidden;
   useEffect(() => {
     if (!autoSlide) return;
     const timer = window.setInterval(() => {
-      setActive((current) => nextGalleryIndex(current, count));
+      setActive((prev) => nextGalleryIndex(prev, count));
     }, GALLERY_AUTO_SLIDE_MS);
     return () => window.clearInterval(timer);
-  }, [autoSlide, count]);
+  }, [autoSlide, count, tick]);
 
-  const goNext = () => setActive((current) => nextGalleryIndex(current, count));
-  const goPrev = () => setActive((current) => prevGalleryIndex(current, count));
+  const goTo = (index: number) => {
+    setActive(index);
+    setTick((prev) => prev + 1);
+  };
+  const goNext = () => goTo(nextGalleryIndex(current, count));
+  const goPrev = () => goTo(prevGalleryIndex(current, count));
   const showArrows = canHover && (hovered || focused) && count > 1;
 
   // Touch swipe: a mostly-horizontal drag past the minimum distance
@@ -116,135 +139,97 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
     }
   }
 
-  if (!slide) return null;
+  if (count === 0) return null;
 
   return (
-    <div>
-      <div
-        className="relative overflow-hidden rounded-3xl border border-border bg-panel"
-        // Horizontal drags belong to the carousel (swipe to change
-        // slides); vertical drags stay with the page (scroll).
-        style={{ touchAction: "pan-y" }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node)) setFocused(false);
-        }}
-        onKeyDown={handleKeyDown}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        tabIndex={0}
-        role="region"
-        aria-roledescription="carousel"
-        aria-label="Featured banners"
-        data-testid="hero-carousel"
-      >
+    <div
+      className="relative h-[200px] overflow-hidden rounded-3xl border border-border bg-panel lg:h-[380px]"
+      // Horizontal drags belong to the carousel (swipe to change
+      // slides); vertical drags stay with the page (scroll).
+      style={{ touchAction: "pan-y" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) setFocused(false);
+      }}
+      onKeyDown={handleKeyDown}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      tabIndex={0}
+      role="region"
+      aria-roledescription="carousel"
+      aria-label="Featured banners"
+      data-testid="hero-carousel"
+    >
+      {/* Every slide is rendered, stacked in the same fixed-height
+          frame, and crossfaded — the next photo is already loaded
+          when the slide changes, so no photo ever lingers under a
+          different slide's turn. Inactive slides are transparent
+          and untouchable. Reduced motion: no transition. */}
+      {slides.map((slide, i) => (
         <div
-          className="grid lg:h-[380px] lg:grid-cols-2"
+          key={`${slide.alt}-${i}`}
+          aria-hidden={i !== current}
           data-testid="hero-slide"
-          data-slide-index={Math.min(active, count - 1)}
-          data-slide-headline={slide.headline}
+          data-slide-index={i}
+          data-slide-alt={slide.alt}
+          className={`absolute inset-0 ${reducedMotion ? "" : "transition-opacity duration-500"} ${
+            i === current ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
         >
-          <div className="flex flex-col justify-center p-6 sm:p-10">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brandDark">
-              {slide.eyebrow}
-            </p>
-            <h1 className="mt-3 text-3xl font-bold leading-tight text-text sm:text-4xl">
-              {slide.headline}
-            </h1>
-            {slide.subcopy !== "" ? (
-              <p className="mt-4 max-w-md text-base leading-relaxed text-muted">
-                {slide.subcopy}
-              </p>
-            ) : null}
-            {slide.ctaLabel !== "" ? (
-              <div className="mt-6">
-                <Link
-                  href={slide.ctaHref}
-                  data-testid="hero-cta"
-                  className="inline-flex items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
-                >
-                  {slide.ctaLabel} <ArrowRight size={16} />
-                </Link>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="relative h-44 sm:h-56 lg:h-full">
-            {slide.image !== "" ? (
-              <Image
-                src={slide.image}
-                alt={slide.headline}
-                fill
-                priority={active === 0}
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                className="object-cover"
-              />
-            ) : (
-              <ProductPlaceholder className="h-full w-full" label={slide.headline} />
-            )}
-            {slide.priceChip ? (
-              <div className="absolute bottom-4 left-4 flex items-center gap-3 rounded-2xl bg-ink/90 px-4 py-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brandDark text-white">
-                  <Zap size={20} />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-white">{slide.priceChip}</p>
-                  <p className="text-xs text-mutedNavy">Free delivery over ৳999</p>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          {slide.image !== "" ? (
+            <Image
+              src={slide.image}
+              alt={slide.alt}
+              fill
+              priority={i === 0}
+              sizes="100vw"
+              className="object-cover"
+            />
+          ) : (
+            <ProductPlaceholder className="h-full w-full" label={slide.alt} />
+          )}
         </div>
-        {showArrows && (
-          <>
-            <button
-              type="button"
-              onClick={goPrev}
-              aria-label="Previous banner"
-              data-testid="hero-prev"
-              className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white transition hover:border-brand"
-            >
-              <ChevronLeft size={22} />
-            </button>
-            <button
-              type="button"
-              onClick={goNext}
-              aria-label="Next banner"
-              data-testid="hero-next"
-              className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white transition hover:border-brand"
-            >
-              <ChevronRight size={22} />
-            </button>
-          </>
-        )}
-      </div>
-      {count > 1 && (
-        <div className="mt-4 flex items-center justify-center gap-3">
-          <div className="flex items-center gap-2" role="tablist" aria-label="Choose banner">
-            {slides.map((item, i) => (
-              <button
-                key={item.headline + i}
-                type="button"
-                role="tab"
-                aria-selected={i === Math.min(active, count - 1)}
-                aria-label={`Go to banner ${i + 1}: ${item.headline}`}
-                data-testid={`hero-dot-${i}`}
-                onClick={() => setActive(i)}
-                className={`h-2.5 rounded-full transition ${
-                  i === Math.min(active, count - 1) ? "w-8 bg-brand" : "w-2.5 bg-border"
-                }`}
-              />
-            ))}
-          </div>
-          <p
-            aria-live="polite"
-            data-testid="hero-counter"
-            className="font-mono text-xs tracking-widest text-muted"
+      ))}
+      {showArrows && (
+        <>
+          <button
+            type="button"
+            onClick={goPrev}
+            aria-label="Previous banner"
+            data-testid="hero-prev"
+            className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white transition hover:border-brand"
           >
-            {String(Math.min(active, count - 1) + 1).padStart(2, "0")} / {String(count).padStart(2, "0")}
-          </p>
+            <ChevronLeft size={22} />
+          </button>
+          <button
+            type="button"
+            onClick={goNext}
+            aria-label="Next banner"
+            data-testid="hero-next"
+            className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white transition hover:border-brand"
+          >
+            <ChevronRight size={22} />
+          </button>
+        </>
+      )}
+      {count > 1 && (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/50 px-3 py-2" role="tablist" aria-label="Choose banner">
+          {slides.map((slide, i) => (
+            <button
+              key={`${slide.alt}-${i}`}
+              type="button"
+              role="tab"
+              aria-selected={i === current}
+              aria-label={`Go to banner ${i + 1}: ${slide.alt}`}
+              data-testid={`hero-dot-${i}`}
+              onClick={() => goTo(i)}
+              className={`h-2.5 rounded-full transition ${
+                i === current ? "w-8 bg-white" : "w-2.5 bg-white/60"
+              }`}
+            />
+          ))}
         </div>
       )}
     </div>

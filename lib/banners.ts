@@ -8,22 +8,48 @@
 //
 // A banner is one slide of the home-page hero carousel
 // (components/HeroCarousel.tsx, app/page.tsx). It lives in the
-// `banners` table (supabase/migrations/0011_banners.sql — NOT
-// applied live yet; see that file). Staff manage banners in the
+// `banners` table (supabase/migrations/0011_banners.sql — applied
+// live 2026-11-10; the `kind` column comes from migration 0013,
+// written, NOT applied live yet). Staff manage banners in the
 // admin panel's Banners tab; only active banners are shown on the
 // home page, lowest sort_order first. When no banner is active the
 // home page falls back to product slides (lib/hero-slides.ts), so
 // the home page never shows an empty hero.
+//
+// IMAGE-ONLY since the 2026-11-10 redesign: the carousel shows
+// just the banner photo — the promotion / offer text must be
+// INSIDE the image. The form no longer edits headline, subcopy or
+// the button: those columns stay in the database for existing rows
+// (never dropped), and the server derives the stored headline from
+// the kind ("Promotion banner" / "Offer banner") — it is only the
+// slide's alt text, never visible.
 
 import { resolveProductImageSrc } from "./storage-images";
+
+export type BannerKind = "promotion" | "offer";
+
+/** The two banner kinds the admin form offers. */
+export const BANNER_KINDS = ["promotion", "offer"] as const;
+
+/** Display labels for the admin kind select. */
+export const BANNER_KIND_LABELS: Record<BannerKind, string> = {
+  promotion: "Promotion",
+  offer: "Offer",
+};
 
 export interface Banner {
   id: string;
   /** Storage filename, storage path or https URL; "" means no photo. */
   imagePath: string;
+  /** Promotion or offer — which badge the admin list shows. */
+  kind: BannerKind;
+  /** Alt text for the slide (derived from the kind on write). Never rendered as visible text. */
   headline: string;
+  /** Kept in the database for existing rows; unused since the image-only redesign. */
   subcopy: string;
+  /** Kept in the database for existing rows; unused since the image-only redesign. */
   ctaLabel: string;
+  /** Kept in the database for existing rows; unused since the image-only redesign. */
   ctaHref: string;
   sortOrder: number;
   active: boolean;
@@ -50,42 +76,23 @@ export const BANNER_IMAGE_HEIGHT_PX = 640;
  */
 export const BANNER_IMAGE_SIZE_NOTE = `Recommended size: ${BANNER_IMAGE_WIDTH_PX} x ${BANNER_IMAGE_HEIGHT_PX} px (wide). Larger images are cropped to this size automatically.`;
 
-/** Longest banner headline, in characters (banners.headline). */
-export const BANNER_HEADLINE_MAX = 120;
-/** Longest banner subcopy, in characters (banners.subcopy). */
-export const BANNER_SUBCOPY_MAX = 300;
-/** Longest banner button label, in characters (banners.cta_label). */
-export const BANNER_CTA_LABEL_MAX = 40;
-
-/** Default button link for a banner without one (banners.cta_href). */
+/** Default button link for a banner without one (banners.cta_href). Kept for existing rows; the form no longer edits it. */
 export const BANNER_DEFAULT_CTA_HREF = "/shop";
 
 /**
- * True for a safe banner button link: an internal path starting
- * with a single "/" (e.g. /shop, /shop?category=gaming,
- * /product/<slug>). Protocol-relative ("//evil.com") and absolute
- * URLs are rejected — a banner button never leaves the site, so a
- * mistyped link cannot send shoppers elsewhere.
- */
-export function isSafeBannerHref(value: string): boolean {
-  return value.startsWith("/") && !value.startsWith("//");
-}
-
-/**
- * Validate a banner-form submission. Trims the text fields; the
- * headline must be 1–120 characters, the subcopy 0–300, the button
- * label 0–40, and the link an internal path (see isSafeBannerHref).
- * The sort order must be a whole number (0 or more). The server
- * action runs this same check — the browser is never trusted.
- * An empty image path is fine: a banner with no photo shows the
- * TechShot logo placeholder, never a blank area.
+ * Validate a banner-form submission. Trims the image path; the
+ * kind must be "promotion" or "offer" (missing or unknown defaults
+ * to "promotion"); the sort order must be a whole number (0 or
+ * more). The server action runs this same check — the browser is
+ * never trusted. No headline / subcopy / button is validated any
+ * more: the image-only carousel shows none of them, and the
+ * server derives the stored headline from the kind. An empty
+ * image path is fine: a banner with no photo shows the TechShot
+ * logo placeholder, never a blank area.
  */
 export function validateBannerInput(input: {
   imagePath: unknown;
-  headline: unknown;
-  subcopy: unknown;
-  ctaLabel: unknown;
-  ctaHref: unknown;
+  kind: unknown;
   sortOrder: unknown;
   active: unknown;
 }):
@@ -93,55 +100,23 @@ export function validateBannerInput(input: {
       ok: true;
       value: {
         imagePath: string;
-        headline: string;
-        subcopy: string;
-        ctaLabel: string;
-        ctaHref: string;
+        kind: BannerKind;
         sortOrder: number;
         active: boolean;
       };
     }
   | { ok: false; error: string } {
   const imagePath = typeof input.imagePath === "string" ? input.imagePath.trim() : "";
-  const headline = typeof input.headline === "string" ? input.headline.trim() : "";
-  const subcopy = typeof input.subcopy === "string" ? input.subcopy.trim() : "";
-  const ctaLabel = typeof input.ctaLabel === "string" ? input.ctaLabel.trim() : "";
-  const ctaHrefRaw = typeof input.ctaHref === "string" ? input.ctaHref.trim() : "";
-  const ctaHref = ctaHrefRaw === "" ? BANNER_DEFAULT_CTA_HREF : ctaHrefRaw;
+  const kind: BannerKind = input.kind === "offer" ? "offer" : "promotion";
   const sortOrder = typeof input.sortOrder === "number" ? input.sortOrder : Number(input.sortOrder);
   const active = input.active !== false && input.active !== "false" && input.active !== 0;
 
-  if (headline.length === 0) return { ok: false, error: "Please enter a headline." };
-  if (headline.length > BANNER_HEADLINE_MAX) {
-    return {
-      ok: false,
-      error: `The headline must be ${BANNER_HEADLINE_MAX} characters or fewer.`,
-    };
-  }
-  if (subcopy.length > BANNER_SUBCOPY_MAX) {
-    return {
-      ok: false,
-      error: `The subcopy must be ${BANNER_SUBCOPY_MAX} characters or fewer.`,
-    };
-  }
-  if (ctaLabel.length > BANNER_CTA_LABEL_MAX) {
-    return {
-      ok: false,
-      error: `The button label must be ${BANNER_CTA_LABEL_MAX} characters or fewer.`,
-    };
-  }
-  if (!isSafeBannerHref(ctaHref)) {
-    return {
-      ok: false,
-      error: "The button link must be a page on this site, starting with \"/\" (e.g. /shop).",
-    };
-  }
   if (!Number.isInteger(sortOrder) || sortOrder < 0) {
     return { ok: false, error: "The sort order must be a whole number, 0 or more." };
   }
   return {
     ok: true,
-    value: { imagePath, headline, subcopy, ctaLabel, ctaHref, sortOrder, active },
+    value: { imagePath, kind, sortOrder, active },
   };
 }
 

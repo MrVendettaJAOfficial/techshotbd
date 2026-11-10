@@ -296,7 +296,7 @@ components/
   ui.tsx              Shared primitives: Button, Card, Badge, Input, Select, Field, EmptyState, SectionHeading
   Stars.tsx           Rating stars
   ProductCard.tsx     Product card
-  HeroCarousel.tsx    Home hero banner carousel (admin banners, product fallback; same behaviour as the product gallery)
+  HeroCarousel.tsx    Home hero banner carousel, image-only (admin banners, product fallback; auto-loops on every device, manual pick resets the timer, dots overlaid on the photo)
   MiniCartDrawer.tsx  Slide-over mini cart (header cart button; same cart store as /cart)
   Logo.tsx            Brand wordmark: TS monogram, TechShot + green BD, tagline (Montserrat via next/font/google, code-built, no image)
   product-gallery/    Product photos: gallery (slider), photo-viewer (fullscreen zoom), product-detail, review-form
@@ -314,10 +314,10 @@ lib/
   catalog/            Pure catalogue rules: db-types, brands-variants, mapping, specs-gallery
   supabase/catalog.ts Live catalogue reads from Supabase
   products/           Product server actions (upload, create-update, manage), validation, server reads
-  banners.ts          Banner rules + the 1600 x 640 wide banner size (single source of truth)
+  banners.ts          Banner rules (kind "promotion" / "offer") + the 1600 x 640 wide banner size (single source of truth)
   banners/            Banner photo crop: sharp cover-crops to 1600 x 640 before Storage
-  banners-server.ts   Banner server actions (list/add/edit/toggle/delete, upload)
-  hero-slides.ts      Hero slides: banner -> slide, top products -> fallback slides
+  banners-server.ts   Banner server actions (list/add/edit/toggle/delete, upload; stored headline derived from the kind)
+  hero-slides.ts      Hero slides: banner -> slide ({ image, alt }), top products -> fallback slides
   cart-store.ts       Cart state (Supabase when signed in, localStorage fallback)
   checkout/           Checkout browser store: types, storage (localStorage), validation
   cart/server/        Server cart sync (Supabase carts/cart_items)
@@ -348,8 +348,9 @@ supabase/
   migrations/0008_product_warranty_specs.sql  Adds warranty + specifications to products
   migrations/0009_announcements.sql  Admin broadcast announcements (in-app inbox messages)
   migrations/0010_manager_product_update.sql  Managers may edit products incl. pause (applied live 2026-11-10)
-  migrations/0011_banners.sql  Hero banner slides (admin-managed) — written, NOT applied live yet
-  migrations/0012_product_categories.sql  Multi-category join table + "Flash deals" category — written, NOT applied live yet
+  migrations/0011_banners.sql  Hero banner slides (admin-managed) — applied live 2026-11-10
+  migrations/0012_product_categories.sql  Multi-category join table + "Flash deals" category — applied live 2026-11-10
+  migrations/0013_banner_kind.sql  Banner kind ("promotion" / "offer") — written, NOT applied live yet
   policies.sql        Row Level Security policies
   seed.sql            Categories, products, FIRST2000 coupon
 tests/

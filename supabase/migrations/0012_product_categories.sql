@@ -1,5 +1,7 @@
 -- Migration 0012 — products in multiple categories (2026-11-10).
--- NOT APPLIED LIVE YET.
+-- APPLIED LIVE 2026-11-10 ("Success. No rows returned";
+-- join table + 3 policies + index and the Flash deals category
+-- row verified; the 1 flagged product got its membership).
 --
 -- Adds public.product_categories: a join table so one product can
 -- belong to SEVERAL categories at once. The product add/edit form
@@ -47,12 +49,12 @@
 --     only one. The service-role client the actions use bypasses
 --     RLS.
 --
--- *** NOT APPLIED LIVE YET (2026-11-10 — written only, awaiting
--- *** the user's yes). Until it is applied, the catalogue loader
+-- *** APPLIED LIVE 2026-11-10 ("Success. No rows returned").
+-- *** Before it was applied, the catalogue loader
 -- *** (lib/supabase/catalog.ts) and the admin product queries
--- *** (lib/products/queries.ts) tolerate the missing table and
--- *** fall back to the primary category + the is_flash_deal flag,
--- *** so the shop and the admin panel keep working unchanged.
+-- *** (lib/products/queries.ts) tolerated the missing table and
+-- *** fell back to the primary category + the is_flash_deal flag,
+-- *** so the shop and the admin panel kept working unchanged.
 -- *** Safe to run once: the table is created only if missing, the
 -- *** policies are dropped first, and both inserts use
 -- *** ON CONFLICT DO NOTHING. No existing row is changed.

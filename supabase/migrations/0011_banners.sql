@@ -1,5 +1,6 @@
 -- Migration 0011 — hero banner carousel (2026-11-10).
--- NOT APPLIED LIVE YET.
+-- APPLIED LIVE 2026-11-10 ("Success. No rows returned";
+-- banners table + 5 policies + index verified).
 --
 -- Adds public.banners: the slides for the home-page hero carousel
 -- (app/page.tsx renders them through components/HeroCarousel.tsx).
@@ -43,11 +44,11 @@
 --     canManageBanners) on every call, so the RLS policy is the
 --     second layer, not the only one.
 --
--- *** NOT APPLIED LIVE YET (2026-11-10 — written only, awaiting
--- *** the user's yes). Until it is applied, every banners function
--- *** returns an empty list / a generic error and the Banners tab
--- *** says banners are unavailable, instead of failing the page —
--- *** and the home page keeps showing the product fallback slides.
+-- *** APPLIED LIVE 2026-11-10 ("Success. No rows returned").
+-- *** Before it was applied, every banners function returned an
+-- *** empty list / a generic error and the Banners tab said
+-- *** banners were unavailable, instead of failing the page —
+-- *** and the home page kept showing the product fallback slides.
 -- *** Safe to run once: the table is created only if missing and
 -- *** the policies are dropped first. No data is changed.
 

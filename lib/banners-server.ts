@@ -1,11 +1,13 @@
 // TechShot marketplace — hero banner slides.
 //
 // SERVER ACTIONS ("use server"). One job: the server-side reads and
-// writes for the `banners` table (migration 0011 — NOT applied live
-// yet; until it is, every function below returns an empty list / a
-// generic error and the Banners tab says banners are unavailable,
-// instead of failing the page — and the home page falls back to
-// product slides, see lib/hero-slides.ts).
+// writes for the `banners` table (migration 0011 — applied live
+// 2026-11-10; the `kind` column comes from migration 0013 — NOT
+// applied live yet, written only. Until 0013 is applied, reads
+// selecting `kind` fail and every function below returns an empty
+// list / a generic error and the Banners tab says banners are
+// unavailable, instead of failing the page — and the home page
+// falls back to product slides, see lib/hero-slides.ts).
 //
 // Enforcement is two layers, following the same pattern as
 // lib/announcements-server.ts:
@@ -22,11 +24,13 @@
 //     role checks above are the enforcement point here — they
 //     must never be removed.
 //   * Input is validated by the pure rules in lib/banners.ts
-//     (headline 1–120 chars, subcopy 0–300, button label 0–40,
-//     button link an internal path, sort order a whole number).
-//     An uploaded photo is cropped to 1600 x 640 before Storage
+//     (kind "promotion" or "offer", sort order a whole number).
+//     The stored headline is derived from the kind — the form no
+//     longer edits headline / subcopy / button text (image-only
+//     carousel since 2026-11-10). An uploaded photo is cropped to
+//     1600 x 640 before Storage
 //     (lib/banners/process-banner-image.ts), JPEG / PNG / WebP
-//     only, 5 MB max, filename generated server-side.
+//     only, 5 MB max, filename generated server-side from the kind.
 //
 // The home-page read (listActiveBanners) uses the request-scoped
 // client, so the authenticated/anon SELECT policy applies — the
@@ -49,6 +53,7 @@ import {
   sortBanners,
   validateBannerInput,
   type Banner,
+  type BannerKind,
 } from "./banners";
 import { processBannerImage } from "./banners/process-banner-image";
 import { slugify, uploadStoragePath, validateUploadFile } from "./products/validation";
@@ -78,6 +83,7 @@ function mapRow(row: Record<string, unknown>): Banner {
   return {
     id: String(row.id),
     imagePath: typeof row.image_path === "string" ? row.image_path : "",
+    kind: row.kind === "offer" ? "offer" : "promotion",
     headline: typeof row.headline === "string" ? row.headline : "",
     subcopy: typeof row.subcopy === "string" ? row.subcopy : "",
     ctaLabel: typeof row.cta_label === "string" ? row.cta_label : "",
@@ -91,13 +97,13 @@ function mapRow(row: Record<string, unknown>): Banner {
   };
 }
 
-const BANNER_COLUMNS = "id, image_path, headline, subcopy, cta_label, cta_href, sort_order, active, created_at";
+const BANNER_COLUMNS = "id, image_path, kind, headline, subcopy, cta_label, cta_href, sort_order, active, created_at";
 
 /**
  * Active banners, lowest sort_order first, for the home-page hero
  * carousel. Anyone may read them (anon SELECT policy on active
  * rows); the home page is public. Empty when Supabase is not
- * configured or migration 0011 has not been applied yet — the home
+ * configured or migration 0013 has not been applied yet — the home
  * page then falls back to product slides.
  */
 export async function listActiveBanners(): Promise<Banner[]> {
@@ -125,7 +131,7 @@ export async function listActiveBanners(): Promise<Banner[]> {
 /**
  * Every banner, lowest sort_order first, for the admin Banners tab.
  * Staff only (Owner, co-admin, manager): anyone else gets an empty
- * list. Empty when Supabase is not configured or migration 0011 has
+ * list. Empty when Supabase is not configured or migration 0013 has
  * not been applied yet.
  */
 export async function listBanners(): Promise<Banner[]> {
@@ -155,20 +161,31 @@ export type SaveBannerResult =
   | { ok: true; banner: Banner }
   | { ok: false; error: string };
 
+/** What the admin form sends: the photo, the kind, the order, the flag. */
+export interface SaveBannerInput {
+  imagePath: string;
+  kind: BannerKind;
+  sortOrder: number;
+  active: boolean;
+}
+
+/**
+ * The stored headline for a kind: the slide's alt text only, never
+ * visible — the image-only carousel shows the photo alone. The
+ * subcopy / button columns are cleared on write (they are unused
+ * since the redesign); the link keeps its /shop default for
+ * existing rows that still carry it.
+ */
+function headlineForKind(kind: BannerKind): string {
+  return kind === "offer" ? "Offer banner" : "Promotion banner";
+}
+
 /**
  * Add a banner. Any staff role — a manager is staff, the same rule
  * as managing products. Revalidates /admin and / so the slide
  * appears at once.
  */
-export async function createBanner(input: {
-  imagePath: string;
-  headline: string;
-  subcopy: string;
-  ctaLabel: string;
-  ctaHref: string;
-  sortOrder: number;
-  active: boolean;
-}): Promise<SaveBannerResult> {
+export async function createBanner(input: SaveBannerInput): Promise<SaveBannerResult> {
   const validated = validateBannerInput(input);
   if (!validated.ok) return { ok: false, error: validated.error };
   if (!isAdminConfigured()) return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -187,10 +204,11 @@ export async function createBanner(input: {
       .from("banners")
       .insert({
         image_path: validated.value.imagePath,
-        headline: validated.value.headline,
-        subcopy: validated.value.subcopy,
-        cta_label: validated.value.ctaLabel,
-        cta_href: validated.value.ctaHref,
+        kind: validated.value.kind,
+        headline: headlineForKind(validated.value.kind),
+        subcopy: "",
+        cta_label: "",
+        cta_href: BANNER_DEFAULT_CTA_HREF,
         sort_order: validated.value.sortOrder,
         active: validated.value.active,
       })
@@ -213,15 +231,7 @@ export async function createBanner(input: {
  */
 export async function updateBanner(
   id: string,
-  input: {
-    imagePath: string;
-    headline: string;
-    subcopy: string;
-    ctaLabel: string;
-    ctaHref: string;
-    sortOrder: number;
-    active: boolean;
-  },
+  input: SaveBannerInput,
 ): Promise<SaveBannerResult> {
   if (typeof id !== "string" || id.trim() === "") {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -242,10 +252,11 @@ export async function updateBanner(
       .from("banners")
       .update({
         image_path: validated.value.imagePath,
-        headline: validated.value.headline,
-        subcopy: validated.value.subcopy,
-        cta_label: validated.value.ctaLabel,
-        cta_href: validated.value.ctaHref,
+        kind: validated.value.kind,
+        headline: headlineForKind(validated.value.kind),
+        subcopy: "",
+        cta_label: "",
+        cta_href: BANNER_DEFAULT_CTA_HREF,
         sort_order: validated.value.sortOrder,
         active: validated.value.active,
         updated_at: new Date().toISOString(),
@@ -343,17 +354,17 @@ export type BannerImageUploadResult =
  *
  * The file is validated before anything is uploaded (JPEG / PNG /
  * WebP only, 5 MB max). The filename is generated server-side
- * from "banner-" + the headline slug + timestamp + random suffix —
- * the uploaded filename is never used, so it cannot traverse out
- * of the bucket or overwrite an existing file (upsert is off as
- * well). Before storing, the photo is cropped with sharp to the
- * one universal banner size (1600 x 640 wide, see
- * lib/banners/process-banner-image.ts) — a bigger or differently
- * shaped upload lands in Storage already wide, and the stored
- * content type is the processed file's type, so it always matches
- * the bytes. If the upload fails after storing, the file is
- * removed again, best-effort, so a half-finished upload leaves no
- * orphan.
+ * from "banner-" + the kind ("promotion" / "offer") + timestamp +
+ * random suffix — the uploaded filename is never used, so it
+ * cannot traverse out of the bucket or overwrite an existing file
+ * (upsert is off as well). Before storing, the photo is cropped
+ * with sharp to the one universal banner size (1600 x 640 wide,
+ * see lib/banners/process-banner-image.ts) — a bigger or
+ * differently shaped upload lands in Storage already wide, and
+ * the stored content type is the processed file's type, so it
+ * always matches the bytes. If the upload fails after storing, the
+ * file is removed again, best-effort, so a half-finished upload
+ * leaves no orphan.
  *
  * The file is uploaded immediately; the banners row is only
  * written when the banner itself is saved, so uploading without
@@ -374,14 +385,16 @@ export async function uploadBannerImage(formData: FormData): Promise<BannerImage
   })();
   if (!admin) return { ok: false, error: BANNER_GENERIC_ERROR };
 
-  const headline = typeof formData.get("headline") === "string" ? (formData.get("headline") as string) : "";
+  const kindValue = formData.get("kind");
+  const kind: BannerKind =
+    kindValue === "offer" ? "offer" : "promotion";
   const entry = formData.get("banner");
   const file = entry instanceof File && entry.size > 0 ? entry : null;
   if (!file) return { ok: false, error: "Choose a photo to upload first." };
   const problem = validateUploadFile(file);
   if (problem) return { ok: false, error: problem };
 
-  const slug = slugify(headline.trim() === "" ? "banner" : headline);
+  const slug = slugify(kind);
   try {
     // Crop to the universal wide strip before storing: the raw
     // upload never reaches the bucket. The processed file keeps the
