@@ -15,7 +15,7 @@ type ButtonVariant = "primary" | "accent" | "outline" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-white hover:bg-inkLight disabled:bg-ink/50",
+  primary: "bg-brandDark text-white hover:bg-brandDarker disabled:bg-brandDark/50",
   accent: "bg-accentDark text-white hover:bg-accentDarker disabled:bg-accentDark/50",
   outline:
     "border border-border bg-transparent text-text hover:border-brand hover:text-text disabled:opacity-50",
@@ -51,9 +51,23 @@ export function Button({ variant = "primary", size = "md", className, type = "bu
   );
 }
 
-export function Card({ children, className }: { children: ReactNode; className?: string }) {
+export function Card({
+  children,
+  className,
+  "data-testid": testId,
+}: {
+  children: ReactNode;
+  className?: string;
+  // Forwarded to the root <div>: sections that list items (e.g. the
+  // admin banners list) put their item testid on the Card, and
+  // without this it was silently dropped — the banner list rendered
+  // with no banner-item testid at all.
+  "data-testid"?: string;
+}) {
   return (
-    <div className={cx("rounded-2xl border border-border bg-panel p-5", className)}>{children}</div>
+    <div data-testid={testId} className={cx("rounded-2xl border border-border bg-panel p-5", className)}>
+      {children}
+    </div>
   );
 }
 

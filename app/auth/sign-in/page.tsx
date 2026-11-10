@@ -95,7 +95,7 @@ function SignInForm() {
             </p>
           ) : null}
           <div className="flex justify-end">
-            <Link href="/auth/forgot-password" className="text-sm font-medium text-ink hover:underline">
+            <Link href="/auth/forgot-password" className="text-sm font-medium text-brandDark hover:underline">
               Forgot password?
             </Link>
           </div>
@@ -106,12 +106,12 @@ function SignInForm() {
         <div className="mt-5 space-y-2 border-t border-border pt-5 text-center text-sm">
           <p className="text-muted">
             No account yet?{" "}
-            <Link href="/auth/sign-up" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-up" className="font-medium text-brandDark hover:underline">
               Create one
             </Link>
           </p>
           <p>
-            <Link href="/shop" className="font-medium text-ink hover:underline">
+            <Link href="/shop" className="font-medium text-brandDark hover:underline">
               Continue as guest
             </Link>
           </p>

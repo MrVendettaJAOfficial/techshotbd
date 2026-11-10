@@ -439,7 +439,7 @@ async function main() {
   await page.goto(`${BASE}/admin`, { waitUntil: "networkidle0" });
   await sleep(1200);
   const ownerTabs = await adminTabLabels(page);
-  check("owner sees all four admin tabs", ["Overview", "Products", "Orders", "Users"].every((t) => ownerTabs.includes(t)), ownerTabs.join(" | "));
+  check("owner sees all six admin tabs", ["Overview", "Products", "Banners", "Orders", "Messages", "Users"].every((t) => ownerTabs.includes(t)), ownerTabs.join(" | "));
   const adminText = await text(page);
   check("overview shows the stats cards", adminText.includes("Total products") && adminText.includes("Total orders") && adminText.includes("Returned"));
   await page.goto(`${BASE}/admin?tab=products`, { waitUntil: "networkidle0" });

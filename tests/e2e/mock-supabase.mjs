@@ -5,8 +5,9 @@
 // tests/e2e/smoke.mjs.
 //
 // Tables: categories, products, product_images, product_variants,
-// profiles, addresses, wishlists, carts, cart_items, orders,
-// order_items, coupons, payments, announcements, audit_log. Auth:
+// product_categories, banners, profiles, addresses, wishlists,
+// carts, cart_items, orders, order_items, coupons, payments,
+// announcements, audit_log. Auth:
 // any password grant succeeds as user-1 (customer); GET /auth/v1/user
 // accepts any Bearer token. POST /auth/v1/recover accepts any
 // recovery request (no email is sent — delivery is live-only).
@@ -46,6 +47,11 @@ const CATS = [
   ["accessories", "Accessories", 7],
   ["smart-home", "Smart Home", 8],
   ["subscriptions", "Subscriptions", 9],
+  // "Flash deals" is a category like any other (migration 0012):
+  // ticking it in the product form puts a product in the flash
+  // section. Last (sort order 10) so it does not push any tile off
+  // the home page's eight category tiles.
+  ["flash-deals", "Flash deals", 10],
 ].map(([slug, name, order]) => ({
   id: `cat-${slug}`, slug, name, sort_order: order, is_active: true,
 }));
@@ -264,6 +270,24 @@ const db = {
   // the mock exactly like the real table. The mock has no RLS and
   // sends no email — it only proves the app's read/write paths.
   announcements: [],
+  // Extra category memberships (migration 0012 — green buttons +
+  // hero carousel + multi-category build, 2026-11-10): the iPhone
+  // is the mock's one flash deal (is_flash_deal = true above), so
+  // it gets the Flash deals membership — the same membership
+  // migration 0012 grants to every product flagged is_flash_deal
+  // = true. Every other product has no join rows and shows under
+  // its primary category only.
+  product_categories: [
+    {
+      product_id: "prod-apple-iphone-16-pro-256gb-natural-titanium",
+      category_id: "cat-flash-deals",
+    },
+  ],
+  // Hero banners (migration 0011 — same build): empty on purpose —
+  // the home page falls back to product slides until the admin adds
+  // one, and the banner Playwright check adds one through the admin
+  // UI to prove the carousel switches to it.
+  banners: [],
   audit_log: [],
 };
 

@@ -225,7 +225,7 @@ for (const { name, width, height } of WIDTHS) {
       body: cs("body"),
       headerBar: cs("header > div:nth-child(2)"),
       footer: cs("footer"),
-      heroCta: cs("main a[href='/shop']"),
+      heroCta: cs("[data-testid='hero-cta']"),
       card: cs("article"),
     };
   });
@@ -233,7 +233,7 @@ for (const { name, width, height } of WIDTHS) {
   check(`${name}: body text is dark navy`, styles.body?.color === rgb("#00162E"), styles.body?.color);
   check(`${name}: header bar is navy`, styles.headerBar?.bg === rgb("#00162E"), styles.headerBar?.bg);
   check(`${name}: footer is navy`, styles.footer?.bg === rgb("#00162E"), styles.footer?.bg);
-  check(`${name}: hero CTA is navy`, styles.heroCta?.bg === rgb("#00162E"), styles.heroCta?.bg);
+  check(`${name}: hero CTA is green`, styles.heroCta?.bg === rgb("#0B7A55"), styles.heroCta?.bg);
   check(`${name}: product card is white`, styles.card?.bg === rgb("#FFFFFF"), styles.card?.bg);
   await noOverflow("home");
   await page.screenshot({ path: `${SHOTS}/${name}-home.png` });

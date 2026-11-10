@@ -85,7 +85,7 @@ export default function TestPayPage({
             restarted. Check your orders list, which is stored in your browser.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/orders" className="rounded-lg bg-ink px-5 py-3 font-semibold text-white hover:bg-inkLight">
+            <Link href="/orders" className="rounded-lg bg-brandDark px-5 py-3 font-semibold text-white hover:bg-brandDarker">
               View my orders
             </Link>
             <Link href="/" className="rounded-lg border border-border bg-panel px-5 py-3 font-medium text-text hover:border-brand">
@@ -141,7 +141,7 @@ export default function TestPayPage({
         <form action={testPayAction}>
           <input type="hidden" name="orderId" value={order.id} />
           <input type="hidden" name="outcome" value="success" />
-          <button type="submit" className="w-full rounded-lg bg-success px-5 py-3 font-semibold text-ink hover:opacity-90">
+          <button type="submit" className="w-full rounded-lg bg-success px-5 py-3 font-semibold text-white hover:opacity-90">
             Pay successfully (test)
           </button>
         </form>

@@ -114,20 +114,68 @@ async function fetchReviewStats(supabase: Supabase): Promise<Map<string, ReviewS
 /**
  * Attach the category slug to each product row, using the categories
  * table (products only carry category_id). Rows whose category is
- * missing keep category_slug unset and map to "uncategorized".
+ * missing keep category_slug unset and map to "uncategorized". The
+ * extra memberships from the product_categories join table
+ * (migration 0012) are attached as category_slugs, resolved to
+ * slugs through the same categories map; the primary slug is
+ * always first (see lib/catalog/mapping.ts categorySlugsForRow).
+ * A row with no join rows gets only its primary slug.
  */
 function withCategorySlugs(
   productRows: DbProductRow[],
   categoryRows: DbCategoryRow[],
+  slugsByProductId: Map<string, string[]>,
 ): DbProductRow[] {
   const slugById = new Map<string, string>();
   for (const category of categoryRows) {
     if (category.id) slugById.set(category.id, category.slug);
   }
-  return productRows.map((row) => ({
-    ...row,
-    category_slug: row.category_id ? (slugById.get(row.category_id) ?? null) : null,
-  }));
+  return productRows.map((row) => {
+    const primary = row.category_id ? (slugById.get(row.category_id) ?? null) : null;
+    const extra = (row.id ? slugsByProductId.get(row.id) : undefined) ?? [];
+    return {
+      ...row,
+      category_slug: primary,
+      category_slugs: [...new Set([primary, ...extra].filter((slug): slug is string => slug !== null))],
+    };
+  });
+}
+
+/**
+ * Extra category memberships (product_id -> category slugs) from
+ * the product_categories join table (migration 0012). A failure
+ * here must not fail the whole catalogue: the table does not exist
+ * until migration 0012 is applied, and until then every product
+ * simply shows under its primary category (plus the legacy
+ * is_flash_deal flag for flash deals). Returns an empty map on
+ * any failure, exactly like fetchReviewStats below.
+ */
+async function fetchProductCategorySlugs(
+  supabase: Supabase,
+  categoryRows: DbCategoryRow[],
+): Promise<Map<string, string[]>> {
+  try {
+    const { data, error } = await supabase
+      .from("product_categories")
+      .select("product_id, category_id");
+    if (error || !data) return new Map();
+    const slugById = new Map<string, string>();
+    for (const category of categoryRows) {
+      if (category.id) slugById.set(category.id, category.slug);
+    }
+    const byProduct = new Map<string, string[]>();
+    for (const row of data as Array<{ product_id: string; category_id: string }>) {
+      if (typeof row?.product_id !== "string" || typeof row?.category_id !== "string") continue;
+      const slug = slugById.get(row.category_id);
+      if (!slug) continue;
+      const list = byProduct.get(row.product_id) ?? [];
+      if (!list.includes(slug)) list.push(slug);
+      byProduct.set(row.product_id, list);
+    }
+    return byProduct;
+  } catch {
+    return new Map();
+  }
 }
 
 /** Map fetched rows to the storefront shape (visibility rule applied). */
@@ -135,8 +183,9 @@ function toLiveCatalog(
   productRows: DbProductRow[],
   categoryRows: DbCategoryRow[],
   reviewStats: Map<string, ReviewStats>,
+  slugsByProductId: Map<string, string[]>,
 ): LiveCatalog {
-  const rows = withCategorySlugs(productRows, categoryRows);
+  const rows = withCategorySlugs(productRows, categoryRows, slugsByProductId);
   const publicRows = filterPublicProducts(rows);
   const products: Product[] = publicRows.map((row) =>
     mapDbProductToCatalog(row, row.id ? reviewStats.get(row.id) : undefined),
@@ -164,7 +213,12 @@ export async function getLiveCatalog(): Promise<LiveCatalog> {
     fetchProductRows(supabase),
     fetchReviewStats(supabase),
   ]);
-  return toLiveCatalog(productRows, categoryRows, reviewStats);
+  // The join-table read needs the categories map, so it runs after
+  // the categories fetch — and it is tolerant (see
+  // fetchProductCategorySlugs): a missing table is an empty map,
+  // never a failed catalogue.
+  const slugsByProductId = await fetchProductCategorySlugs(supabase, categoryRows);
+  return toLiveCatalog(productRows, categoryRows, reviewStats, slugsByProductId);
 }
 
 /**
@@ -176,7 +230,9 @@ export async function getLiveCatalog(): Promise<LiveCatalog> {
  * the catalogue three times per visit — once for the product, once
  * for related products, and once more for metadata — each fetch
  * being three Supabase round trips (categories + products +
- * reviews). The
+ * reviews) plus a fourth, tolerant read of the product_categories
+ * join table (see fetchProductCategorySlugs — a missing table is
+ * an empty map, never a failure). The
  * metadata render and the page render share one request, so they now
  * share one fetch. The cache is per-request only: the next visit
  * re-fetches, so prices and stock are never stale — force-dynamic

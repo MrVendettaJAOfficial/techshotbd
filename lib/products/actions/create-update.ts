@@ -4,6 +4,13 @@
 // manager — 2026-11-10 decision: managers CAN edit) — see the
 // staff gate in lib/products/actions/shared.ts. All products are
 // store-owned (seller_id always null).
+//
+// Multi-category (migration 0012): the form sends every selected
+// category in `categorySlugs`, primary first. The primary stays on
+// products.category_id; the REST go into the product_categories
+// join table (writeCategories in ./shared.ts). A product with no
+// join rows still shows under its primary category, so old data
+// keeps working.
 
 "use server";
 
@@ -12,14 +19,24 @@ import { mergeImagePaths, productInputSchema, takaToPoisha } from "../validation
 import {
   GENERIC_ERROR,
   adminClient,
+  loadCategoriesBySlugs,
   loadCategory,
   requireStaff,
   revalidateProductPages,
   uniqueSlug,
   writeAudit,
+  writeCategories,
   writeImages,
   writeVariants,
 } from "./shared";
+
+/** The extra categories for a save: the full selection minus the primary. */
+function extraCategoryIds(
+  selected: Array<{ id: string; slug: string; name: string }>,
+  primarySlug: string,
+): string[] {
+  return selected.filter((category) => category.slug !== primarySlug).map((category) => category.id);
+}
 
 /** Create a product. All products are store-owned (seller_id null). Staff with the manage gate (owner / co-admin / manager). */
 export async function createProduct(rawInput: unknown): Promise<ProductActionResult> {
@@ -38,9 +55,13 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
 
   const category = await loadCategory(admin, input.categorySlug);
   if (!category) return { ok: false, error: "Please choose a valid category." };
+  const extraCategories = await loadCategoriesBySlugs(admin, input.categorySlugs ?? []);
 
   const slug = await uniqueSlug(admin, input.title);
-  const searchText = [input.title, input.description, category.name].join(" ").toLowerCase().slice(0, 1000);
+  const searchText = [input.title, input.description, category.name, ...extraCategories.map((c) => c.name)]
+    .join(" ")
+    .toLowerCase()
+    .slice(0, 1000);
 
   const { data, error } = await admin
     .from("products")
@@ -64,6 +85,7 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
 
   await writeImages(admin, data.id, mergeImagePaths(input), input.title);
   await writeVariants(admin, data.id, input.variants);
+  await writeCategories(admin, data.id, extraCategoryIds(extraCategories, input.categorySlug));
   await writeAudit(admin, user.id, "product.create", data.id);
 
   revalidateProductPages(data.slug);
@@ -99,9 +121,13 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
 
   const category = await loadCategory(admin, input.categorySlug);
   if (!category) return { ok: false, error: "Please choose a valid category." };
+  const extraCategories = await loadCategoriesBySlugs(admin, input.categorySlugs ?? []);
 
   const slug = existing.title === input.title ? existing.slug : await uniqueSlug(admin, input.title, existing.id);
-  const searchText = [input.title, input.description, category.name].join(" ").toLowerCase().slice(0, 1000);
+  const searchText = [input.title, input.description, category.name, ...extraCategories.map((c) => c.name)]
+    .join(" ")
+    .toLowerCase()
+    .slice(0, 1000);
 
   const { error } = await admin
     .from("products")
@@ -125,6 +151,7 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
   await writeImages(admin, existing.id, mergeImagePaths(input), input.title);
   await admin.from("product_variants").delete().eq("product_id", existing.id);
   await writeVariants(admin, existing.id, input.variants);
+  await writeCategories(admin, existing.id, extraCategoryIds(extraCategories, input.categorySlug));
   await writeAudit(admin, user.id, "product.update", existing.id);
 
   revalidateProductPages(slug, existing.slug);

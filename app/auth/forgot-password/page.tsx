@@ -63,14 +63,14 @@ export default function ForgotPasswordPage() {
               Did not get the email?{" "}
               <button
                 type="button"
-                className="font-medium text-ink hover:underline"
+                className="font-medium text-brandDark hover:underline"
                 onClick={() => setSent(false)}
               >
                 Try again
               </button>
             </p>
             <p className="mt-2 text-sm">
-              <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+              <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
                 Back to sign-in
               </Link>
             </p>
@@ -99,7 +99,7 @@ export default function ForgotPasswordPage() {
         )}
         <div className="mt-5 space-y-2 border-t border-border pt-5 text-center text-sm">
           <p>
-            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
               Back to sign-in
             </Link>
           </p>

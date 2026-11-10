@@ -47,11 +47,16 @@ export function getProductForCartSlug(slug: string): Product | undefined {
 }
 
 export function getRelated(product: Product, n: number): Product[] {
+  // Products sharing ANY category come first (a product in two
+  // categories is related to both), then everything else.
+  const slugs = new Set(product.categorySlugs);
+  const sharesCategory = (p: Product): boolean =>
+    p.categorySlugs.some((slug) => slugs.has(slug));
   const sameCategory = PRODUCTS.filter(
-    (p) => p.slug !== product.slug && p.category === product.category,
+    (p) => p.slug !== product.slug && sharesCategory(p),
   );
   const others = PRODUCTS.filter(
-    (p) => p.slug !== product.slug && p.category !== product.category,
+    (p) => p.slug !== product.slug && !sharesCategory(p),
   );
   return [...sameCategory, ...others].slice(0, n);
 }
@@ -60,7 +65,7 @@ export function searchProducts(query: string): Product[] {
   const q = query.trim().toLowerCase();
   if (!q) return PRODUCTS;
   return PRODUCTS.filter((p) =>
-    [p.title, p.brand, p.variant, p.description, p.category]
+    [p.title, p.brand, p.variant, p.description, p.category, ...p.categorySlugs]
       .join(" ")
       .toLowerCase()
       .includes(q),

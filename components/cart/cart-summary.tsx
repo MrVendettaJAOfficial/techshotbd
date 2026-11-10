@@ -8,7 +8,7 @@ import { formatBDT } from "@/lib/theme";
 import CouponBox from "./coupon-box";
 
 const btnAccent =
-  "inline-flex w-full items-center justify-center rounded-lg bg-ink px-5 py-3 font-semibold text-white transition hover:bg-inkLight";
+  "inline-flex w-full items-center justify-center rounded-lg bg-brandDark px-5 py-3 font-semibold text-white transition hover:bg-brandDarker";
 
 export interface CartSummaryTotals {
   savings_poisha: number;
@@ -87,7 +87,7 @@ export default function CartSummary({
               <Link href="/checkout" className={`${btnAccent} mt-4`}>
                 Proceed to Checkout
               </Link>
-              <Link href="/" className="mt-3 block text-center text-sm text-ink hover:underline">
+              <Link href="/" className="mt-3 block text-center text-sm text-brandDark hover:underline">
                 Continue shopping
               </Link>
     </aside>

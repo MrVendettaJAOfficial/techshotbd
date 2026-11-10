@@ -1,11 +1,12 @@
 // Admin dashboard — server component.
 //
-// The dashboard is split into tabs (?tab=overview|products|orders|
-// messages|users, default overview). Only the active tab's data is fetched:
+// The dashboard is split into tabs (?tab=overview|products|banners|
+// orders|messages|users, default overview). Only the active tab's data is fetched:
 // Overview reads the figures from getAdminStats()
 // (lib/admin/stats.ts), Products fetches every live product (all
 // statuses) and the live categories from Supabase (see
-// lib/products/queries.ts), Orders fetches the live orders for the
+// lib/products/queries.ts), Banners fetches every hero banner
+// (lib/banners-server.ts listBanners — staff only), Orders fetches the live orders for the
 // admin (lib/orders-server.ts listAdminOrders), Messages fetches
 // the sent broadcast announcements
 // (lib/announcements-server.ts listAnnouncements — staff only),
@@ -17,16 +18,20 @@
 // changes through lib/orders/actions.ts, so the shop and the
 // customer order pages reflect them immediately. Broadcasts go
 // through lib/announcements-server.ts (Owner / co-admin only) and
-// appear in every signed-in user's inbox (/inbox).
+// appear in every signed-in user's inbox (/inbox). Banner writes go
+// through lib/banners-server.ts (any staff role) and appear on the
+// home-page hero carousel at once.
 
 import { AuthProvider } from "@/lib/auth";
 import { getCallerRole, getCurrentUser, listUsers } from "@/lib/auth-server";
 import { listAnnouncements } from "@/lib/announcements-server";
 import type { Announcement } from "@/lib/announcements";
+import { listBanners } from "@/lib/banners-server";
+import type { Banner } from "@/lib/banners";
 import { listAdminOrders } from "@/lib/orders-server";
 import { fetchAllProducts, type AdminUserItem } from "@/lib/products/queries";
 import { getAdminStats, type AdminStats } from "@/lib/admin/stats";
-import { canSendBroadcasts, isOwner } from "@/lib/roles";
+import { canManageBanners, canSendBroadcasts, isOwner } from "@/lib/roles";
 import { isAdminTab, visibleAdminTabs, type AdminTabId } from "@/components/admin-helpers";
 import type { ListedOrder } from "@/components/AdminOrders";
 
@@ -63,6 +68,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   let users: AdminUserItem[] = [];
   let adminOrders: ListedOrder[] = [];
   let announcements: Announcement[] = [];
+  let banners: Banner[] = [];
   let canSendMessages = false;
 
   if (tab === "overview") {
@@ -72,6 +78,15 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     products = result.products;
     categories = result.categories;
     configured = result.configured;
+  } else if (tab === "banners") {
+    // Every hero banner, lowest sort_order first. Empty when
+    // Supabase is not configured or migration 0011 has not been
+    // applied yet — the Banners tab says so instead of failing.
+    // Whether the caller may MANAGE is decided server-side from
+    // their role (any staff role); the tab itself is visible to
+    // all staff.
+    banners = await listBanners().catch(() => []);
+    configured = (await fetchAllProducts().catch(() => null))?.configured ?? false;
   } else if (tab === "orders") {
     const [orders, productResult] = await Promise.all([
       // Live orders for the admin list. Empty when Supabase is not
@@ -138,6 +153,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         initialOrders={adminOrders}
         announcements={announcements}
         canSendMessages={canSendMessages}
+        banners={banners}
+        canManageBanners={canManageBanners(callerRole)}
       />
     </AuthProvider>
   );

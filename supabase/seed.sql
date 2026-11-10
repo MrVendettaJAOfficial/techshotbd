@@ -18,7 +18,12 @@ insert into public.categories (name, slug, sort_order, is_active) values
   ('Gaming',       'gaming',       6, true),
   ('Accessories',  'accessories',  7, true),
   ('Smart Home',   'smart-home',   8, true),
-  ('Subscriptions','subscriptions',9, true)
+  ('Subscriptions','subscriptions',9, true),
+  -- "Flash deals" is a category like any other (migration 0012):
+  -- ticking it in the product form puts a product in the home-page
+  -- flash-deal section. It sits last (sort order 10) so it does
+  -- not push any tile off the home page's eight category tiles.
+  ('Flash deals',  'flash-deals', 10, true)
 on conflict (slug) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -224,3 +229,21 @@ select id, '/images/products/apple-iphone-16-pro-4.jpg', title || ' — angle 4'
 from public.products
 where slug = 'apple-iphone-16-pro-256gb-natural-titanium'
 on conflict (product_id, storage_path) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Extra category memberships — one row per product per extra category
+-- (public.product_categories, migration 0012). The primary category
+-- stays on products.category_id and is NOT repeated here; these rows
+-- only ADD memberships. The iPhone is the seed's one flash deal
+-- (is_flash_deal = true above), so it gets the Flash deals
+-- membership — the same membership migration 0012 grants to every
+-- product flagged is_flash_deal = true. A product with no rows here
+-- shows under its primary category only.
+-- ---------------------------------------------------------------------------
+insert into public.product_categories (product_id, category_id)
+select p.id, c.id
+from public.products p
+cross join public.categories c
+where p.is_flash_deal = true
+  and c.slug = 'flash-deals'
+on conflict (product_id, category_id) do nothing;

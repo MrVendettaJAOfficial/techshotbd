@@ -1,6 +1,7 @@
-// Homepage (server component): hero, trust strip, shop by category,
-// trending row, flash deals with live countdown, brand partners, gaming
-// collection, why choose us, digital subscriptions, and newsletter.
+// Homepage (server component): hero banner carousel, trust strip,
+// shop by category, trending row, flash deals with live countdown,
+// brand partners, gaming collection, why choose us, digital
+// subscriptions, and newsletter.
 
 import Link from "next/link";
 import {
@@ -15,9 +16,11 @@ import {
 } from "lucide-react";
 import { PRODUCTS } from "../lib/data/catalog";
 import { getCatalog } from "../lib/supabase/catalog";
+import { listActiveBanners } from "../lib/banners-server";
+import { bannerToSlide, fallbackSlides } from "../lib/hero-slides";
 import { formatBDT } from "../lib/theme";
+import { HeroCarousel } from "../components/HeroCarousel";
 import ProductCard, { TrendingRow } from "../components/ProductCard";
-import ProductImage from "../components/ProductImage";
 import FlashCountdown from "../components/FlashCountdown";
 import NewsletterForm from "../components/NewsletterForm";
 
@@ -35,15 +38,22 @@ const CATEGORY_ICONS: Record<string, typeof Smartphone> = {
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const { products, categories, subscriptions, flashEndsAt } = await getCatalog();
-  // Hero: the iPhone if it is in the live catalogue, else the first
-  // active product. PRODUCTS[0] is only a last resort for an empty
-  // catalogue, so the hero never renders without a product.
-  const heroProduct =
-    products.find((p) => p.slug === "apple-iphone-16-pro") ??
-    products.find((p) => p.slug.startsWith("apple-iphone")) ??
-    products[0] ??
-    PRODUCTS[0];
+  const [{ products, categories, subscriptions, flashEndsAt }, banners] = await Promise.all([
+    getCatalog(),
+    listActiveBanners(),
+  ]);
+  // Hero carousel: admin banners when at least one is active,
+  // otherwise the top three products as slides (lib/hero-slides.ts)
+  // — the home page never shows an empty hero. The local seed
+  // PRODUCTS are the last resort for a genuinely empty live
+  // catalogue; getCatalog() already falls back to them when
+  // Supabase is not configured.
+  const categoryNameFor = (slug: string): string =>
+    categories.find((category) => category.slug === slug)?.name ?? slug;
+  const heroSlides =
+    banners.length > 0
+      ? banners.map((banner) => bannerToSlide(banner))
+      : fallbackSlides(products.length > 0 ? products : PRODUCTS, categoryNameFor);
   const trending = products.slice(0, 4);
   const flashProducts = products.filter((p) => p.flash).slice(0, 3);
   const categoryTiles = categories.slice(0, 8);
@@ -51,63 +61,10 @@ export default async function HomePage() {
 
   return (
     <div className="bg-surface">
-      {/* Hero */}
+      {/* Hero banner carousel — capped at 380px tall on desktop, so
+          the banners stay a strip, not a full-viewport takeover. */}
       <section className="mx-auto max-w-shell px-4 pt-8">
-        <div className="grid gap-6 rounded-3xl border border-border bg-panel p-6 sm:p-10 lg:grid-cols-2">
-          <div className="flex flex-col justify-center">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brandDark">
-              The Pro Collection
-            </p>
-            <h1 className="mt-3 text-4xl font-bold leading-tight text-text sm:text-5xl">
-              Your next upgrade. Anything but ordinary.
-            </h1>
-            <p className="mt-4 max-w-md text-base leading-relaxed text-muted">
-              Flagship phones, laptops and audio — 100% genuine, with official
-              warranty and free delivery across Bangladesh on orders above ৳999.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center gap-4">
-              <Link
-                href="/shop"
-                className="inline-flex items-center gap-2 rounded-xl bg-ink px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight"
-              >
-                Shop Now <ArrowRight size={16} />
-              </Link>
-              <p className="text-sm text-muted">
-                <span className="font-semibold text-text">{heroProduct.title}</span>
-                <span className="block">
-                  starting {formatBDT(heroProduct.price_poisha)}
-                </span>
-              </p>
-            </div>
-            <div className="mt-8 flex items-center gap-3 text-sm text-muted">
-              <span className="font-mono text-xs tracking-widest">01 / 03</span>
-              <span className="h-1 w-8 rounded-full bg-brand" aria-hidden="true" />
-              <span className="h-1 w-8 rounded-full bg-border" aria-hidden="true" />
-              <span className="h-1 w-8 rounded-full bg-border" aria-hidden="true" />
-            </div>
-          </div>
-
-          <div className="relative">
-            <Link href={`/product/${heroProduct.slug}`}>
-              <div className="overflow-hidden rounded-2xl border border-border">
-                <ProductImage
-                  src={heroProduct.image}
-                  alt={heroProduct.title}
-                  priority
-                />
-              </div>
-            </Link>
-            <div className="absolute bottom-4 left-4 flex items-center gap-3 rounded-2xl bg-ink/90 px-4 py-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brandDark text-white">
-                <Zap size={20} />
-              </span>
-              <div>
-                <p className="text-sm font-bold text-white">A18 Pro chip</p>
-                <p className="text-xs text-mutedNavy">Fastest iPhone chip ever</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HeroCarousel slides={heroSlides} />
       </section>
 
       {/* Trust strip */}
@@ -142,7 +99,7 @@ export default async function HomePage() {
             <h2 className="text-2xl font-bold text-text">Shop by category</h2>
             <p className="mt-1 text-sm text-muted">Find your next upgrade, faster.</p>
           </div>
-          <Link href="/shop" className="shrink-0 text-sm font-semibold text-ink hover:underline">
+          <Link href="/shop" className="shrink-0 text-sm font-semibold text-brandDark hover:underline">
             View all
           </Link>
         </div>
@@ -173,7 +130,7 @@ export default async function HomePage() {
             <h2 className="text-2xl font-bold text-text">Trending now</h2>
             <p className="mt-1 text-sm text-muted">What Bangladesh is buying this week.</p>
           </div>
-          <Link href="/shop" className="shrink-0 text-sm font-semibold text-ink hover:underline">
+          <Link href="/shop" className="shrink-0 text-sm font-semibold text-brandDark hover:underline">
             View all
           </Link>
         </div>
@@ -199,8 +156,22 @@ export default async function HomePage() {
           </div>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {flashProducts.map((product) => (
-              <div key={product.slug}>
-                <ProductCard product={product} />
+              // The card stretches to the row height and the stock
+              // meter sits at the bottom of the cell (flex-1 card +
+              // mt-2 meter): titles wrap to different line counts,
+              // and before this the meter sat at a different height
+              // under each card instead of lining up across the row.
+              // The meter is ONLY the visual bar — the card itself
+              // already says "Selling fast · N left" under the price
+              // (ProductCard, stock 12 or fewer), so repeating the
+              // sentence below the card showed it twice per product.
+              // The cards themselves are ProductCard — the same
+              // 220px square thumbnails and mt-auto button as
+              // everywhere else.
+              <div key={product.slug} className="flex h-full flex-col">
+                <div className="flex-1">
+                  <ProductCard product={product} />
+                </div>
                 <div className="mt-2">
                   <div className="h-2 overflow-hidden rounded-full bg-border">
                     <div
@@ -208,9 +179,6 @@ export default async function HomePage() {
                       style={{ width: `${Math.min(100, (product.stock / 30) * 100)}%` }}
                     />
                   </div>
-                  <p className="mt-1 text-xs text-muted">
-                    Selling fast · {product.stock} left
-                  </p>
                 </div>
               </div>
             ))}
@@ -250,7 +218,7 @@ export default async function HomePage() {
           </div>
           <Link
             href="/shop?category=gaming"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-ink px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-inkLight"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brandDark px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
           >
             Explore gaming <ArrowRight size={16} />
           </Link>
@@ -300,7 +268,7 @@ export default async function HomePage() {
               </p>
               <Link
                 href={`/product/${plan.productSlug}`}
-                className="mt-5 inline-flex items-center justify-center rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-inkLight"
+                className="mt-5 inline-flex items-center justify-center rounded-xl bg-brandDark px-5 py-3 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Get plan
               </Link>

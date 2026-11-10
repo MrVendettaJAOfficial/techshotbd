@@ -18,9 +18,15 @@ export const CATEGORIES: Category[] = [
   { slug: "accessories", name: "Accessories", tagline: "Chargers, cases and power" },
   { slug: "smart-home", name: "Smart Home", tagline: "Connected home essentials" },
   { slug: "subscriptions", name: "Subscriptions", tagline: "Streaming and premium plans" },
+  // "Flash deals" is a category like any other: ticking it in the
+  // product form puts a product in the home-page flash-deal section
+  // (migration 0012). It sits last (sort order 10 in the database)
+  // so it does not push any tile off the home page's eight
+  // category tiles.
+  { slug: "flash-deals", name: "Flash deals", tagline: "Big savings, while stock lasts" },
 ];
 
-export const PRODUCTS: Product[] = [
+const SEED_PRODUCTS: Array<Omit<Product, "categorySlugs"> & { categorySlugs?: string[] }> = [
   {
     slug: "apple-iphone-16-pro",
     title: "Apple iPhone 16 Pro",
@@ -31,6 +37,7 @@ export const PRODUCTS: Product[] = [
     review_count: 0,
     stock: 12,
     category: "smartphones",
+    categorySlugs: ["smartphones", "flash-deals"],
     brand: "Apple",
     flash: true,
     condition: "New",
@@ -73,6 +80,7 @@ export const PRODUCTS: Product[] = [
     review_count: 0,
     stock: 18,
     category: "audio",
+    categorySlugs: ["audio", "flash-deals"],
     brand: "Sony",
     badge: "FLASH DEAL",
     flash: true,
@@ -207,6 +215,7 @@ export const PRODUCTS: Product[] = [
     review_count: 0,
     stock: 26,
     category: "gaming",
+    categorySlugs: ["gaming", "flash-deals"],
     brand: "Sony",
     badge: "FLASH DEAL",
     flash: true,
@@ -347,6 +356,20 @@ export const PRODUCTS: Product[] = [
     },
   },
 ];
+
+/**
+ * The local seed catalogue. Every product carries its full
+ * category list (primary first): a product whose seed entry sets
+ * categorySlugs (the three flash products) keeps its extras, and
+ * every other product defaults to its single primary category —
+ * so the unconfigured fallback behaves exactly like a live product
+ * with no join rows (see lib/catalog/mapping.ts
+ * categorySlugsForRow).
+ */
+export const PRODUCTS: Product[] = SEED_PRODUCTS.map((p) => ({
+  ...p,
+  categorySlugs: p.categorySlugs ?? [p.category],
+}));
 
 export const SUBSCRIPTIONS: SubscriptionPlan[] = [
   {

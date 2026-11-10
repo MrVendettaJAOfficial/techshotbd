@@ -76,7 +76,11 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
 
   let results = products.filter((p) => {
     if (flash && !p.flash) return false;
-    if (category && p.category !== category) return false;
+    // Multi-category (migration 0012): a product shows under any
+    // of its categories, not just its primary one — so a product
+    // ticked "Flash deals" appears under /shop?category=flash-deals
+    // as well as under its main category.
+    if (category && !(p.categorySlugs ?? [p.category]).includes(category)) return false;
     if (q) {
       const haystack = [p.title, p.brand, p.variant, p.description, p.category]
         .join(" ")
@@ -131,7 +135,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
           href={buildHref(searchParams, { category: undefined, page: undefined })}
           className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
             activeCategory === "all" && !flash
-              ? "border-ink bg-ink text-white"
+              ? "border-brandDark bg-brandDark text-white"
               : "border-border bg-panel text-text hover:border-brand"
           }`}
         >
@@ -143,7 +147,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             href={buildHref(searchParams, { category: c.slug, page: undefined, flash: undefined })}
             className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
               activeCategory === c.slug
-                ? "border-ink bg-ink text-white"
+                ? "border-brandDark bg-brandDark text-white"
                 : "border-border bg-panel text-text hover:border-brand"
             }`}
           >
@@ -292,7 +296,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
             <div className="flex gap-2">
               <button
                 type="submit"
-                className="flex-1 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight"
+                className="flex-1 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Apply filters
               </button>
@@ -320,7 +324,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
               </p>
               <Link
                 href="/shop"
-                className="mt-5 rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight"
+                className="mt-5 rounded-xl bg-brandDark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker"
               >
                 Clear all filters
               </Link>
@@ -358,7 +362,7 @@ export default async function ShopPage({ searchParams }: { searchParams: SearchP
                       aria-current={n === currentPage ? "page" : undefined}
                       className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                         n === currentPage
-                          ? "border-ink bg-ink text-white"
+                          ? "border-brandDark bg-brandDark text-white"
                           : "border-border bg-panel text-text hover:border-brand"
                       }`}
                     >

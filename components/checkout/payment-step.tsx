@@ -55,7 +55,7 @@ export default function PaymentStep({
                       role="tab"
                       aria-selected={paymentMethod === method.key}
                       onClick={() => onPaymentMethodChange(method.key)}
-                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${paymentMethod === method.key ? "border-ink bg-ink text-white" : "border-border bg-surface text-text hover:border-brand"}`}
+                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${paymentMethod === method.key ? "border-brandDark bg-brandDark text-white" : "border-border bg-surface text-text hover:border-brand"}`}
                     >
                       {method.label}
                     </button>

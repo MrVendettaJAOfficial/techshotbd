@@ -85,7 +85,7 @@ export default function ResetPasswordPage() {
             <p className="mt-4">
               <Link
                 href="/auth/forgot-password"
-                className="font-medium text-ink hover:underline"
+                className="font-medium text-brandDark hover:underline"
               >
                 Request a new reset link
               </Link>
@@ -130,7 +130,7 @@ export default function ResetPasswordPage() {
         )}
         <div className="mt-5 space-y-2 border-t border-border pt-5 text-center text-sm">
           <p>
-            <Link href="/auth/sign-in" className="font-medium text-ink hover:underline">
+            <Link href="/auth/sign-in" className="font-medium text-brandDark hover:underline">
               Back to sign-in
             </Link>
           </p>

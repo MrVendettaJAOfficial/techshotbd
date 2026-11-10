@@ -156,7 +156,7 @@ export default function ProductCard({ product }: { product: Product }) {
           type="button"
           onClick={handleAdd}
           disabled={product.stock <= 0}
-          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-inkLight disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
+          className="mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-brandDark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brandDarker disabled:cursor-not-allowed disabled:bg-border disabled:text-muted"
         >
           {added ? (
             <>
