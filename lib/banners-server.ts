@@ -2,12 +2,19 @@
 //
 // SERVER ACTIONS ("use server"). One job: the server-side reads and
 // writes for the `banners` table (migration 0011 — applied live
-// 2026-11-10; the `kind` column comes from migration 0013 — NOT
-// applied live yet, written only. Until 0013 is applied, reads
-// selecting `kind` fail and every function below returns an empty
-// list / a generic error and the Banners tab says banners are
-// unavailable, instead of failing the page — and the home page
-// falls back to product slides, see lib/hero-slides.ts).
+// 2026-11-10; the `kind` column comes from migration 0013 — applied
+// live 2026-11-11).
+//
+// The home-page read (listActiveBanners) is cached across requests
+// under the "banners" tag (Next.js data cache, see
+// lib/storefront-cache.ts): the first visit after a banner write
+// fetches once, later visits read the cache. Every banner write
+// below purges the tag, so a new banner shows on the home hero
+// immediately. A failed read throws inside the cached function and
+// is never cached — listActiveBanners catches it and returns an
+// empty list, and the home page falls back to product slides (see
+// lib/hero-slides.ts). The admin list (listBanners) is NOT cached:
+// it is per-staff data and reads live on every admin visit.
 //
 // Enforcement is two layers, following the same pattern as
 // lib/announcements-server.ts:
@@ -41,10 +48,11 @@
 
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_cache } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createAdminClient, createClient } from "./supabase/server";
+import { createAdminClient, createPublicClient } from "./supabase/server";
+import { BANNERS_CACHE_TAG, revalidateBannersCache } from "./storefront-cache";
 import { getCallerRole, getCurrentUser } from "./auth-server";
 import { canManageBanners, isStaff } from "./roles";
 import { PRODUCT_IMAGES_BUCKET } from "./storage-images";
@@ -102,27 +110,45 @@ const BANNER_COLUMNS = "id, image_path, kind, headline, subcopy, cta_label, cta_
 /**
  * Active banners, lowest sort_order first, for the home-page hero
  * carousel. Anyone may read them (anon SELECT policy on active
- * rows); the home page is public. Empty when Supabase is not
- * configured or migration 0013 has not been applied yet — the home
- * page then falls back to product slides.
+ * rows); the home page is public. Throws when the query fails, so
+ * the shared cache below never caches a failure — listActiveBanners
+ * catches it and returns an empty list instead. The rows are the
+ * same through either client: banners are public data under the
+ * anon RLS policy.
+ */
+async function fetchActiveBanners(supabase: SupabaseClient): Promise<Banner[]> {
+  const { data, error } = await supabase
+    .from("banners")
+    .select(BANNER_COLUMNS)
+    .eq("active", true)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error || !data) throw new Error("Failed to load banners.");
+  return sortBanners((data as unknown as Array<Record<string, unknown>>).map(mapRow));
+}
+
+/**
+ * The active banners, cached across requests under the "banners" tag
+ * (see lib/storefront-cache.ts). The fetch runs through the
+ * cookie-less public client: the data cache forbids dynamic APIs,
+ * so the request-scoped client — which reads cookies — cannot run
+ * inside it. Every banner write below purges the tag.
+ */
+const fetchActiveBannersCached = unstable_cache(
+  async (): Promise<Banner[]> => fetchActiveBanners(untyped(createPublicClient())),
+  ["techshot-banners"],
+  { tags: [BANNERS_CACHE_TAG] },
+);
+
+/**
+ * Active banners, lowest sort_order first, for the home-page hero
+ * carousel. Empty when Supabase is not configured or a read fails —
+ * the home page then falls back to product slides.
  */
 export async function listActiveBanners(): Promise<Banner[]> {
   if (!isConfigured()) return [];
-  let supabase: SupabaseClient;
   try {
-    supabase = untyped(createClient());
-  } catch {
-    return [];
-  }
-  try {
-    const { data, error } = await supabase
-      .from("banners")
-      .select(BANNER_COLUMNS)
-      .eq("active", true)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-    if (error || !data) return [];
-    return sortBanners((data as unknown as Array<Record<string, unknown>>).map(mapRow));
+    return await fetchActiveBannersCached();
   } catch {
     return [];
   }
@@ -220,6 +246,7 @@ export async function createBanner(input: SaveBannerInput): Promise<SaveBannerRe
     if (error || !data) return { ok: false, error: BANNER_GENERIC_ERROR };
     revalidatePath("/admin");
     revalidatePath("/");
+    revalidateBannersCache();
     return { ok: true, banner: mapRow(data) };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -270,6 +297,7 @@ export async function updateBanner(
     if (error || !data) return { ok: false, error: BANNER_GENERIC_ERROR };
     revalidatePath("/admin");
     revalidatePath("/");
+    revalidateBannersCache();
     return { ok: true, banner: mapRow(data) };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -305,6 +333,7 @@ export async function setBannerActive(id: string, active: boolean): Promise<Bann
     if (error) return { ok: false, error: BANNER_GENERIC_ERROR };
     revalidatePath("/admin");
     revalidatePath("/");
+    revalidateBannersCache();
     return { ok: true };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -335,6 +364,7 @@ export async function deleteBanner(id: string): Promise<BannerActionResult> {
     if (error) return { ok: false, error: BANNER_GENERIC_ERROR };
     revalidatePath("/admin");
     revalidatePath("/");
+    revalidateBannersCache();
     return { ok: true };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };

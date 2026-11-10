@@ -5,14 +5,13 @@
 // configured, or a live lookup fails, the local seed catalogue is used
 // instead, so the page keeps working.
 //
-// One catalogue fetch per visit: the product, the related products
-// and the metadata all resolve from a single getCatalog() call (which
-// is itself per-request cached in lib/supabase/catalog.ts). The page
-// used to fetch the catalogue three times per visit — once for the
-// product, once for related products (which re-fetched the whole
-// list), and once more for metadata — so a product page cost up to
-// six Supabase round trips; it now costs two (categories + products,
-// in parallel).
+// The catalogue read is shared across requests (Next.js data cache,
+// lib/storefront-cache.ts, tag "catalog"): the first visit after a
+// product, order or review write fetches it once, and later visits
+// read the cache — zero catalogue round trips. The page itself stays
+// force-dynamic because the reviews list and the signed-in user's
+// review eligibility are live per visit (listProductReviews +
+// getCurrentUser below) and must never be cached.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";

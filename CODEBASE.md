@@ -50,9 +50,9 @@ is the skeleton shown while it loads.
 
 | Route | File | Job |
 |---|---|---|
-| `/` | `app/page.tsx` | Home: hero banner carousel, flash sale, product grid |
-| `/shop` | `app/shop/page.tsx` | Product listing with filters |
-| `/product/[slug]` | `app/product/[slug]/page.tsx` | One product: gallery, variants, reviews |
+| `/` | `app/page.tsx` | Home: hero banner carousel, flash sale, product grid. STATIC — pre-rendered at build, no function run and no database read per visit; revalidated on demand by product / banner writes (see "Storefront speed" below) |
+| `/shop` | `app/shop/page.tsx` | Product listing with filters. Still `force-dynamic` (filters via searchParams) but reads the catalogue from the shared data cache, not the database |
+| `/product/[slug]` | `app/product/[slug]/page.tsx` | One product: gallery, variants, reviews. Still `force-dynamic`: the catalogue comes from the shared data cache, but the reviews list and the signed-in user's review eligibility are live per visit and never cached |
 | `/cart` | `app/cart/page.tsx` | Cart page (thin composition; pieces in `components/cart/`) |
 | `/checkout` | `app/checkout/page.tsx` + `CheckoutForm.tsx` | Checkout steps (form lives in `components/checkout/`) |
 | `/checkout/confirmation` | `app/checkout/confirmation/page.tsx` | Order placed screen |
@@ -117,24 +117,83 @@ is the skeleton shown while it loads.
 | `lib/gallery.ts` | Gallery helpers (auto-slide timing, swipe, pinch) |
 | `lib/storage-images.ts` | Product photo URLs → public Storage bucket |
 | `lib/pricing.ts`, `lib/theme.ts` | BDT prices / delivery rules, colours. Solid buttons are green (`brandDark #0B7A55`, hover `brandDarker #096B49`) — never white text on the full green `#0F9A70` (3.57:1, fails AA); see `tests/recolour.test.mjs` |
-| `lib/supabase/` | Supabase clients (`client.ts`, `server.ts`), catalogue fetch (`catalog.ts`), database types (`types.ts`) |
+| `lib/storefront-cache.ts` | THE cache contract: the two tag names (`"catalog"`, `"banners"`) and the `revalidateCatalogCache()` / `revalidateBannersCache()` wrappers. Both tag names live here and nowhere else, so a reader and a writer can never disagree on the spelling |
+| `lib/supabase/` | Supabase clients (`client.ts`, `server.ts` — incl. `createPublicClient()`, the cookie-less anon client the data cache reads through, since the cache forbids dynamic APIs), catalogue fetch (`catalog.ts` — `getCatalog()` reads through `unstable_cache` under the `"catalog"` tag, `getLiveCatalog(supabase)` takes the client; the local fallback is NEVER cached and a failed fetch throws so it is never cached), database types (`types.ts`) |
 | `lib/demo-store.ts` | Local demo data used when Supabase is not configured |
-| `middleware.ts` | Route guard: `/admin` needs a signed-in staff role |
+| `middleware.ts` | Route guard: `/admin` needs a signed-in staff role. Matcher is `/admin/:path*` only — public shop pages never pay for a per-request `getUser()` |
+
+## Storefront speed — the shared data cache (2026-11-11)
+
+The shop was slow because every visit re-ran the server and re-fetched
+the whole catalogue live from Supabase (Singapore) from a Vercel
+function (US by default on Hobby): home 5 REST calls, shop 4,
+a product page 8 — on every visit, for 12 products. The fix is one
+shared cache, not per-page tricks:
+
+- **Readers:** `getCatalog()` (`lib/supabase/catalog.ts`) and the
+  active banners (`listActiveBanners()` in `lib/banners-server.ts`)
+  read through Next.js `unstable_cache` under the tags `"catalog"` /
+  `"banners"` (the tag names live only in `lib/storefront-cache.ts`).
+  Home, shop, product pages, flash deals and related products all
+  read through the same cached copy. Repeat visits issue zero
+  catalogue queries; the first visit after a write fetches it once
+  (4 calls). A `Date` inside the cached value comes back as a string
+  (`unstable_cache` serializes to JSON) — `getCatalog()` revives
+  `flashEndsAt` to a `Date` on read.
+- **Writers (the purge):** every write that changes
+  catalogue-visible data calls `revalidateTag` for the tag, on top
+  of the `revalidatePath` calls that were already there: product
+  create / update / pause / delete (`lib/products/actions/shared.ts`
+  `revalidateProductPages`), banner create / update / hide / show /
+  delete (`lib/banners-server.ts`), order placement (stock down) and
+  order cancel / refund / returned (stock restored). So an admin edit
+  shows on the storefront immediately, including on the static home page.
+  Review submission is the DELIBERATE exception: it must NOT purge —
+  a server action that revalidates makes the client refresh the
+  current route, and that refresh remounts the review form, wiping
+  the thank-you notice and the just-written review and resetting
+  the gallery tab to Description (see `lib/reviews.ts` and the
+  form's header comment). The rating aggregate refreshes on the
+  next product / order / banner write instead; the reviews list
+  itself is live per visit, and the form shows the new review from
+  local state immediately. Pinned by
+  `tests/storefront-cache.test.mjs`.
+- **Home is static** (`app/page.tsx` has no `force-dynamic` any
+  more): it is pre-rendered at build and revalidated on demand by
+  the writes above. Shop and product pages stay `force-dynamic`;
+  only their catalogue read is cached.
+- **Never cached (always live):** cart, checkout, account, orders,
+  inbox, admin lists (`fetchAllProducts`), the reviews list, and
+  review-write eligibility (`getCurrentUser`). Per-user data never
+  goes through the cache.
+- **Client router cache:** `next.config.mjs` sets
+  `experimental.staleTimes.static: 30` — without it, a shopper
+  already browsing would keep seeing the previous static home page
+  for up to 5 minutes (Next 14's default) after an admin edit on
+  client-side navigation. 30s keeps the window short while
+  prefetch still helps; full loads are always fresh.
+- **Limits to know:** there is no time-based expiry — data is fresh
+  until a write purges it. A write that bypasses the app's server
+  actions (a direct SQL edit in the Supabase dashboard) does NOT
+  purge the tag, so the storefront keeps showing the old data until
+  the next app write or server restart. `unstable_cache` is unstable
+  API in Next 14.2.5, but it is the documented mechanism for this.
 
 ## Database — `supabase/`
 
 | File | Job |
 |---|---|
-| `supabase/migrations/0001_initial_schema.sql` … `0013_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0011 adds the `banners` table (hero slides) and 0012 adds the `product_categories` join table + the "Flash deals" category — both applied live 2026-11-10. 0013 adds the `kind` column to `banners` ("promotion" / "offer") — written, NOT applied live yet. 0010 widened products UPDATE to all staff (managers CAN edit products, 2026-11-10) and is applied live. |
+| `supabase/migrations/0001_initial_schema.sql` … `0013_*.sql` | Database changes, in order. Never edit an applied migration — add a new one. 0011 adds the `banners` table (hero slides) and 0012 adds the `product_categories` join table + the "Flash deals" category — both applied live 2026-11-10. 0013 adds the `kind` column to `banners` ("promotion" / "offer") — applied live 2026-11-11. 0010 widened products UPDATE to all staff (managers CAN edit products, 2026-11-10) and is applied live. |
 | `supabase/policies.sql` | Row Level Security: who may read/write each table |
 | `supabase/seed.sql` | Starting catalogue (12 products), categories, FIRST2000 coupon |
 
 ## Tests — `tests/`
 
-- `tests/*.test.mjs` — unit tests, run with `npm test` (412 tests).
+- `tests/*.test.mjs` — unit tests, run with `npm test` (429 tests).
   Some tests read source files as text to pin a mechanism in place;
   when code moves, update the *read path* in the test, never weaken
-  the assertion.
+  the assertion. `tests/storefront-cache.test.mjs` pins the data-cache
+  contract (tags, purge call sites, static home, no per-user caching).
 - `tests/e2e/` — Playwright browser tests against the mock Supabase
   (`mock-supabase.mjs`, port 3101): `smoke.mjs` (buy a product end to
   end), `roles-admin-tabs.mjs`, `mini-cart-variant-photos.mjs`,
@@ -144,7 +203,13 @@ is the skeleton shown while it loads.
   flash deals, multi-category — at 1440 / 1280 / 390),
   `recolour-mobile.mjs`, `light-theme-auth-inbox.mjs`,
   `manager-edit-products.mjs`, `logo-header.mjs`, `image-size.mjs`,
-  `hydration.mjs`.
+  `hydration.mjs`, `admin-tabs-performance.mjs` (instant tab
+  highlight + round-trip counts per admin tab),
+  `storefront-cache.mjs` (repeat visits issue zero catalogue
+  queries, admin edits show immediately, paused products hidden,
+  banner add/delete, reviews stay live, no overflow at 1440 / 1280
+  / 390 — run with a cold data cache: `rm -rf .next/cache/fetch-cache`
+  before starting the app).
 - `tests/ts-hooks.mjs` — test loader: resolves the `@/` alias and
   extensionless imports. It only resolves real files, never
   directories (a same-named folder must not shadow its barrel file).
@@ -168,7 +233,7 @@ is the skeleton shown while it loads.
 ## How to check your change
 
 ```bash
-npm test          # unit tests (412)
+npm test          # unit tests (429)
 npx tsc --noEmit  # types
 npm run lint      # lint
 npm run build     # production build — must pass; it catches things

@@ -6,6 +6,14 @@
 //   createClient()      — per-request client for Server Components, Route
 //                         Handlers and Server Actions. Uses the anon key
 //                         with the user's cookies, so RLS still applies.
+//   createPublicClient()  — cookie-less anon client for PUBLIC reads
+//                         only (the storefront catalogue + active
+//                         banners). No cookies, no session: the Next.js
+//                         data cache (unstable_cache) forbids dynamic
+//                         APIs, so the shared cache reads through this
+//                         client instead of createClient(). RLS still
+//                         applies (anon key), and the rows are the same
+//                         — the catalogue is public data.
 //   createAdminClient() — service-role client for trusted server work
 //                         only (order creation, stock updates, payment
 //                         callbacks, admin actions). Bypasses RLS, so
@@ -21,7 +29,6 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./types";
-
 /**
  * True when the Supabase env vars are all set. Zero round trips —
  * it reads process.env only, so it never waits on the database.
@@ -77,6 +84,34 @@ export function createAdminClient() {
   }
 
   return createSupabaseClient<Database>(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/**
+ * Cookie-less anon client for public reads (the storefront catalogue
+ * and the active banners). No session is persisted or refreshed, and
+ * — critically — it never calls cookies(): the Next.js data cache
+ * (unstable_cache, see lib/storefront-cache.ts) forbids dynamic APIs
+ * inside a cached function, so the shared catalogue / banners cache
+ * reads through this client instead of createClient(). RLS still
+ * applies through the anon key, and the catalogue is public data, so
+ * the rows are the same ones a signed-out shopper would read.
+ * Never use this for per-user data — it has no session at all.
+ */
+export function createPublicClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    // Generic message on purpose: never reveal which value is missing.
+    throw new Error("Supabase is not configured.");
+  }
+
+  return createSupabaseClient<Database>(url, anonKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

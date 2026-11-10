@@ -61,6 +61,22 @@ const scriptSrc =
     : "'self' 'unsafe-inline'";
 
 const nextConfig = {
+  // Client router cache for STATIC pages: 30 seconds, not the 300s
+  // default. The home page is static (see app/page.tsx), so without
+  // this a shopper already browsing could keep seeing the previous
+  // home page for up to five minutes after an admin edit when
+  // navigating client-side — the server would already be fresh
+  // (on-demand revalidation), but their browser would reuse its
+  // cached copy. 30 seconds keeps that window short while the
+  // prefetched copy still serves repeat taps. Full loads are always
+  // fresh regardless. The re-fetched payloads are pre-rendered, so
+  // they cost no function run and no database read — only dynamic
+  // pages (shop, product, admin) re-render on the server.
+  experimental: {
+    staleTimes: {
+      static: 30,
+    },
+  },
   images: {
     remotePatterns,
     formats: ["image/avif", "image/webp"],

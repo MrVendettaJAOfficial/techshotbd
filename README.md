@@ -107,7 +107,7 @@ To exercise the admin orders flow against the mock instead, start the mock with 
 
 The 2026-11-08 gstack review fixes are covered by `tests/e2e/review-fixes.mjs` (same mock + `MOCK_ADMIN=1` setup, run after the app is built against the mock): a realistic double-click of Advance moves one step only and the button disables while the action runs, then two clicks dispatched synchronously in one task also move one step only (the synchronous in-flight ref guard in `AdminDashboard.tsx` — React state alone cannot stop the second click, and the server's conditional update cannot either, because "advance from the new status" is legal once the first advance lands); a customer cancel cancels the live order, restores stock, writes a customer-cancel audit row and shows the stock-released confirmation; an admin Refund calls the test adapter first and appends a refunded payments row while the paid row stays paid; a failed test payment followed by a successful retry leaves two payments rows; and a fresh browser lists live orders with live status. Stock is read from the variant row the order actually decremented (the iPhone's Natural Titanium variant — see the comment on `iphoneStock()`): since the mock gained variant rows, checkout decrements the variant row, not the product row.
 
-The mini-cart drawer, colour-variant photos and per-route skeletons are covered by one combined run, `tests/e2e/mini-cart-variant-photos.mjs` (same mock setup, no admin mode needed): variant photos (Black Titanium switches the gallery to the variant image and back), the drawer (opens without navigating or losing scroll, quantity +/- updates the header count, Escape / overlay / X close it with focus back on the cart button, "View full cart" and "Checkout" land on `/cart` / `/checkout`, mobile size, empty state), and skeletons (the matching skeleton appears before the content on `/shop`, a product page and `/`, then is replaced). The mock's Black Titanium photo is a stand-in (the Sony headphones shot), labelled as such — no real colour photo exists yet. The skeleton section sets a 2s delay on the mock first (test-only endpoint `GET /__test/delay?ms=N`, cleared afterwards) because a skeleton only renders while the page waits on data and the mock answers in milliseconds; the product skeleton is checked via client-side navigation from `/shop`, since on a cold load `generateMetadata` blocks the shell (see "Loading skeletons").
+The mini-cart drawer, colour-variant photos and per-route skeletons are covered by one combined run, `tests/e2e/mini-cart-variant-photos.mjs` (same mock setup, no admin mode needed): variant photos (Black Titanium switches the gallery to the variant image and back), the drawer (opens without navigating or losing scroll, quantity +/- updates the header count, Escape / overlay / X close it with focus back on the cart button, "View full cart" and "Checkout" land on `/cart` / `/checkout`, mobile size, empty state), and skeletons (the matching skeleton appears before the content on `/shop` and a product page, then is replaced; `/` is static since 2026-11-11, so it shows its content immediately with no skeleton — the script checks that instead). The mock's Black Titanium photo is a stand-in (the Sony headphones shot), labelled as such — no real colour photo exists yet. The skeleton section sets a 2s delay on the mock first (test-only endpoint `GET /__test/delay?ms=N`, cleared afterwards) because a skeleton only renders while the page waits on data and the mock answers in milliseconds; the product skeleton is checked via client-side navigation from `/shop`, since on a cold load `generateMetadata` blocks the shell (see "Loading skeletons").
 
 Product photos resolving to Supabase Storage are covered by `tests/e2e/storage-images.mjs` (same mock setup, no admin mode needed): the server-rendered `/shop` HTML contains a Storage photo URL, loading `/shop` in a real browser shows no remotePatterns / invalid-src / CSP image error, and the rendered `<img>` elements point at the Storage URL rather than a local path. The mock serves no Storage objects, so a successful photo load cannot be proven here — the live load is verified after deploy.
 
@@ -174,7 +174,7 @@ Selecting a colour (or storage option) switches the gallery photo to that varian
 
 ## Loading skeletons
 
-Every route has its own `loading.tsx` that mirrors the real page layout, so navigation shows the matching skeleton instantly instead of a blank page: home (hero + product grid), `/shop` (filters + 9-card grid), `/product/[slug]` (gallery + info column + selectors), `/account` (user card + profile form + sections), `/admin` (form card + product rows + sections). Solid colours, `animate-pulse`, `bg-panel` — the same pattern as before, just per-route instead of one generic skeleton for everything. The cart drawer needs no skeleton: its content is synchronous from the cart store, so it opens instantly with the lines already in it.
+Every dynamic route has its own `loading.tsx` that mirrors the real page layout, so navigation shows the matching skeleton instantly instead of a blank page: `/shop` (filters + 9-card grid), `/product/[slug]` (gallery + info column + selectors), `/account` (user card + profile form + sections), `/admin` (form card + product rows + sections). Solid colours, `animate-pulse`, `bg-panel` — the same pattern as before, just per-route instead of one generic skeleton for everything. `/` is static since 2026-11-11 (pre-rendered at build, see "Storefront data cache" below), so no skeleton ever appears there — `app/loading.tsx` stays as the fallback loading UI for dynamic routes without their own skeleton. The cart drawer needs no skeleton: its content is synchronous from the cart store, so it opens instantly with the lines already in it.
 
 One honest limitation, found while verifying: on a **cold load** (typing a product URL directly), the product skeleton does not appear — `generateMetadata` blocks the document shell on the same catalogue fetch the page needs, so the shell cannot flush until the data is ready. On **in-app navigation** (clicking a product card from `/shop` or home) the router shows the product skeleton for the whole fetch, which is the common case. The skeleton file stays for that reason; removing the product's `<title>` metadata to chase a cold-load skeleton would trade real SEO for nothing.
 
@@ -206,6 +206,61 @@ Measured locally against the mock Supabase (no real keys), before and after. The
 | `/seller` | 12.7 ms | 12.3 ms | 404 | 404 |
 
 TTFB and full-load times against the mock are essentially unchanged — they were already fast, and the mock's tiny images never showed the real-photo cost. The measurable wins are the cold image optimisation (above) and the round-trip reduction, which only show up against the real project and real photos. The user's reported 30s loads (10–20s on profile/admin) are most plausibly dev-mode compile + squoosh cold optimisation of real photos + serial round trips to ap-southeast-1 — the mock cannot reproduce his exact 30s, and this README does not claim it does.
+
+## Storefront data cache (2026-11-11)
+
+The 2026-11-09 fixes above left one thing in place: every storefront
+visit still re-ran the server and re-fetched the whole catalogue live
+from Supabase (Singapore) from a Vercel function (US by default on
+Hobby) — the catalogue read was only per-request cached (React
+`cache()`). That is now a **shared cross-request data cache**
+(`unstable_cache`, tags `"catalog"` / `"banners"`, contract in
+`lib/storefront-cache.ts`): the catalogue (products + images +
+variants + categories + product_categories) and the active banners
+are fetched once and shared across requests, and the home page is
+fully **static** (pre-rendered at build, no function run at all).
+`getCatalog()` revives `flashEndsAt` back to a `Date` after the JSON
+cache round-trip. Shop and product pages stay `force-dynamic` — only
+their catalogue read is cached; the reviews list and review-write
+eligibility stay live per visit.
+
+Measured against the mock Supabase (plain document fetches, cold data
+cache), REST calls per visit, before → after:
+
+| Page | Before | After |
+|---|---|---|
+| `/` (home) | 5 (banners 1, categories 1, products 1, reviews 1, product_categories 1) | 0 — static HTML, even on the first visit |
+| `/shop` | 4, every visit | first visit 4, repeat visits 0 (incl. `/shop?category=audio`) |
+| `/product/[slug]` | 8 (4 catalogue + 4 live) | 0 catalogue + the same 4 live (product resolve ×2, reviews list, author names) |
+
+**Admin edits still show immediately:** every write that changes
+catalogue-visible data purges the tag on top of the existing
+`revalidatePath` calls — product create / update / pause / delete,
+banner create / update / hide / show / delete, order placement (stock
+down), order cancel / refund / returned (stock restored). Review
+submission is the deliberate exception and does NOT purge: a
+revalidating server action refreshes the route and remounts the
+review form, wiping the thank-you notice and the just-written review
+(see `lib/reviews.ts`); the rating aggregate refreshes on the next
+product / order / banner write instead, while the reviews list
+itself is live per visit and the form shows the new review from
+local state immediately. Proven by `tests/e2e/storefront-cache.mjs`
+(61 checks): after an admin price edit the next `/shop` fetch re-reads
+exactly once (4 calls) and the new price shows on `/shop` and `/`
+immediately; pausing hides the product's page (not-found content) and
+drops it from `/shop`; activating brings it back; a banner add takes
+over the hero immediately and a delete returns it to product slides.
+Per-user data is never cached: cart, checkout, account, orders, inbox,
+admin lists, the reviews list and review eligibility all read live.
+`next.config.mjs` sets `experimental.staleTimes.static: 30` so a
+shopper already browsing sees the fresh home at most 30s after an
+edit on client-side navigation (Next 14's default would be 300s).
+**Known limits:** no time-based expiry — data is fresh until a write
+purges it, so a direct SQL edit in the Supabase dashboard (bypassing
+the app's server actions) does not purge the tag; `unstable_cache`
+is unstable API in Next 14.2.5. The middleware was checked and left
+alone: its matcher was already `/admin/:path*` only, so public shop
+pages never paid for a per-request `getUser()`.
 
 **Dev vs production:** use the production build for local use — `npm run build && npm run start` — not `npm run dev`, whose first-hit compile (9.5s for `/`) is the main thing that makes the site feel slow locally. Never run `dev` and `start` from the same checkout without rebuilding in between: they fight over `.next` (starting dev deletes `BUILD_ID` and breaks the running production server).
 
