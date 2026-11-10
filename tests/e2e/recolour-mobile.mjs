@@ -157,15 +157,21 @@ for (const { name, width, height } of WIDTHS) {
       announcement: cs("header > div:first-child"),
       headerBar: cs("header > div:nth-child(2)"),
       footer: cs("footer"),
-      heroCta: cs("[data-testid='hero-cta']"),
     };
+  });
+  // The hero is image-only since the 2026-11-10 redesign: no CTA
+  // any more — the fallback slide's alt identifies it instead.
+  const heroImageOnly = await page.evaluate(() => {
+    const carousel = document.querySelector('[data-testid="hero-carousel"]');
+    const slide = document.querySelector('[data-testid="hero-slide"]');
+    return !!carousel && !!slide && (slide.getAttribute("data-slide-alt") ?? "") !== "" && !document.querySelector('[data-testid="hero-cta"]');
   });
   check(`${name}: page background is white`, styles.body?.bg === rgb("#FFFFFF"), styles.body?.bg);
   check(`${name}: body text is dark navy`, styles.body?.color === rgb("#00162E"), styles.body?.color);
   check(`${name}: announcement bar is button green`, styles.announcement?.bg === rgb("#0B7A55"), styles.announcement?.bg);
   check(`${name}: header bar is navy`, styles.headerBar?.bg === rgb("#00162E"), styles.headerBar?.bg);
   check(`${name}: footer is navy`, styles.footer?.bg === rgb("#00162E"), styles.footer?.bg);
-  check(`${name}: hero CTA is green`, styles.heroCta?.bg === rgb("#0B7A55"), styles.heroCta?.bg);
+  check(`${name}: hero is image-only (slide alt present, no CTA)`, heroImageOnly);
   await noOverflow("home");
   await shot("home");
 

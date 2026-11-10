@@ -2,17 +2,22 @@
 //
 // 2026-11-10: the user asked for green buttons and highlights
 // throughout the site, no duplicate links in the navbar/footer,
-// minimal borders on every card, a restrained admin-managed hero
+// minimal borders on every card, an image-only admin-managed hero
 // banner carousel, a fixed flash-deal section, and products in
 // multiple categories (ticking "Flash deals" puts a product in the
 // flash section). This file pins those rules down in source:
 // green is the button/link colour (never white text on the full
 // green), the navbar is the only place for category links, every
-// card surface carries the 1px border, the carousel falls back to
-// product slides when no banner is active, banner photos crop to
-// the wide 1600 x 640 strip, flash deals come from the Flash deals
-// category OR the legacy flag, and the product form writes the
-// join table (migrations 0011 + 0012 — written, NOT applied live).
+// card surface carries the 1px border, the carousel shows only the
+// banner photo (image-only since the 2026-11-10 redesign —
+// headline/subcopy/button text live inside the image, the
+// headline survives only as alt text), it auto-loops on every
+// device and any manual pick resets the timer, banner photos crop
+// to the wide 1600 x 640 strip, flash deals come from the Flash
+// deals category OR the legacy flag, and the product form writes
+// the join table (migrations 0011 + 0012 — applied live
+// 2026-11-10; 0013 adds the banner kind — written, NOT applied
+// live).
 //
 // Run: npm test  (node --test tests/*.test.mjs)
 
@@ -24,11 +29,11 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 import {
-  BANNER_CTA_LABEL_MAX,
-  BANNER_HEADLINE_MAX,
   BANNER_IMAGE_HEIGHT_PX,
   BANNER_IMAGE_SIZE_NOTE,
   BANNER_IMAGE_WIDTH_PX,
+  BANNER_KIND_LABELS,
+  BANNER_KINDS,
   bannerImageSrc,
   sortBanners,
   validateBannerInput,
@@ -252,19 +257,39 @@ test("card borders: every card surface has the 1px border-border", () => {
 test("hero carousel exists with the gallery's behaviour and a restrained height", () => {
   assert.equal(readSource("components/HeroCarousel.tsx").includes("export function HeroCarousel"), true);
   const carousel = readSource("components/HeroCarousel.tsx");
-  // Same carousel language as the gallery: auto-slide on desktop
-  // only, pause on hover/focus/hidden/reduced-motion, arrows on
-  // hover, dots + counter, swipe on touch, keyboard arrows.
+  // Image-only since the 2026-11-10 redesign: the whole section
+  // is one banner photo. No text panel, no headline / subcopy /
+  // button / price text, no "01 / 03" counter row below — the
+  // text lives inside the image; the headline survives only as
+  // the slide's alt text (data-slide-alt).
+  assert.doesNotMatch(carousel, /data-testid="hero-counter"/);
+  assert.doesNotMatch(carousel, /data-testid="hero-cta"/);
+  assert.doesNotMatch(carousel, /data-slide-headline/);
+  assert.doesNotMatch(carousel, /slide\.headline|slide\.subcopy|slide\.ctaLabel|slide\.priceChip/);
+  assert.match(carousel, /data-slide-alt/);
+  assert.match(carousel, /data-testid="hero-slide"/);
+  // Same carousel language as the gallery, with the redesign's
+  // two differences: the auto-slide loop runs on ALL devices
+  // (touch included), and every slide is rendered at once and
+  // crossfaded so no photo ever lingers under another slide.
+  // Manual navigation resets the timer (the tick state the
+  // interval depends on); pause on hover/focus/hidden tab /
+  // reduced-motion; arrows on hover (desktop only); dots overlaid
+  // on the photo; swipe on touch; keyboard arrows.
   assert.match(carousel, /GALLERY_AUTO_SLIDE_MS/);
   assert.match(carousel, /canHover/);
   assert.match(carousel, /prefers-reduced-motion/);
   assert.match(carousel, /swipeDirection/);
+  assert.match(carousel, /transition-opacity/);
+  assert.match(carousel, /setTick\(\(prev\) => prev \+ 1\)/);
+  assert.match(carousel, /\[autoSlide, count, tick\]/);
   assert.match(carousel, /data-testid="hero-prev"/);
   assert.match(carousel, /data-testid="hero-next"/);
   assert.match(carousel, /hero-dot-/);
-  assert.match(carousel, /data-testid="hero-counter"/);
-  assert.match(carousel, /data-testid="hero-cta"/);
-  // Restrained: 380px tall on desktop, never full-viewport.
+  assert.match(carousel, /bg-black\/50/);
+  // Restrained: 380px tall on desktop, about 200px on mobile,
+  // never full-viewport.
+  assert.match(carousel, /h-\[200px\]/);
   assert.match(carousel, /lg:h-\[380px\]/);
   assert.doesNotMatch(carousel, /h-screen|min-h-screen/);
   // A slide with no image shows the logo placeholder, never blank.
@@ -280,20 +305,22 @@ test("hero carousel exists with the gallery's behaviour and a restrained height"
 test("fallback slides come from the top three products", () => {
   const slides = fallbackSlides(PRODUCTS, (slug) => slug);
   assert.equal(slides.length, 3);
-  assert.equal(slides[0].headline, PRODUCTS[0].title);
-  assert.equal(slides[0].ctaHref, `/product/${PRODUCTS[0].slug}`);
-  assert.equal(slides[0].ctaLabel, "Shop now");
-  assert.ok(slides[0].priceChip?.includes("৳"), "fallback slide carries a price chip");
-  const single = productToFallbackSlide(PRODUCTS[0], "Smartphones");
-  assert.equal(single.eyebrow, "Smartphones");
+  // Image-only: a slide is the photo plus the product title as
+  // alt text — no headline / subcopy / button / price chip.
+  assert.equal(slides[0].alt, PRODUCTS[0].title);
+  assert.equal(slides[0].image, PRODUCTS[0].image);
+  assert.deepEqual(Object.keys(slides[0]).sort(), ["alt", "image"]);
+  const single = productToFallbackSlide(PRODUCTS[0]);
+  assert.equal(single.alt, PRODUCTS[0].title);
   assert.equal(single.image, PRODUCTS[0].image);
 });
 
-test("banner slides carry the banner's own text and link", () => {
+test("banner slides carry the photo and the headline as alt text only", () => {
   const slide = bannerToSlide(
     {
       id: "b1",
       imagePath: "banner-sale.jpg",
+      kind: "offer",
       headline: "Eid Mega Sale",
       subcopy: "Up to 40% off",
       ctaLabel: "Shop the sale",
@@ -303,43 +330,73 @@ test("banner slides carry the banner's own text and link", () => {
       createdAt: "2026-11-10T00:00:00.000Z",
     },
   );
-  assert.equal(slide.headline, "Eid Mega Sale");
-  assert.equal(slide.subcopy, "Up to 40% off");
-  assert.equal(slide.ctaLabel, "Shop the sale");
-  assert.equal(slide.ctaHref, "/shop?category=gaming");
-  assert.equal(slide.eyebrow, "TechShot");
-  assert.equal(slide.priceChip, undefined);
+  // Image-only: the headline is the alt text, never visible text.
+  assert.equal(slide.alt, "Eid Mega Sale");
+  assert.deepEqual(Object.keys(slide).sort(), ["alt", "image"]);
+  assert.ok(slide.image.endsWith("banner-sale.jpg"));
+  // An empty headline falls back to the kind's label.
+  const plain = bannerToSlide({
+    id: "b2",
+    imagePath: "",
+    kind: "promotion",
+    headline: "",
+    subcopy: "",
+    ctaLabel: "",
+    ctaHref: "/shop",
+    sortOrder: 1,
+    active: true,
+    createdAt: "2026-11-10T00:00:00.000Z",
+  });
+  assert.equal(plain.alt, "Promotion banner");
+  assert.equal(plain.image, "");
 });
 
 // ---------------------------------------------------------------------------
 // Banners: rules, sizes, crop, permissions.
 // ---------------------------------------------------------------------------
 
-test("banner rules: validation, limits and the safe link rule", () => {
-  assert.equal(BANNER_HEADLINE_MAX, 120);
-  assert.equal(BANNER_CTA_LABEL_MAX, 40);
+test("banner rules: kind validation, sort order, no headline requirement", () => {
+  assert.deepEqual(BANNER_KINDS, ["promotion", "offer"]);
+  assert.equal(BANNER_KIND_LABELS.promotion, "Promotion");
+  assert.equal(BANNER_KIND_LABELS.offer, "Offer");
   const ok = validateBannerInput({
     imagePath: "",
-    headline: "Eid Mega Sale",
-    subcopy: "Up to 40% off",
-    ctaLabel: "Shop now",
-    ctaHref: "/shop",
+    kind: "offer",
     sortOrder: 0,
     active: true,
   });
   assert.equal(ok.ok, true);
-  // An empty link defaults to /shop; an empty image is fine (the
-  // carousel shows the logo placeholder).
-  if (ok.ok) assert.equal(ok.value.ctaHref, "/shop");
-  assert.equal(validateBannerInput({ imagePath: "", headline: "", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 0, active: true }).ok, false);
-  assert.equal(validateBannerInput({ imagePath: "", headline: "x".repeat(121), subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 0, active: true }).ok, false);
-  assert.equal(validateBannerInput({ imagePath: "", headline: "Sale", subcopy: "", ctaLabel: "", ctaHref: "https://evil.example", sortOrder: 0, active: true }).ok, false);
-  assert.equal(validateBannerInput({ imagePath: "", headline: "Sale", subcopy: "", ctaLabel: "", ctaHref: "//evil.example", sortOrder: 0, active: true }).ok, false);
-  assert.equal(validateBannerInput({ imagePath: "", headline: "Sale", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: -1, active: true }).ok, false);
+  // No headline is needed any more (the image-only carousel shows
+  // no text); an empty image is fine (the carousel shows the logo
+  // placeholder). A missing or unknown kind defaults to
+  // "promotion" instead of failing.
+  if (ok.ok) assert.equal(ok.value.kind, "offer");
+  assert.equal(
+    validateBannerInput({ imagePath: "", kind: undefined, sortOrder: 0, active: true }).ok,
+    true,
+  );
+  const defaulted = validateBannerInput({ imagePath: "", kind: "flash", sortOrder: 0, active: true });
+  assert.equal(defaulted.ok, true);
+  if (defaulted.ok) assert.equal(defaulted.value.kind, "promotion");
+  assert.equal(validateBannerInput({ imagePath: "", kind: "offer", sortOrder: -1, active: true }).ok, false);
+  assert.equal(validateBannerInput({ imagePath: "", kind: "offer", sortOrder: 1.5, active: true }).ok, false);
+  // The old text fields are gone from validation entirely — a
+  // headline / subcopy / button in the input is simply ignored.
+  const legacy = validateBannerInput({
+    imagePath: "",
+    kind: "promotion",
+    sortOrder: 0,
+    active: true,
+    headline: "",
+    subcopy: "",
+    ctaLabel: "",
+    ctaHref: "https://evil.example",
+  });
+  assert.equal(legacy.ok, true);
   // Sort order is lowest first, ties by created_at.
   const sorted = sortBanners([
-    { id: "a", imagePath: "", headline: "B", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 1, active: true, createdAt: "2026-11-10T00:00:00.000Z" },
-    { id: "b", imagePath: "", headline: "A", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 0, active: true, createdAt: "2026-11-10T00:00:00.000Z" },
+    { id: "a", imagePath: "", kind: "offer", headline: "B", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 1, active: true, createdAt: "2026-11-10T00:00:00.000Z" },
+    { id: "b", imagePath: "", kind: "promotion", headline: "A", subcopy: "", ctaLabel: "", ctaHref: "/shop", sortOrder: 0, active: true, createdAt: "2026-11-10T00:00:00.000Z" },
   ]);
   assert.deepEqual(sorted.map((b) => b.id), ["b", "a"]);
   // No photo resolves to "" (the placeholder), a filename to a URL.
@@ -385,6 +442,37 @@ test("banner photo crop: larger photos come out exactly 1600 x 640, small ones a
   assert.deepEqual(await dimensions(kept.buffer), { width: 400, height: 200, format: "jpeg" });
   // Unknown content types are rejected.
   await assert.rejects(processBannerImage(await makeImage(100, 100, "jpeg"), "image/gif"));
+});
+
+test("banner admin form: kind select instead of headline / subcopy / button fields", () => {
+  const form = readSource("components/admin/banners-section.tsx");
+  // The form asks for a photo, a kind and the sort order — the
+  // headline / subcopy / button fields are gone (image-only).
+  assert.match(form, /data-testid="banner-kind"/);
+  assert.match(form, /BANNER_KIND_LABELS/);
+  assert.match(form, /BANNER_KINDS/);
+  assert.doesNotMatch(form, /data-testid="banner-headline"/);
+  assert.doesNotMatch(form, /data-testid="banner-subcopy"/);
+  assert.doesNotMatch(form, /data-testid="banner-cta-label"/);
+  assert.doesNotMatch(form, /data-testid="banner-cta-href"/);
+  assert.doesNotMatch(form, /formData\.append\("headline"/);
+  assert.match(form, /formData\.append\("kind", kind\)/);
+  // The copy tells the admin the text must be in the image.
+  assert.match(form, /put the promotion or offer text INTO the image itself/);
+  // The saved list shows a kind badge (green Promotion / orange
+  // Offer), then the headline as the alt-text label, then order /
+  // photo / status — no button line any more.
+  assert.match(form, /tone=\{banner\.kind === "offer" \? "accent" : "brand"\}/);
+  assert.match(form, /\{banner\.headline\} · Order: \{banner\.sortOrder\}/);
+  assert.doesNotMatch(form, /Button: \{banner\.ctaLabel/);
+  // The server derives the headline from the kind and clears the
+  // unused text columns on write.
+  const server = readSource("lib/banners-server.ts");
+  assert.match(server, /headlineForKind\(validated\.value\.kind\)/);
+  assert.match(server, /kind: validated\.value\.kind/);
+  assert.match(server, /formData\.get\("kind"\)/);
+  assert.match(server, /banner-\$\{slug\}/);
+  assert.doesNotMatch(server, /formData\.get\("headline"\)/);
 });
 
 test("banner permissions: any staff role may manage banners, customers may not", () => {
@@ -562,13 +650,12 @@ test("shop filter matches any of a product's categories", () => {
 // Migrations 0011 + 0012: written, mirrored, NOT applied live.
 // ---------------------------------------------------------------------------
 
-test("migrations 0011 and 0012 exist and are marked NOT applied live", () => {
+test("migrations 0011, 0012 and 0013: shape, mirror, live status", () => {
   for (const rel of [
     "supabase/migrations/0011_banners.sql",
     "supabase/migrations/0012_product_categories.sql",
   ]) {
     const sql = readSource(rel);
-    assert.match(sql, /NOT APPLIED LIVE YET/);
     assert.match(sql, /create table if not exists public\./);
     assert.match(sql, /enable row level security/);
     assert.match(sql, /drop policy if exists/);
@@ -583,11 +670,21 @@ test("migrations 0011 and 0012 exist and are marked NOT applied live", () => {
   assert.match(joins, /on delete cascade/);
   assert.match(joins, /'Flash deals', 'flash-deals', 10, true/);
   assert.match(joins, /p\.is_flash_deal = true/);
+  // 0013 adds the banner kind (image-only redesign, 2026-11-10):
+  // written, NOT applied live yet. Idempotent add-column, no RLS
+  // change, no destructive change — the text columns stay.
+  const kind = readSource("supabase/migrations/0013_banner_kind.sql");
+  assert.match(kind, /NOT APPLIED LIVE YET/);
+  assert.match(kind, /add column if not exists kind text not null default 'promotion'/);
+  assert.match(kind, /check \(kind in \('promotion', 'offer'\)\)/);
+  assert.match(kind, /comment on column public\.banners\.kind/);
+  assert.doesNotMatch(kind, /drop column|drop table/);
   // Mirrored in policies.sql (fresh-install mirror).
   const policies = readSource("supabase/policies.sql");
   assert.match(policies, /banners_select_active/);
   assert.match(policies, /product_categories_select_public/);
-  assert.match(policies, /0011_banners, 0012_product_categories/);
+  assert.match(policies, /0011_banners, 0012_product_categories, 0013_banner_kind/);
+  assert.match(policies, /kind text not null default 'promotion' check \(kind in \('promotion', 'offer'\)\)/);
   // Seed: the Flash deals category + the flash membership (the
   // iPhone is the seed's one flagged flash deal).
   const seed = readSource("supabase/seed.sql");

@@ -248,13 +248,12 @@ test("green is the resting button and link colour now", () => {
   // Badge tone in ui.tsx (a small highlight).
   assert.match(read("components/Header.tsx"), /bg-brandDark px-4 py-2 text-center/);
   assert.match(read("components/Header.tsx"), /rounded-xl bg-brandDark px-2\.5 py-2\.5/);
-  assert.match(read("components/HeroCarousel.tsx"), /rounded-xl bg-brandDark text-white/);
   assert.match(read("app/page.tsx"), /rounded-xl bg-brandDark px-6 py-3\.5/);
   assert.match(read("components/FilterDrawer.tsx"), /rounded-full bg-brandDark px-1\.5/);
   assert.match(read("components/ui.tsx"), /brand: "bg-brandDark text-white border-brandDark"/);
-  // And the hero CTA, the shop Apply button and the test-pay button
-  // are green with white text.
-  assert.match(read("components/HeroCarousel.tsx"), /rounded-xl bg-brandDark px-6 py-3\.5 text-sm font-semibold text-white/);
+  // And the shop Apply button and the test-pay button are green
+  // with white text. (The hero CTA is gone: the image-only
+  // carousel since 2026-11-10 has no button at all.)
   assert.match(read("app/checkout/test-pay/page.tsx"), /rounded-lg bg-success px-5 py-3 font-semibold text-white/);
 });
 

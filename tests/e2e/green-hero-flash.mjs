@@ -1,21 +1,36 @@
-// TechShot green-buttons + hero-carousel + flash-deal + multi-category
-// verification (Playwright, mock Supabase).
+// TechShot image-only hero carousel + green buttons + flash deals +
+// multi-category verification (Playwright, mock Supabase).
 //
-// ONE combined run for the 2026-11-10 batch:
+// ONE combined run for the 2026-11-10 image-only carousel rebuild:
 //   1. At 1440 / 1280 / 390: home loads, hero carousel shows the
-//      FALLBACK slides (the mock has no banners yet) — counter
-//      "01 / 03", first slide is the iPhone — with a restrained
-//      height (380px on desktop); buttons computed green; cards
-//      carry the 1px border; no header/footer duplicate links; no
-//      page errors, no failed requests, no horizontal overflow.
-//   2. Carousel behaviour: desktop auto-advances (01 -> 02 in ~4.5s),
-//      arrows + dots move it, keyboard arrows move it; mobile does
-//      NOT auto-advance and swipes to the next slide.
+//      FALLBACK slides (the mock has no banners yet) — the top three
+//      products, IMAGE-ONLY: no headline, subcopy, CTA or price
+//      text anywhere in the hero, no counter, no text panel. The
+//      hero is a restrained strip (380px on desktop, ~200px on
+//      mobile, dots overlaid ON the image); all 3 slides are in
+//      the DOM at once, stacked and crossfaded, exactly one
+//      opacity-100 at a time. Buttons computed green; cards carry
+//      the 1px border; no header/footer duplicate links; no page
+//      errors, no failed requests, no horizontal overflow.
+//   2. Carousel behaviour: desktop auto-advances, and ANY manual
+//      navigation (dot / arrow / swipe / keyboard) RESETS the
+//      4.5s timer — a manual pick is never immediately overridden
+//      by the old timer. Arrows wrap both directions, dots and
+//      keyboard arrows move it. Mobile (touch context) NOW
+//      auto-advances too — the user explicitly wants a continuous
+//      loop of images on a phone — and swipes to the next slide.
+//      During a change the active slide's image matches the
+//      active index and the previous slide stays in the DOM at
+//      opacity-0 (stacked crossfade, no lingering photo).
 //   3. Flash deals: the mock's single flash product (iPhone) shows a
 //      220px thumbnail and the "Selling fast" bar under the card.
-//   4. Admin (Owner, desktop): add a banner with an uploaded photo
-//      and it takes over the home hero; edit its headline; hide it
-//      and the fallback returns; show it again; delete it.
+//   4. Admin (Owner, desktop): add a banner — pick Kind = Offer,
+//      upload a photo, save (there are NO headline / subcopy /
+//      button fields any more) — and it takes over the home hero
+//      as one image-only slide with alt "Offer banner" and no
+//      dots; edit its kind to Promotion and the badge and hero
+//      alt update; hide it and the fallback returns; show it
+//      again; delete it.
 //   5. Multi-category (Owner, desktop): ticking "Flash deals" for
 //      Sony + PlayStation puts them in the flash section (3 cards,
 //      buttons and stock bars aligned across the row); ticking
@@ -63,6 +78,17 @@ const SHOTS = "/tmp/green-hero-flash-shots";
 mkdirSync(SHOTS, { recursive: true });
 const BANNER_PHOTO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "public", "images", "products", "apple-iphone-16-pro.jpg");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The fallback slides, in order: getCatalog() orders products by
+// created_at ascending, so the top three are the iPhone, the Sony
+// headphones and the MacBook. The alt text is the product title —
+// it is the ONLY text a fallback slide carries, and it is never
+// rendered visibly (it is the img alt).
+const FALLBACK_ALTS = [
+  "Apple iPhone 16 Pro 256GB Natural Titanium",
+  "Sony WH-1000XM5 Wireless Noise Cancelling Headphones",
+  'MacBook Air 13" M3',
+];
 
 const failures = [];
 function check(name, cond, detail = "") {
@@ -146,8 +172,10 @@ for (const { name, width, height } of WIDTHS) {
   const isMobile = width < 640;
   // The mobile context emulates a touch device (hasTouch + isMobile):
   // without it Playwright reports a fine hover-capable pointer and
-  // the carousel would auto-advance, which is not how a phone
-  // behaves.
+  // the carousel would show hover arrows, which is not how a phone
+  // behaves. The carousel DOES auto-advance on a phone now (the
+  // image-only redesign loops on all devices) — the touch context
+  // only changes the pointer, not the timer.
   const context = await browser.newContext({
     viewport: { width, height },
     ...(isMobile ? { hasTouch: true, isMobile: true } : {}),
@@ -170,82 +198,207 @@ for (const { name, width, height } of WIDTHS) {
   async function shot(file) {
     await page.screenshot({ path: `${SHOTS}/${name}-${file}.png` });
   }
-  async function heroCounter() {
-    const el = page.locator('[data-testid="hero-counter"]');
-    return (await el.count()) > 0 ? (await el.textContent())?.trim() ?? "" : "";
+  // Index of the one slide at opacity-100, or -1 if none is.
+  // The crossfade lasts 500ms (duration-500), so a read taken
+  // right after a navigation catches the slides mid-transition
+  // (opacities like 0.03 / 0.97, no slide exactly at 1) — wait
+  // for the fade to settle first, otherwise every post-nav read
+  // reports -1 for a carousel that is working correctly.
+  async function activeSlideIndex() {
+    const settled = await waitFor(async () => {
+      const opacities = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="hero-slide"]')].map((s) => getComputedStyle(s).opacity),
+      );
+      return opacities.filter((o) => o === "1").length === 1;
+    }, 2000);
+    if (!settled) return -1;
+    return await page.evaluate(() => {
+      const slides = [...document.querySelectorAll('[data-testid="hero-slide"]')];
+      return slides.findIndex((s) => getComputedStyle(s).opacity === "1");
+    });
+  }
+  async function slideAlts() {
+    return await page
+      .locator('[data-testid="hero-slide"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute("data-slide-alt") ?? ""));
+  }
+  // A click inside the carousel leaves focus on the clicked button
+  // (dot / arrow), which pauses the auto-advance timer (focused
+  // pauses it, by design), and the mouse stays over the hero, which
+  // pauses it too (hover pauses it). Before any timed wait the
+  // focus must leave the carousel and the mouse must move off it,
+  // or the timer never runs and the wait times out for the wrong
+  // reason.
+  async function unfocusCarousel() {
+    await page.evaluate(() => {
+      const a = document.activeElement;
+      if (a instanceof HTMLElement) a.blur();
+    });
+    await page.mouse.move(10, 10);
+  }
+  // Stacked crossfade, as the DOM can prove it: every slide is
+  // rendered, exactly one is opacity-100, the rest are
+  // opacity-0, the active slide's img (when it has one) carries
+  // the slide's alt, and the hero shows no visible text at all.
+  async function checkCrossfade(label) {
+    // Settle first: a read mid-crossfade sees fractional
+    // opacities, which is the fade working, not a failure.
+    await activeSlideIndex();
+    const state = await page.evaluate(() => {
+      const slides = [...document.querySelectorAll('[data-testid="hero-slide"]')];
+      const active = slides.findIndex((s) => getComputedStyle(s).opacity === "1");
+      return {
+        count: slides.length,
+        active,
+        opacities: slides.map((s) => getComputedStyle(s).opacity),
+        imgs: slides.map((s) => {
+          const img = s.querySelector("img");
+          return img ? { src: img.getAttribute("src") ?? "", alt: img.getAttribute("alt") ?? "" } : null;
+        }),
+        alts: slides.map((s) => s.getAttribute("data-slide-alt") ?? ""),
+        heroText: (document.querySelector('[data-testid="hero-carousel"]')?.textContent ?? "").trim(),
+      };
+    });
+    check(`${name}: ${label} — all 3 slides rendered, stacked`, state.count === 3, `count=${state.count}`);
+    check(`${name}: ${label} — exactly one slide is opacity-100`, state.active >= 0 && state.opacities.filter((o) => o === "1").length === 1, `opacities=${state.opacities.join(", ")}`);
+    check(
+      `${name}: ${label} — inactive slides are opacity-0 (not swapped out)`,
+      state.opacities.every((o, i) => (i === state.active ? o === "1" : o === "0")),
+      `opacities=${state.opacities.join(", ")}`,
+    );
+    check(
+      `${name}: ${label} — active slide's image matches its alt`,
+      state.active >= 0 &&
+        (state.imgs[state.active] === null || state.imgs[state.active].alt === state.alts[state.active]),
+      `active=${state.active} imgAlt=${state.imgs[state.active]?.alt} slideAlt=${state.alts[state.active]}`,
+    );
+    check(`${name}: ${label} — no text anywhere in the hero`, state.heroText === "", JSON.stringify(state.heroText.slice(0, 80)));
+    return state.active;
   }
 
   // --- Home: fallback hero, green buttons, borders, duplicates -----------
+  const loadedAt = Date.now();
   let resp = await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   check(`${name}: / loads 200`, resp?.status() === 200, `status=${resp?.status()}`);
   check(`${name}: hero carousel renders`, await page.locator('[data-testid="hero-carousel"]').count() === 1);
   // No banners in the mock: the fallback slides are the top three
-  // products, so the counter reads 01 / 03 and the first slide is
-  // the iPhone.
-  check(`${name}: hero falls back to product slides (01 / 03)`, (await heroCounter()) === "01 / 03", await heroCounter());
+  // products, image-only — identified by data-slide-alt (the
+  // product title), never by a counter: there is no counter any
+  // more, and no headline / CTA in the DOM.
   check(
-    `${name}: first fallback slide is the iPhone`,
-    (await page.locator('[data-testid="hero-slide"]').getAttribute("data-slide-headline"))?.includes("iPhone 16 Pro") ?? false,
+    `${name}: hero falls back to the top-3 product slides, image-only`,
+    JSON.stringify(await slideAlts()) === JSON.stringify(FALLBACK_ALTS),
+    (await slideAlts()).join(" | "),
+  );
+  check(`${name}: first fallback slide is active`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
+  check(`${name}: hero has no counter any more`, (await page.locator('[data-testid="hero-counter"]').count()) === 0);
+  check(`${name}: hero has no CTA any more`, (await page.locator('[data-testid="hero-cta"]').count()) === 0);
+  check(
+    `${name}: hero shows no visible text (no text panel, no headline)`,
+    ((await page.locator('[data-testid="hero-carousel"]').innerText()) ?? "").trim() === "",
   );
   const heroBox = await page.locator('[data-testid="hero-carousel"]').boundingBox();
   if (isMobile) {
-    check(`${name}: hero is a restrained strip on mobile, not a takeover`, (heroBox?.height ?? 9999) < 700, `height=${heroBox?.height}`);
-    const imagePanelHeight = await page.evaluate(() => {
-      const slide = document.querySelector('[data-testid="hero-slide"]');
-      const panel = slide?.children[1];
-      return panel ? panel.getBoundingClientRect().height : -1;
-    });
-    check(`${name}: hero image panel is 176px on mobile (h-44)`, imagePanelHeight === 176, `height=${imagePanelHeight}`);
+    check(`${name}: hero is a ~200px strip on mobile, not a takeover`, Math.abs((heroBox?.height ?? 0) - 200) <= 2, `height=${heroBox?.height}`);
   } else {
     check(`${name}: hero is capped at 380px on desktop`, Math.abs((heroBox?.height ?? 0) - 380) <= 2, `height=${heroBox?.height}`);
   }
-  const heroCtaBg = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="hero-cta"]');
-    return el ? getComputedStyle(el).backgroundColor : null;
-  });
-  check(`${name}: hero CTA is green`, heroCtaBg === rgb("#0B7A55"), heroCtaBg);
+  // The dots are overlaid ON the image now: their pill's box must
+  // sit inside the carousel's box.
+  const dotsBox = await page.locator('[data-testid="hero-carousel"] [role="tablist"]').boundingBox();
+  check(
+    `${name}: dots are overlaid on the image (inside the carousel box)`,
+    !!dotsBox && !!heroBox &&
+      dotsBox.x >= (heroBox.x ?? 0) - 1 &&
+      dotsBox.y >= (heroBox.y ?? 0) - 1 &&
+      dotsBox.x + dotsBox.width <= (heroBox.x ?? 0) + (heroBox.width ?? 0) + 1 &&
+      dotsBox.y + dotsBox.height <= (heroBox.y ?? 0) + (heroBox.height ?? 0) + 1,
+    `dots=${JSON.stringify(dotsBox)} hero=${JSON.stringify(heroBox)}`,
+  );
+  await checkCrossfade("fallback hero");
   await noOverflow("home");
   await shot("home");
 
   // Carousel behaviour.
   if (!isMobile) {
-    // Desktop: auto-advance moves 01 -> 02 within one 4.5s interval
-    // plus render time.
-    const advanced = await waitFor(async () => (await heroCounter()) === "02 / 03", 9000);
-    check(`${name}: carousel auto-advances on desktop`, advanced, await heroCounter());
-    // Arrows appear on hover.
+    // DESKTOP — timer reset: pick slide 0 by dot. The click is
+    // ~1s after mount (the static checks above), so the 4.5s
+    // timer the mount started would fire ~3.5s after this click
+    // if it were not reset. Still slide 0 at 3s after the click
+    // is the instructed check; still slide 0 at 4s after it is
+    // past that old firing point, so it proves the reset. Then
+    // the advance to slide 1 must land a full ~4.5s after the
+    // click, not early.
+    const pickedAt = Date.now();
+    await page.locator('[data-testid="hero-dot-0"]').click();
+    await unfocusCarousel();
+    await sleep(Math.max(0, 3000 - (Date.now() - pickedAt)));
+    check(`${name}: manual dot pick is NOT overridden after 3s (timer reset)`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
+    await sleep(1000);
+    check(`${name}: still slide 0 at 4s after the pick (past the old timer)`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
+    const advanced = await waitFor(async () => (await activeSlideIndex()) === 1, 5000);
+    check(`${name}: carousel auto-advances to slide 1 a full interval after the pick`, advanced, `active=${await activeSlideIndex()}`);
+
+    // Arrows appear on hover; next wraps 1 -> 2 -> 0, prev wraps
+    // 0 -> 2; dot 0 returns to slide 0.
     await page.hover('[data-testid="hero-carousel"]');
     await sleep(300);
     await page.locator('[data-testid="hero-next"]').click();
     await sleep(400);
-    check(`${name}: next arrow moves to 03 / 03`, (await heroCounter()) === "03 / 03", await heroCounter());
+    check(`${name}: next arrow moves to slide 2`, (await activeSlideIndex()) === 2, `active=${await activeSlideIndex()}`);
+    await checkCrossfade("after next arrow");
+    await page.locator('[data-testid="hero-next"]').click();
+    await sleep(400);
+    check(`${name}: next arrow wraps 2 -> 0`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
     await page.locator('[data-testid="hero-prev"]').click();
     await sleep(400);
-    check(`${name}: previous arrow moves back to 02 / 03`, (await heroCounter()) === "02 / 03", await heroCounter());
+    check(`${name}: previous arrow wraps 0 -> 2`, (await activeSlideIndex()) === 2, `active=${await activeSlideIndex()}`);
     await page.locator('[data-testid="hero-dot-0"]').click();
     await sleep(400);
-    check(`${name}: dot 0 returns to 01 / 03`, (await heroCounter()) === "01 / 03", await heroCounter());
+    check(`${name}: dot 0 returns to slide 0`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
+
+    // Timer reset after an ARROW click too: the next
+    // auto-advance must come a full ~4.5s after the click, not
+    // within ~1-2s (the old timer firing early).
+    const arrowAt = Date.now();
+    await page.locator('[data-testid="hero-next"]').click();
+    await unfocusCarousel();
+    await sleep(2000);
+    check(`${name}: after an arrow click, no advance within 2s (timer reset)`, (await activeSlideIndex()) === 1, `active=${await activeSlideIndex()}`);
+    const arrowAdvanced = await waitFor(async () => (await activeSlideIndex()) === 2, 5000);
+    check(`${name}: after an arrow click, the advance lands a full interval later`, arrowAdvanced, `active=${await activeSlideIndex()} after ${Date.now() - arrowAt}ms`);
+
     // Keyboard arrows (the carousel region is focused by clicking
-    // it — the dots sit outside the region, so focus moves off it
-    // after a dot click).
+    // it — the dots sit inside the region now, so focus stays
+    // in it after a dot click until unfocusCarousel blurs it).
     await page.locator('[data-testid="hero-carousel"]').click();
     await page.keyboard.press("ArrowRight");
     await sleep(400);
-    check(`${name}: ArrowRight moves to 02 / 03`, (await heroCounter()) === "02 / 03", await heroCounter());
+    check(`${name}: ArrowRight wraps 2 -> 0`, (await activeSlideIndex()) === 0, `active=${await activeSlideIndex()}`);
+    await page.keyboard.press("ArrowLeft");
+    await sleep(400);
+    check(`${name}: ArrowLeft wraps 0 -> 2`, (await activeSlideIndex()) === 2, `active=${await activeSlideIndex()}`);
   } else {
-    // Mobile: no auto-advance; a swipe moves it.
-    await sleep(5500);
-    check(`${name}: carousel does NOT auto-advance on mobile`, (await heroCounter()) === "01 / 03", await heroCounter());
+    // MOBILE — the image-only redesign loops on a phone too: the
+    // active slide must have moved from 0 by ~5.5s after load
+    // (one 4.5s interval plus render time).
+    const waitMs = Math.max(0, 5500 - (Date.now() - loadedAt));
+    await sleep(waitMs);
+    const moved = await activeSlideIndex();
+    check(`${name}: carousel DOES auto-advance on mobile now`, moved !== 0, `active=${moved}`);
     const cdp = await context.newCDPSession(page);
     const box = await page.locator('[data-testid="hero-carousel"]').boundingBox();
     const cx = (box?.x ?? 0) + (box?.width ?? 0) / 2;
     const cy = (box?.y ?? 0) + (box?.height ?? 0) / 2;
+    const beforeSwipe = await activeSlideIndex();
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx + 80, y: cy, id: 1 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx, y: cy, id: 1 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx - 80, y: cy, id: 1 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await sleep(500);
-    check(`${name}: swipe left moves to 02 / 03`, (await heroCounter()) === "02 / 03", await heroCounter());
+    const afterSwipe = await activeSlideIndex();
+    check(`${name}: swipe left moves to the next slide`, afterSwipe === (beforeSwipe + 1) % 3, `before=${beforeSwipe} after=${afterSwipe}`);
+    await checkCrossfade("after mobile swipe");
   }
 
   // Header/footer duplicate audit: the nav row's destinations must
@@ -333,14 +486,18 @@ const adminContext = await browser.newContext({ viewport: { width: 1440, height:
 const page = await adminContext.newPage();
 const adminErrors = [];
 page.on("pageerror", (err) => adminErrors.push(String(err)));
-await signIn(page);
-check("admin: sign-in lands on /account", page.url().includes("/account"), page.url());
 
 // Banners tab starts empty (the mock has no banners).
+await signIn(page);
+check("admin: sign-in lands on /account", page.url().includes("/account"), page.url());
 await page.goto(`${BASE}/admin?tab=banners`, { waitUntil: "networkidle" });
 await sleep(800);
-check("admin: banners tab renders", (await page.locator('[data-testid="banner-list"], [data-testid="banner-headline"]').count()) >= 1);
+check("admin: banners tab renders (kind select present)", (await page.locator('[data-testid="banner-kind"]').count()) === 1);
 check("admin: no banners yet", (await page.locator('[data-testid="banner-item"]').count()) === 0);
+// The image-only form has NO headline / subcopy / button fields.
+for (const testid of ["banner-headline", "banner-subcopy", "banner-cta-label", "banner-cta-href"]) {
+  check(`admin: no ${testid} field any more`, (await page.locator(`[data-testid="${testid}"]`).count()) === 0);
+}
 
 // The size note warns the admin about the wide banner size.
 check(
@@ -348,57 +505,104 @@ check(
   ((await page.locator('[data-testid="banner-image-size-note"]').textContent()) ?? "").includes("1600 x 640"),
 );
 
-// Add a banner with an uploaded photo.
-await page.locator('[data-testid="banner-headline"]').fill("E2E Banner");
-await page.locator('[data-testid="banner-subcopy"]').fill("A banner added by the e2e run.");
-await page.locator('[data-testid="banner-cta-label"]').fill("Shop the deal");
-await page.locator('[data-testid="banner-cta-href"]').fill("/shop?category=audio");
+// Add a banner: Kind = Offer, uploaded photo, save.
+await page.locator('[data-testid="banner-kind"]').selectOption("offer");
 await page.locator('[data-testid="banner-upload-input"]').setInputFiles(BANNER_PHOTO);
 await page.locator('[data-testid="banner-upload-button"]').click();
 const uploaded = await waitFor(async () => {
   const v = await page.locator('[data-testid="banner-image-path"]').inputValue();
-  return v.startsWith("banner-");
+  return v.startsWith("banner-offer-");
 }, 15000);
-check("admin: banner photo uploads (path starts banner-)", uploaded, await page.locator('[data-testid="banner-image-path"]').inputValue());
+check("admin: banner photo uploads (path starts banner-offer-)", uploaded, await page.locator('[data-testid="banner-image-path"]').inputValue());
 await page.locator('[data-testid="banner-save"]').click();
 const bannerSaved = await waitFor(async () => (await page.locator('[data-testid="banner-item"]').count()) === 1, 10000);
 check("admin: banner is saved and listed", bannerSaved);
 check(
-  "admin: banner list shows the headline",
-  ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("E2E Banner"),
+  "admin: banner list shows the Offer badge",
+  ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("Offer"),
 );
+check(
+  "admin: banner list shows the derived headline as its label",
+  ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("Offer banner"),
+);
+// The mock round-trips the new kind column (the app selects
+// BANNER_COLUMNS incl. kind): the stored row says offer.
+const bannerRows = await mockGet("banners?select=id,kind,headline");
+check("admin: mock banner row stores kind=offer", bannerRows?.[0]?.kind === "offer", JSON.stringify(bannerRows));
 
-// The banner takes over the home hero (one slide, no dots).
+// The banner takes over the home hero — one image-only slide,
+// alt "Offer banner", no dots, the uploaded photo rendering.
 await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await sleep(800);
 check(
-  "admin: home hero shows the new banner",
-  (await page.locator('[data-testid="hero-slide"]').getAttribute("data-slide-headline")) === "E2E Banner",
+  "admin: home hero shows the new banner (alt Offer banner)",
+  (await page.locator('[data-testid="hero-slide"]').getAttribute("data-slide-alt")) === "Offer banner",
+);
+check(
+  "admin: hero is image-only with the banner (no visible text)",
+  ((await page.locator('[data-testid="hero-carousel"]').innerText()) ?? "").trim() === "",
 );
 check("admin: one banner means no dots", (await page.locator('[data-testid="hero-dot-0"]').count()) === 0);
-check(
-  "admin: banner CTA goes to the audio shop",
-  (await page.locator('[data-testid="hero-cta"]').getAttribute("href")) === "/shop?category=audio",
-);
 check(
   "admin: banner photo renders (not the placeholder)",
   (await page.locator('[data-testid="hero-carousel"] img').count()) >= 1,
 );
+await page.screenshot({ path: `${SHOTS}/banner-desktop-home.png` });
+// Banner-active hero at the other two widths too (same banner).
+for (const { name, width, height } of [
+  { name: "laptop", width: 1280, height: 800 },
+  { name: "mobile", width: 390, height: 844 },
+]) {
+  const ctx = await browser.newContext({
+    viewport: { width, height },
+    ...(width < 640 ? { hasTouch: true, isMobile: true } : {}),
+  });
+  const p = await ctx.newPage();
+  await p.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  await sleep(500);
+  check(
+    `admin: banner hero at ${name} shows alt Offer banner`,
+    (await p.locator('[data-testid="hero-slide"]').getAttribute("data-slide-alt")) === "Offer banner",
+  );
+  check(
+    `admin: banner hero at ${name} shows no visible text`,
+    ((await p.locator('[data-testid="hero-carousel"]').innerText()) ?? "").trim() === "",
+  );
+  await p.screenshot({ path: `${SHOTS}/banner-${name}-home.png` });
+  await ctx.close();
+}
 
-// Edit the headline.
+// Edit the banner's kind to Promotion: the badge and the hero
+// alt must both update.
 await page.goto(`${BASE}/admin?tab=banners`, { waitUntil: "networkidle" });
 await sleep(800);
 await page.locator('[data-testid="banner-edit"]').first().click();
 await sleep(400);
-await page.locator('[data-testid="banner-headline"]').fill("E2E Banner Edited");
+check(
+  "admin: edit form opens with Kind = Offer",
+  (await page.locator('[data-testid="banner-kind"]').inputValue()) === "offer",
+);
+await page.locator('[data-testid="banner-kind"]').selectOption("promotion");
 await page.locator('[data-testid="banner-save"]').click();
-const edited = await waitFor(async () =>
-  ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("E2E Banner Edited"),
+const kindEdited = await waitFor(async () =>
+  ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("Promotion"),
   10000,
 );
-check("admin: banner headline edit sticks", edited);
+check("admin: banner kind edit sticks (Promotion badge)", kindEdited);
+check(
+  "admin: edited banner row stores kind=promotion",
+  (await mockGet("banners?select=id,kind"))?.[0]?.kind === "promotion",
+);
+await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+await sleep(800);
+check(
+  "admin: home hero alt updates to Promotion banner",
+  (await page.locator('[data-testid="hero-slide"]').getAttribute("data-slide-alt")) === "Promotion banner",
+);
 
 // Hide it: the home hero falls back to product slides again.
+await page.goto(`${BASE}/admin?tab=banners`, { waitUntil: "networkidle" });
+await sleep(800);
 await page.locator('[data-testid="banner-toggle-active"]').first().click();
 const hidden = await waitFor(async () =>
   ((await page.locator('[data-testid="banner-item"]').first().textContent()) ?? "").includes("Hidden"),
@@ -409,7 +613,9 @@ await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await sleep(800);
 check(
   "admin: hidden banner falls back to product slides",
-  (await page.locator('[data-testid="hero-counter"]').textContent())?.trim() === "01 / 03",
+  JSON.stringify(
+    await page.locator('[data-testid="hero-slide"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-slide-alt") ?? "")),
+  ) === JSON.stringify(FALLBACK_ALTS),
 );
 
 // Show it again, then delete it (the mock is left as it was found).
@@ -423,11 +629,14 @@ await waitFor(async () =>
 await page.locator('[data-testid="banner-delete"]').first().click();
 const deleted = await waitFor(async () => (await page.locator('[data-testid="banner-item"]').count()) === 0, 10000);
 check("admin: banner deletes", deleted);
+check("admin: mock is left clean (0 banners)", (await mockGet("banners?select=id"))?.length === 0);
 await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await sleep(800);
 check(
   "admin: after delete the hero is the product fallback again",
-  (await page.locator('[data-testid="hero-counter"]').textContent())?.trim() === "01 / 03",
+  JSON.stringify(
+    await page.locator('[data-testid="hero-slide"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-slide-alt") ?? "")),
+  ) === JSON.stringify(FALLBACK_ALTS),
 );
 
 // --- Multi-category: Flash deals via the product form ----------------------
