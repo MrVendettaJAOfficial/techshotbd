@@ -41,6 +41,14 @@ let seq = 0;
 let testDelayMs = Math.max(0, Number(process.env.MOCK_DELAY_MS ?? 0) || 0);
 const nid = (p) => `${p}-${++seq}-${Date.now().toString(36)}`;
 
+// Files "stored" in the product-images bucket: filename ->
+// upload time (ISO). Uploads are recorded here (the bytes are
+// still discarded — the public GET below serves a solid PNG for
+// any name), so the Storage list / remove endpoints below can
+// answer like the real bucket. The banner orphan sweep
+// (cleanupOrphanBannerPhotos) lists banner-* files through this.
+const storedFiles = new Map();
+
 const CATS = [
   ["smartphones", "Smartphones", 1],
   ["laptops", "Laptops", 2],
@@ -319,19 +327,59 @@ function userForEmail(email) {
   const address = String(email ?? "").trim() || USER.email;
   return { ...USER, id: userIdForEmail(address), email: address };
 }
+// Mint a JWT-shaped access token: header.payload.signature, with
+// a JSON payload ({sub, email, exp}). supabase-js decodes the JWT
+// in setSession() and in the implicit-flow URL handling, so a
+// non-JSON middle part (the old `mock-access-token.<b64(email)>.…`
+// shape) throws "Invalid JWT" there before any network call — the
+// callback's legacy recovery branch could never establish a
+// session from it. The signature is not verified by the client;
+// the mock maps the token back to a user from the payload email.
 function accessTokenForEmail(email) {
-  return `mock-access-token.${Buffer.from(String(email)).toString("base64url")}.${nid("tok")}`;
+  const address = String(email ?? "").trim() || USER.email;
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(
+    JSON.stringify({ alg: "none", typ: "JWT" }),
+  ).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: userIdForEmail(address),
+      email: address,
+      aud: "authenticated",
+      role: "authenticated",
+      iat: now,
+      exp: now + 3600,
+    }),
+  ).toString("base64url");
+  return `${header}.${payload}.mock-signature`;
 }
 function userForAccessToken(token) {
   if (!token) return USER;
   if (token === "mock-access-token") return USER;
-  const match = /^mock-access-token\.([^.]+)\./.exec(token);
-  if (!match) return USER;
-  try {
-    return userForEmail(Buffer.from(match[1], "base64url").toString("utf8"));
-  } catch {
-    return USER;
+  const parts = String(token).split(".");
+  if (parts.length >= 2) {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(parts[1], "base64url").toString("utf8"),
+      );
+      if (payload && typeof payload.email === "string") {
+        return userForEmail(payload.email);
+      }
+    } catch {
+      // Fall through to the legacy shape below.
+    }
+    // Legacy shape: mock-access-token.<base64url(email)>.<random>.
+    if (parts[0] === "mock-access-token") {
+      try {
+        return userForEmail(
+          Buffer.from(parts[1], "base64url").toString("utf8"),
+        );
+      } catch {
+        return USER;
+      }
+    }
   }
+  return USER;
 }
 
 function send(res, status, body) {
@@ -541,6 +589,38 @@ async function handle(req, res) {
     return;
   }
 
+  // --- Storage list (banner orphan sweep) ---
+  // POST /storage/v1/object/list/product-images — answers with
+  // the files recorded by the upload handler above, as FileObject
+  // rows ({ name, created_at }). `search` matches by substring,
+  // like the real bucket; `limit` caps the rows. Only files the
+  // mock has actually "stored" are listed.
+  if (path.startsWith("/storage/v1/object/list/product-images") && req.method === "POST") {
+    const body = await readBody(req);
+    const search = typeof body.search === "string" ? body.search : "";
+    const limit = Number(body.limit) > 0 ? Number(body.limit) : 100;
+    const rows = [...storedFiles.entries()]
+      .filter(([name]) => name.includes(search))
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(0, limit)
+      .map(([name, created_at]) => ({ name, created_at }));
+    return send(res, 200, rows);
+  }
+
+  // --- Storage remove (banner / product delete) ---
+  // DELETE /storage/v1/object/product-images with
+  // { prefixes: [...] } — removes the named files from the
+  // recorded set, like the real bucket. Best-effort callers
+  // ignore the result; a missing file is not an error.
+  if (path === "/storage/v1/object/product-images" && req.method === "DELETE") {
+    const body = await readBody(req);
+    const prefixes = Array.isArray(body.prefixes) ? body.prefixes : [];
+    for (const name of prefixes) {
+      if (typeof name === "string") storedFiles.delete(name);
+    }
+    return send(res, 200, []);
+  }
+
   // --- Storage upload (admin product-photo upload) ---
   // POST /storage/v1/object/product-images/<path> — the /admin form
   // uploads straight to Storage (lib/products/actions.ts
@@ -562,6 +642,9 @@ async function handle(req, res) {
       res.end(JSON.stringify({ message: "mock storage: bad file" }));
       return;
     }
+    // Record the upload (bytes discarded, as before) so the list
+    // endpoint above can report it with its upload time.
+    storedFiles.set(file, new Date().toISOString());
     return send(res, 200, { Key: `product-images/${file}` });
   }
 
@@ -654,6 +737,22 @@ async function handle(req, res) {
     const objectAccept = (req.headers.accept || "").includes("application/vnd.pgrst.object+json");
     const select = url.searchParams.get("select");
 
+    if (req.method === "HEAD") {
+      // PostgREST exact-count probe (supabase-js
+      // { count: "exact", head: true }, used by
+      // lib/admin/stats.ts): the total matching rows rides the
+      // Content-Range header, with no body — the real API answers
+      // `Content-Range: */N` for a HEAD.
+      const total = applyQuery(rows, url.searchParams).length;
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Content-Range": `*/${total}`,
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "content-range",
+      });
+      res.end();
+      return;
+    }
     if (req.method === "GET") {
       const out = attachEmbeds(table, applyQuery(rows, url.searchParams), select);
       if (objectAccept) {

@@ -39,6 +39,18 @@
 //     (lib/banners/process-banner-image.ts), JPEG / PNG / WebP
 //     only, 5 MB max, filename generated server-side from the kind.
 //
+//     Banner uploads are bounded in aggregate (audit run-1, finding
+//     #13): one staff member may upload at most 20 banner photos a
+//     day, and the bucket holds at most 100 banner photo files at
+//     once — both checked in uploadBannerImage below, so one staff
+//     account cannot fill the shared 1 GB Supabase Storage bucket.
+//     Every successful upload is recorded in audit_log (action
+//     "banner.upload"), which is what the daily count reads — no
+//     new table. Deleting a banner reclaims its Storage file when
+//     no other banner references it, and the staff-only
+//     cleanupOrphanBannerPhotos action sweeps banner files no
+//     banner references that are older than 24h.
+//
 // The home-page read (listActiveBanners) uses the request-scoped
 // client, so the authenticated/anon SELECT policy applies — the
 // honest RLS path, not the service role. Errors returned to the
@@ -52,7 +64,7 @@ import { revalidatePath, unstable_cache } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient, createPublicClient } from "./supabase/server";
-import { BANNERS_CACHE_TAG, revalidateBannersCache } from "./storefront-cache";
+import { BANNERS_CACHE_TAG, revalidateBannersCache, revalidateCatalogCache } from "./storefront-cache";
 import { getCallerRole, getCurrentUser } from "./auth-server";
 import { canManageBanners, isStaff } from "./roles";
 import { PRODUCT_IMAGES_BUCKET } from "./storage-images";
@@ -68,6 +80,155 @@ import { slugify, uploadStoragePath, validateUploadFile } from "./products/valid
 
 const BANNER_GENERIC_ERROR = "Something went wrong. Please try again.";
 const BANNER_NOT_ALLOWED_ERROR = "Only store staff can manage banners.";
+
+/**
+ * Aggregate bounds for banner photo uploads (audit run-1, finding
+ * #13): the 5 MB per-file cap alone cannot stop one staff account
+ * from filling the shared 1 GB Supabase Storage bucket, so uploads
+ * are bounded per staff member per day and in total.
+ */
+const BANNER_DAILY_UPLOAD_LIMIT = 20;
+const BANNER_MAX_STORED_FILES = 100;
+/** audit_log action recorded for each successful banner upload. */
+const BANNER_UPLOAD_AUDIT_ACTION = "banner.upload";
+/** A banner photo counts as abandoned after this long. */
+const BANNER_ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How many banner photos this staff member uploaded in the last
+ * 24h, counted from audit_log — the table already records actor_id
+ * + action + created_at (migration 0001), so no new table is
+ * needed. Returns null when the count cannot be verified (the
+ * caller fails closed: an unverifiable quota is not an unlimited
+ * one). The rows are fetched newest-first, capped at the limit
+ * plus a small margin, and filtered by created_at here instead of
+ * a count=exact HEAD request, so the count keeps working against
+ * the mock Supabase used in e2e, which answers plain selects.
+ */
+async function countBannerUploadsLast24h(
+  admin: SupabaseClient,
+  actorId: string,
+  now: Date = new Date(),
+): Promise<number | null> {
+  try {
+    const { data, error } = await admin
+      .from("audit_log")
+      .select("id, created_at")
+      .eq("actor_id", actorId)
+      .eq("action", BANNER_UPLOAD_AUDIT_ACTION)
+      .order("created_at", { ascending: false })
+      .limit(BANNER_DAILY_UPLOAD_LIMIT + 5);
+    if (error || !data) return null;
+    const since = new Date(now.getTime() - BANNER_ORPHAN_AGE_MS).toISOString();
+    return (data as Array<{ created_at?: unknown }>)
+      .filter((row) => typeof row.created_at === "string" && row.created_at >= since)
+      .length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many banner photo files are stored in the shared bucket
+ * right now (names starting with "banner-" at the bucket root).
+ * Returns null when Storage will not list: the caller treats that
+ * as "cannot verify" and lets the upload go ahead, because the
+ * daily cap above is the hard bound (at most 20 new files per
+ * staff member per day) and refusing every upload over a
+ * read-only introspection failure would break banner management
+ * outright. The failure is logged so it is not silent.
+ */
+async function countStoredBannerFiles(admin: SupabaseClient): Promise<number | null> {
+  try {
+    const { data, error } = await admin.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .list("", { limit: 1000, search: "banner-" });
+    if (error || !data) {
+      console.warn("TechShot: could not list banner files to check the storage cap.");
+      return null;
+    }
+    return data.filter(
+      (file) => typeof file.name === "string" && file.name.startsWith("banner-"),
+    ).length;
+  } catch {
+    console.warn("TechShot: could not list banner files to check the storage cap.");
+    return null;
+  }
+}
+
+/**
+ * Record a successful banner upload in audit_log, so the daily
+ * cap in countBannerUploadsLast24h can count it. Returns false
+ * when the record fails: the caller then removes the uploaded
+ * file and fails the upload, so an upload can never be invisible
+ * to the quota and repeated without limit. entity_id is null —
+ * the banners row does not exist yet when the photo is uploaded.
+ */
+async function recordBannerUpload(admin: SupabaseClient, actorId: string): Promise<boolean> {
+  try {
+    const { error } = await admin.from("audit_log").insert({
+      actor_id: actorId,
+      action: BANNER_UPLOAD_AUDIT_ACTION,
+      entity_type: "banner",
+      entity_id: null,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a stored path is a banner photo file in Storage: a
+ * bare filename at the bucket root starting with "banner-"
+ * (uploadBannerImage generates "banner-<kind>-<ts>-<rand>.png").
+ * Legacy / local paths ("/images/...") and URLs are not Storage
+ * objects and must never be passed to Storage remove.
+ */
+function isBareStorageFilename(path: string): boolean {
+  const value = (path ?? "").trim();
+  if (value === "") return false;
+  if (value.includes("/") || value.includes("\\") || value.includes("://")) return false;
+  return value.startsWith("banner-");
+}
+
+/**
+ * True when another banner row still references this Storage
+ * file. On a read failure returns true (fail closed): a file that
+ * might still be referenced is kept, and the orphan sweep
+ * reclaims it later if it really is unreferenced.
+ */
+async function isBannerImageReferenced(
+  admin: SupabaseClient,
+  imagePath: string,
+  excludeId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await admin
+      .from("banners")
+      .select("id")
+      .eq("image_path", imagePath)
+      .neq("id", excludeId)
+      .limit(1);
+    if (error || !data) return true;
+    return (data as Array<unknown>).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Best-effort Storage removal: a failed removal never fails the
+ * caller's action — the row is already gone and the orphan sweep
+ * (cleanupOrphanBannerPhotos) reclaims the file later.
+ */
+async function removeStorageFileBestEffort(admin: SupabaseClient, path: string): Promise<void> {
+  try {
+    await admin.storage.from(PRODUCT_IMAGES_BUCKET).remove([path]);
+  } catch {
+    // Best effort only — see above.
+  }
+}
 
 function untyped(client: unknown): SupabaseClient {
   return client as unknown as SupabaseClient;
@@ -247,6 +408,7 @@ export async function createBanner(input: SaveBannerInput): Promise<SaveBannerRe
     revalidatePath("/admin");
     revalidatePath("/");
     revalidateBannersCache();
+    revalidateCatalogCache();
     return { ok: true, banner: mapRow(data) };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -298,6 +460,7 @@ export async function updateBanner(
     revalidatePath("/admin");
     revalidatePath("/");
     revalidateBannersCache();
+    revalidateCatalogCache();
     return { ok: true, banner: mapRow(data) };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -334,6 +497,7 @@ export async function setBannerActive(id: string, active: boolean): Promise<Bann
     revalidatePath("/admin");
     revalidatePath("/");
     revalidateBannersCache();
+    revalidateCatalogCache();
     return { ok: true };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -341,10 +505,18 @@ export async function setBannerActive(id: string, active: boolean): Promise<Bann
 }
 
 /**
- * Delete a banner. Same gate as creating. The Storage file is NOT
- * deleted with it — the same rule as product photos: a file may be
- * referenced elsewhere, and orphans are harmless. Revalidates
- * /admin and /.
+ * Delete a banner. Same gate as creating. The banner's Storage
+ * file is reclaimed with it — when the stored path is a bare
+ * Storage filename (see isBareStorageFilename) and no other banner
+ * row references the same file, the object is removed, best
+ * effort, after the row delete succeeds. A removal failure never
+ * fails the delete: the row is gone and the orphan sweep
+ * (cleanupOrphanBannerPhotos) reclaims the file later. Legacy
+ * paths ("/images/...") are not Storage objects and are never
+ * touched. Deleting a banner that does not exist returns an
+ * error, instead of a silent success. Revalidates /admin and /,
+ * and purges the banners tag and the catalog tag (a banner write
+ * refreshes the catalogue too — audit run-1, finding #14).
  */
 export async function deleteBanner(id: string): Promise<BannerActionResult> {
   if (typeof id !== "string" || id.trim() === "") {
@@ -360,11 +532,30 @@ export async function deleteBanner(id: string): Promise<BannerActionResult> {
     return { ok: false, error: BANNER_GENERIC_ERROR };
   }
   try {
+    // The row is read first: only it knows the Storage path, and a
+    // missing row is an error, not a silent success.
+    const { data, error: loadError } = (await admin
+      .from("banners")
+      .select("image_path")
+      .eq("id", id)
+      .maybeSingle()) as {
+      data: { image_path?: unknown } | null;
+      error: unknown;
+    };
+    if (loadError || !data) return { ok: false, error: BANNER_GENERIC_ERROR };
+    const imagePath = typeof data.image_path === "string" ? data.image_path : "";
     const { error } = await admin.from("banners").delete().eq("id", id);
     if (error) return { ok: false, error: BANNER_GENERIC_ERROR };
+    if (isBareStorageFilename(imagePath)) {
+      const stillReferenced = await isBannerImageReferenced(admin, imagePath, id);
+      if (!stillReferenced) {
+        await removeStorageFileBestEffort(admin, imagePath);
+      }
+    }
     revalidatePath("/admin");
     revalidatePath("/");
     revalidateBannersCache();
+    revalidateCatalogCache();
     return { ok: true };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
@@ -398,13 +589,30 @@ export type BannerImageUploadResult =
  *
  * The file is uploaded immediately; the banners row is only
  * written when the banner itself is saved, so uploading without
- * saving leaves an unreferenced file in the bucket. That is
- * harmless and is never deleted automatically — a file may be
- * referenced by another banner.
+ * saving leaves an unreferenced file in the bucket. That file is
+ * bounded, not permanent: uploads are capped per staff member per
+ * day and in total (see the checks below), and the staff-only
+ * cleanupOrphanBannerPhotos action sweeps unreferenced banner
+ * files older than 24h.
+ *
+ * Aggregate bounds (audit run-1, finding #13): before storing,
+ * the caller's successful uploads in the last 24h are counted
+ * from audit_log (cap 20/day) and the stored banner files are
+ * counted via Storage list (cap 100 files). The daily count is
+ * fail-closed — when it cannot be verified the upload is
+ * rejected — while the total count is fail-open on a list failure
+ * (the daily cap is the hard bound, and refusing every upload
+ * over a read-only introspection failure would break banner
+ * management). A successful upload is recorded in audit_log, so
+ * the daily cap can count it; if that record fails the file is
+ * removed again and the upload fails, so no upload is ever
+ * invisible to the quota.
  */
 export async function uploadBannerImage(formData: FormData): Promise<BannerImageUploadResult> {
   const actorRole = await getCallerRole().catch(() => null);
   if (!canManageBanners(actorRole)) return { ok: false, error: BANNER_NOT_ALLOWED_ERROR };
+  const user = await getCurrentUser().catch(() => null);
+  if (!user) return { ok: false, error: BANNER_NOT_ALLOWED_ERROR };
 
   const admin = (() => {
     try {
@@ -424,19 +632,110 @@ export async function uploadBannerImage(formData: FormData): Promise<BannerImage
   const problem = validateUploadFile(file);
   if (problem) return { ok: false, error: problem };
 
+  // Aggregate bounds, before anything is stored: a per-staff
+  // daily cap, then a cap on total stored banner files.
+  const dailyCount = await countBannerUploadsLast24h(admin, user.id);
+  if (dailyCount === null) return { ok: false, error: BANNER_GENERIC_ERROR };
+  if (dailyCount >= BANNER_DAILY_UPLOAD_LIMIT) {
+    return { ok: false, error: `You have reached today's banner upload limit (${BANNER_DAILY_UPLOAD_LIMIT} photos). Try again tomorrow.` };
+  }
+  const storedCount = await countStoredBannerFiles(admin);
+  if (storedCount !== null && storedCount >= BANNER_MAX_STORED_FILES) {
+    return { ok: false, error: `The banner photo store is full (${BANNER_MAX_STORED_FILES} photos). Delete an unused banner photo first.` };
+  }
+
   const slug = slugify(kind);
+  let path = "";
   try {
     // Crop to the universal wide strip before storing: the raw
     // upload never reaches the bucket. The processed file keeps the
     // input format, so the path extension and content type still
     // come from file.type, as before.
     const processed = await processBannerImage(Buffer.from(await file.arrayBuffer()), file.type);
-    const path = uploadStoragePath(`banner-${slug}`, processed.contentType);
+    path = uploadStoragePath(`banner-${slug}`, processed.contentType);
     const { error } = await admin.storage
       .from(PRODUCT_IMAGES_BUCKET)
       .upload(path, processed.buffer, { contentType: processed.contentType, upsert: false });
     if (error) return { ok: false, error: BANNER_GENERIC_ERROR };
+    // Record the upload, so the daily cap counts it. A failed
+    // record removes the file again and fails the upload — an
+    // unrecorded upload would be invisible to the quota.
+    if (!(await recordBannerUpload(admin, user.id))) {
+      await removeStorageFileBestEffort(admin, path);
+      return { ok: false, error: BANNER_GENERIC_ERROR };
+    }
     return { ok: true, file: path };
+  } catch {
+    // A half-finished upload leaves no orphan: if the file was
+    // stored before the failure, remove it again, best effort.
+    if (path !== "") await removeStorageFileBestEffort(admin, path);
+    return { ok: false, error: BANNER_GENERIC_ERROR };
+  }
+}
+
+export type BannerCleanupResult =
+  | { ok: true; removed: number; kept: number }
+  | { ok: false; error: string };
+
+/**
+ * Sweep banner photo files in Storage that no banner row
+ * references and that are older than 24h (audit run-1, finding
+ * #13). Staff only, run by hand from the admin Banners tab
+ * ("Clean up unused banner photos") — there is no cron, and
+ * nothing here runs on a schedule.
+ *
+ * Only files at the bucket root whose name starts with "banner-"
+ * are considered, and a file is removed only when no banners row
+ * references its name AND its Storage created_at is older than
+ * 24h — a photo uploaded moments ago for a banner still being
+ * composed is never swept. A missing or unparseable created_at
+ * is never swept either: keeping a file is safer than deleting
+ * a fresh one. `removed` counts the files deleted, `kept` the
+ * banner files left in place (referenced, too new, or both).
+ * A failed list, read or removal returns an error and removes
+ * nothing silently.
+ */
+export async function cleanupOrphanBannerPhotos(): Promise<BannerCleanupResult> {
+  const role = await getCallerRole().catch(() => null);
+  if (!canManageBanners(role)) return { ok: false, error: BANNER_NOT_ALLOWED_ERROR };
+  let admin: SupabaseClient;
+  try {
+    admin = untyped(createAdminClient());
+  } catch {
+    return { ok: false, error: BANNER_GENERIC_ERROR };
+  }
+  try {
+    const { data: files, error: listError } = await admin.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .list("", { limit: 1000, search: "banner-" });
+    if (listError || !files) return { ok: false, error: BANNER_GENERIC_ERROR };
+    const bannerFiles = files.filter(
+      (file) => typeof file.name === "string" && file.name.startsWith("banner-"),
+    );
+    const { data: rows, error: rowsError } = await admin.from("banners").select("image_path");
+    if (rowsError || !rows) return { ok: false, error: BANNER_GENERIC_ERROR };
+    const referenced = new Set(
+      (rows as Array<{ image_path?: unknown }>)
+        .map((row) => row.image_path)
+        .filter((value): value is string => typeof value === "string"),
+    );
+    const cutoff = new Date(Date.now() - BANNER_ORPHAN_AGE_MS).toISOString();
+    const orphans = bannerFiles.filter((file) => {
+      if (referenced.has(file.name)) return false;
+      // Only files old enough to be abandoned. A missing or
+      // unparseable timestamp is never swept.
+      if (typeof file.created_at !== "string" || file.created_at === "") return false;
+      return file.created_at < cutoff;
+    });
+    if (orphans.length === 0) {
+      return { ok: true, removed: 0, kept: bannerFiles.length };
+    }
+    const names = orphans.map((file) => file.name);
+    const { error: removeError } = await admin.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .remove(names);
+    if (removeError) return { ok: false, error: BANNER_GENERIC_ERROR };
+    return { ok: true, removed: names.length, kept: bannerFiles.length - names.length };
   } catch {
     return { ok: false, error: BANNER_GENERIC_ERROR };
   }
