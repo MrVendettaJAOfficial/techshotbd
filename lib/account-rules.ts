@@ -173,20 +173,99 @@ export function mapDbWishlistRowToLocal(row: DbWishlistRow): LocalWishlistItem |
  * Supabase copy wins (it is the source of truth once configured).
  * Newest first. The local copy is the fallback when Supabase is not
  * configured, so it is never dropped — only de-duplicated.
+ *
+ * `serverMode` (audit #9): when the caller is signed in and
+ * Supabase is configured, the live orders are the whole list — the
+ * local copy is a guest / unconfigured fallback only, and another
+ * account's local orders must never surface alongside the signed-in
+ * user's live ones. With serverMode on, the local list is ignored
+ * entirely (not merged): local orders belong to whoever created
+ * them, and the signed-in user sees only their own server orders.
  */
-export function mergeOrders<T extends LocalOrderSummary>(local: T[], remote: T[]): T[] {
+export function mergeOrders<T extends LocalOrderSummary>(
+  local: T[],
+  remote: T[],
+  serverMode = false,
+): T[] {
+  if (serverMode) {
+    const byId = new Map<string, T>();
+    for (const order of remote) byId.set(order.id, order);
+    return sortOrdersNewestFirst([...byId.values()]);
+  }
   const byId = new Map<string, T>();
   for (const order of local) byId.set(order.id, order);
   for (const order of remote) byId.set(order.id, order);
-  // Newest first, compared as numbers: ISO strings sort correctly
-  // only when every value uses the same format, and equal timestamps
-  // must compare 0 (the old comparator returned -1 for equals, which
-  // is not a valid sort order). Unparseable dates sort as epoch.
-  return [...byId.values()].sort((a, b) => {
+  return sortOrdersNewestFirst([...byId.values()]);
+}
+
+/**
+ * Newest first, compared as numbers: ISO strings sort correctly
+ * only when every value uses the same format, and equal timestamps
+ * must compare 0 (the old comparator returned -1 for equals, which
+ * is not a valid sort order). Unparseable dates sort as epoch.
+ */
+function sortOrdersNewestFirst<T extends LocalOrderSummary>(orders: T[]): T[] {
+  return [...orders].sort((a, b) => {
     const ta = Date.parse(a.createdAt);
     const tb = Date.parse(b.createdAt);
     return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Order confirmation ownership (audit #8).
+//
+// The confirmation page may show an order only to the buyer who
+// placed it: the signed-in owner (session user == order.userId),
+// or a guest holding the order's per-order buyerToken as ?key=.
+// Anyone else — anonymous, another account, a guest with no key or
+// the wrong key — sees only "Order not found".
+// ---------------------------------------------------------------------------
+
+/**
+ * Constant-time string equality: compares every character and
+ * only then reports the result, so a wrong key takes the same time
+ * as a right one (no early exit on the first differing character).
+ * Different lengths are unequal by definition — the length of a
+ * UUID key is public, not a secret.
+ */
+export function timingSafeEqualStrings(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/** The ownership fields the confirmation gate needs off an order. */
+export interface ConfirmationOrderOwnership {
+  userId: string | null;
+  buyerToken: string | null;
+}
+
+/**
+ * May this viewer see this order on the confirmation page?
+ *   - an order with no owner fields at all (null record) is never
+ *     visible;
+ *   - a signed-in order (userId set) is visible only to that user
+ *     id — staff use the admin order page instead;
+ *   - a guest order (userId null) is visible only to a holder of
+ *     its buyerToken, presented as ?key= and compared in constant
+ *     time. An order with no token (placed before buyerTokens
+ *     existed) has no key that can open it — fail closed.
+ */
+export function canViewConfirmationOrder(
+  order: ConfirmationOrderOwnership | null,
+  viewerUserId: string | null,
+  presentedKey: string | null | undefined,
+): boolean {
+  if (!order) return false;
+  if (order.userId !== null) {
+    return viewerUserId !== null && viewerUserId === order.userId;
+  }
+  if (!order.buyerToken || !presentedKey) return false;
+  return timingSafeEqualStrings(presentedKey, order.buyerToken);
 }
 
 /** Validate the account address form. Returns field errors, empty

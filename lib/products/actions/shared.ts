@@ -144,26 +144,40 @@ export async function loadCategoriesBySlugs(
  * then insert one row per category id. The primary category is
  * stored on products.category_id, NOT here — callers pass only
  * the extra categories (primary first is restored by the mapper:
- * categorySlugsForRow always puts the primary slug first). Like
- * writeImages / writeVariants, a failed membership write must not
- * fail the product write — and when the table does not exist yet
- * (migration 0012 not applied) the delete + insert fail silently
- * and the product keeps its primary category only.
+ * categorySlugsForRow always puts the primary slug first).
+ *
+ * Returns false when the sync fails — a failed delete, a failed
+ * insert, or a thrown error — so the caller (createProduct /
+ * updateProduct) can report the save as failed instead of
+ * claiming success with the memberships silently lost (audit
+ * run-1, finding #12). The delete runs first because the table's
+ * primary key is (product_id, category_id) (migration 0012): the
+ * new rows cannot be inserted before the stale ones are gone.
+ * Like writeImages / writeVariants, a failure here means the
+ * caller returns { ok: false }; migration 0012 is applied live,
+ * so a missing table is a failure now, not a silent skip.
  */
 export async function writeCategories(
   admin: AdminClient,
   productId: string,
   categoryIds: string[],
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await admin.from("product_categories").delete().eq("product_id", productId);
+    const { error: deleteError } = await admin
+      .from("product_categories")
+      .delete()
+      .eq("product_id", productId);
+    if (deleteError) return false;
     const ids = [...new Set(categoryIds)];
-    if (ids.length === 0) return;
-    await admin
+    if (ids.length === 0) return true;
+    const { error } = await admin
       .from("product_categories")
       .insert(ids.map((category_id) => ({ product_id: productId, category_id })));
+    return !error;
   } catch {
-    // A failed membership row must not fail the product write.
+    // A thrown write error is a failed save too: report it,
+    // never swallow it.
+    return false;
   }
 }
 
@@ -186,9 +200,10 @@ export function revalidateProductPages(slug: string, oldSlug?: string): void {
   revalidatePath(`/product/${slug}`);
   if (oldSlug && oldSlug !== slug) revalidatePath(`/product/${oldSlug}`);
   // The catalogue data cache (tag "catalog", lib/storefront-cache.ts)
-  // holds the same pages' data: without this, a price / title / pause
-  // change would sit in the cache and the storefront would keep
-  // showing the old product until the next banner write or restart.
+  // holds the same pages' data: without this purge, a price / title
+  // / pause change would sit in the cache until the next product /
+  // order / banner write purged the tag, or the catalogue's
+  // 60-second revalidate expired (see lib/supabase/catalog.ts).
   revalidateCatalogCache();
 }
 
@@ -197,15 +212,24 @@ export async function writeImages(
   productId: string,
   imagePaths: string[],
   title: string,
-): Promise<void> {
+): Promise<boolean> {
   // One product_images row per photo, sort_order 0, 1, 2, … — the
   // first is the main photo and the gallery shows the rest in this
   // order. Empty entries are dropped; duplicates were already
   // removed by mergeImagePaths.
+  //
+  // Returns false when the insert fails — a returned { error }
+  // from Supabase, or a thrown error — so the caller can report
+  // the save as failed instead of claiming success with the photos
+  // silently lost (audit run-1, finding #12). The stale rows are
+  // deleted by the caller before this runs, because the table's
+  // unique (product_id, storage_path) constraint (migration 0001)
+  // forbids inserting the new rows first: a photo the product
+  // already has would violate it.
   const paths = imagePaths.map((path) => path.trim()).filter((path) => path !== "");
-  if (paths.length === 0) return;
+  if (paths.length === 0) return true;
   try {
-    await admin.from("product_images").insert(
+    const { error } = await admin.from("product_images").insert(
       paths.map((storage_path, index) => ({
         product_id: productId,
         storage_path,
@@ -213,15 +237,26 @@ export async function writeImages(
         sort_order: index,
       })),
     );
+    return !error;
   } catch {
-    // A failed image row must not fail the product write.
+    // A thrown insert error is a failed save too: report it,
+    // never swallow it.
+    return false;
   }
 }
 
-export async function writeVariants(admin: AdminClient, productId: string, variants: ProductInput["variants"]): Promise<void> {
-  if (variants.length === 0) return;
+export async function writeVariants(admin: AdminClient, productId: string, variants: ProductInput["variants"]): Promise<boolean> {
+  // Returns false when the insert fails — a returned { error }
+  // from Supabase, or a thrown error — so the caller can report
+  // the save as failed instead of claiming success with the
+  // variants silently lost (audit run-1, finding #12). The stale
+  // rows are deleted by the caller before this runs: variants have
+  // no stable identity to tell a stale row from a new one, so the
+  // new rows cannot be inserted first and the old ones deleted
+  // after.
+  if (variants.length === 0) return true;
   try {
-    await admin.from("product_variants").insert(
+    const { error } = await admin.from("product_variants").insert(
       variants.map((variant) => ({
         product_id: productId,
         name: variant.name,
@@ -230,7 +265,10 @@ export async function writeVariants(admin: AdminClient, productId: string, varia
         image_path: variant.imagePath ? variant.imagePath : null,
       })),
     );
+    return !error;
   } catch {
-    // A failed variant row must not fail the product write.
+    // A thrown insert error is a failed save too: report it,
+    // never swallow it.
+    return false;
   }
 }

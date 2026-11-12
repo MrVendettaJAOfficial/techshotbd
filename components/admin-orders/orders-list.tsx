@@ -157,7 +157,7 @@ export default function AdminOrders({ initialOrders, configured, callerRole }: A
     if (!beginOrderAction(order.id)) return;
     try {
       if (configured) {
-        const result = await advanceOrderStatus(order.id);
+        const result = await advanceOrderStatus(order.id, order.status);
         if (!result.ok) {
           setOrderError(result.error);
           return;

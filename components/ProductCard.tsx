@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Product } from "../lib/data/catalog";
 import { formatBDT } from "../lib/theme";
 import { useCart } from "../lib/cart-store";
+import { getSession } from "../lib/auth";
 import { addToWishlist, getWishlist, removeFromWishlist } from "../lib/checkout-store";
 import ProductImage from "./ProductImage";
 
@@ -50,9 +51,29 @@ export default function ProductCard({ product }: { product: Product }) {
   const [added, setAdded] = useState(false);
   const pct = discountPercent(product);
 
+  // Who is looking? Resolved once here so the wishlist read below
+  // is scoped to that viewer (a signed-in user id, or null for a
+  // guest): another account's wishlisted products never show as
+  // hearted here (audit #9). `undefined` means "not resolved yet" —
+  // the check waits for it rather than reading unscoped.
+  const [viewerId, setViewerId] = useState<string | null | undefined>(undefined);
+
   useEffect(() => {
-    setWishlisted(getWishlist().some((w) => w.productId === product.slug));
-  }, [product.slug]);
+    let cancelled = false;
+    void getSession()
+      .catch(() => null)
+      .then((session) => {
+        if (!cancelled) setViewerId(session?.user?.id ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (viewerId === undefined) return;
+    setWishlisted(getWishlist(viewerId).some((w) => w.productId === product.slug));
+  }, [product.slug, viewerId]);
 
   function toggleWishlist() {
     const next = !wishlisted;
@@ -60,17 +81,29 @@ export default function ProductCard({ product }: { product: Product }) {
     // Wishlist is stored per-account in the browser until Supabase is
     // connected (see lib/checkout-store). There is intentionally no
     // /api/wishlist route — the toggle always works locally.
-    if (next) {
-      addToWishlist({
-        productId: product.slug,
-        title: product.title,
-        price_poisha: product.price_poisha,
-        mrp_poisha: product.compare_at_poisha,
-        image: product.image,
+    // The viewer is resolved fresh at click time so the entry is
+    // always stamped with (or removed from) the account that
+    // actually clicked, even if the session resolved after this
+    // card mounted (audit #9).
+    void getSession()
+      .catch(() => null)
+      .then((session) => {
+        const uid = session?.user?.id ?? null;
+        if (next) {
+          addToWishlist(
+            {
+              productId: product.slug,
+              title: product.title,
+              price_poisha: product.price_poisha,
+              mrp_poisha: product.compare_at_poisha,
+              image: product.image,
+            },
+            uid,
+          );
+        } else {
+          removeFromWishlist(product.slug, uid);
+        }
       });
-    } else {
-      removeFromWishlist(product.slug);
-    }
   }
 
   function handleAdd() {

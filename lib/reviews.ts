@@ -256,9 +256,12 @@ export async function submitReview(
   // tab to Description so the review list is hidden (that is why
   // the form's header comment says it never calls router.refresh(),
   // proven by the Playwright run of 2026-11-09). The aggregate
-  // simply refreshes on the next product / order / banner write
-  // instead — and the reviews list itself is live per visit, so
-  // the new review shows there on the next load, and the form
-  // hands it to the parent from local state immediately.
+  // refreshes on the next product / order / banner write instead —
+  // banner writes purge the catalog tag since the 2026-11-12
+  // cache fix (audit run-1, finding #14) — or within 60 seconds,
+  // when the catalogue's revalidate interval expires. The reviews
+  // list itself is live per visit, so the new review shows there
+  // on the next load, and the form hands it to the parent from
+  // local state immediately.
   return { ok: true };
 }

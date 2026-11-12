@@ -110,21 +110,37 @@ export async function computeCheckoutTotals(
  * (lib/cart-server.ts) so a guest checking out while Supabase is
  * configured is priced from the live database, not the seed catalogue.
  * `unknownSlugs` are the slugs the resolver could not price.
+ *
+ * `dbCoupon` — the coupon ALREADY validated against the database
+ * (validateCouponFromDb in ./coupons.ts), passed by the checkout
+ * action when Supabase is configured. When it is given, it decides
+ * the discount (or the coupon error) and the local rule below is
+ * not consulted: a deactivated or expired coupon must be rejected
+ * for guests exactly as for signed-in users. When it is NOT given
+ * (Supabase unconfigured — there is no database to ask), the local
+ * FIRST2000 rule still prices the order; that rule is display-only
+ * and never overrides a database decision.
  */
 export function computeCheckoutTotalsFromLines(
   items: OrderItem[],
   unknownSlugs: string[],
   couponCode: string | null | undefined,
   delivery: DeliveryOption,
+  dbCoupon?: { discount_poisha: number } | { error: string },
 ): CheckoutTotals {
   const subtotal_poisha = items.reduce((sum, i) => sum + i.price_poisha * i.quantity, 0);
   const normalizedCode = (couponCode ?? "").trim().toUpperCase() || null;
   let couponDiscount_poisha = 0;
   let couponError: string | undefined;
   if (normalizedCode) {
-    const result = validateCoupon(normalizedCode, subtotal_poisha);
-    if ("discount_poisha" in result) couponDiscount_poisha = result.discount_poisha;
-    else couponError = result.error;
+    if (dbCoupon !== undefined) {
+      if ("discount_poisha" in dbCoupon) couponDiscount_poisha = dbCoupon.discount_poisha;
+      else couponError = dbCoupon.error;
+    } else {
+      const result = validateCoupon(normalizedCode, subtotal_poisha);
+      if ("discount_poisha" in result) couponDiscount_poisha = result.discount_poisha;
+      else couponError = result.error;
+    }
   }
   const { savings_poisha, deliveryFee_poisha, total_poisha } = computeTotals(
     items,

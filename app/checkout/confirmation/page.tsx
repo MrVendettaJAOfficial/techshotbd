@@ -2,14 +2,28 @@
 //
 // Reads the just-placed order from the server-side in-memory store
 // (lib/orders) and shows its items, price breakdown and delivery
-// address, with links to track the order or keep shopping. An
-// unknown order reference reports "Order not found" honestly.
+// address, with links to track the order or keep shopping.
+//
+// The order is shown ONLY to the buyer who placed it (audit #8):
+// a signed-in order renders only when the session user is the
+// order's owner (order.userId), and a guest order renders only when
+// the ?key= query value matches the order's per-order buyerToken
+// (constant-time compare). Anyone else — anonymous, another
+// account, a guest with no key or the wrong key — gets the same
+// "Order not found" branch as an unknown order, with no reason
+// shown. Staff view orders through the admin order page, not here.
+// The owner fields come from the order creation sites
+// (createSupabaseOrder and the local checkout path), which already
+// carry userId + buyerToken on every StoredOrder — no creation-site
+// change was needed.
 
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { formatBDT } from "@/lib/theme";
 import ProductPlaceholder from "@/components/ProductPlaceholder";
 import { getOrderRecord } from "@/lib/orders";
+import { getCurrentUser } from "@/lib/auth-server";
+import { canViewConfirmationOrder } from "@/lib/account-rules";
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Pending payment",
@@ -21,10 +35,10 @@ const STATUS_LABELS: Record<string, string> = {
   refunded: "Refunded",
 };
 
-export default function ConfirmationPage({
+export default async function ConfirmationPage({
   searchParams,
 }: {
-  searchParams: { order?: string; id?: string };
+  searchParams: { order?: string; id?: string; key?: string };
 }) {
   // Reads the order from the server-side in-memory store (lib/orders).
   // That store only lives as long as the preview server instance, so an
@@ -32,8 +46,16 @@ export default function ConfirmationPage({
   // reported honestly below instead of inventing an order.
   const orderId = searchParams.order ?? searchParams.id ?? "";
   const order = orderId ? getOrderRecord(orderId) : null;
+  // Owner gate: the order renders only for its buyer. A signed-in
+  // order needs the owner's session; a guest order needs its
+  // per-order key (?key=, carried by the checkout redirect). The
+  // not-found branch below is the same for every denial, on purpose.
+  const user = await getCurrentUser().catch(() => null);
+  const allowed =
+    order !== null &&
+    canViewConfirmationOrder(order, user?.id ?? null, searchParams.key ?? null);
 
-  if (!order) {
+  if (!order || !allowed) {
     return (
       <main className="mx-auto max-w-[720px] px-4 py-10">
         <div className="rounded-2xl border border-border bg-panel p-8 text-center">

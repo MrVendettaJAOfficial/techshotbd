@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatBDT } from "@/lib/theme";
+import { getSession } from "@/lib/auth";
 import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
 import { mergeOrders } from "@/lib/account-rules";
 import {
@@ -65,18 +66,33 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   useEffect(() => {
-    const browserOrders = listOrders();
-    setOrders(browserOrders);
-    setLoaded(true);
-    // Live orders for the signed-in user, merged over the browser list:
-    // the same order id in both places is one order and the Supabase
-    // copy wins (it is the source of truth once configured). This is
-    // the fix for a fresh browser showing "No orders yet" even though
-    // the order exists in Supabase. listSupabaseOrders returns [] when
-    // Supabase is not configured or nobody is signed in, so guests
-    // keep seeing their local orders exactly as before.
     let cancelled = false;
     void (async () => {
+      // Who is looking? The browser-local list is scoped to that
+      // viewer (a signed-in user id, or null for a guest): another
+      // account's local orders never render here, even when the
+      // previous user never signed out and their records are still
+      // in this browser's storage (audit #9).
+      const session = await getSession().catch(() => null);
+      if (cancelled) return;
+      const userId = session?.user.id ?? null;
+      const browserOrders = listOrders(userId);
+      setOrders(browserOrders);
+      setLoaded(true);
+      // Live orders for the signed-in user, merged over the browser list:
+      // the same order id in both places is one order and the Supabase
+      // copy wins (it is the source of truth once configured). This is
+      // the fix for a fresh browser showing "No orders yet" even though
+      // the order exists in Supabase. listSupabaseOrders returns [] when
+      // Supabase is not configured or nobody is signed in, so guests
+      // keep seeing their local orders exactly as before.
+      // Signed in (so Supabase is configured): the live orders are
+      // the WHOLE list — mergeOrders with serverMode on ignores the
+      // local copy entirely, so a local order from another account
+      // (or a guest order placed on this browser) can never appear
+      // next to this user's live orders. A signed-in user with no
+      // live orders therefore sees "No orders yet", even when the
+      // browser still holds someone else's local orders.
       let liveOrders: StoredOrder[] = [];
       try {
         liveOrders = await listSupabaseOrders();
@@ -84,8 +100,8 @@ export default function OrdersPage() {
         liveOrders = [];
       }
       if (cancelled) return;
-      const merged = mergeOrders(browserOrders, liveOrders);
-      if (liveOrders.length > 0) setOrders(merged);
+      const merged = mergeOrders(browserOrders, liveOrders, userId !== null);
+      setOrders(merged);
       // Same server reconciliation as the order detail page (see there):
       // a payment completed through the public callback route updates the
       // server-side record, not this browser copy. Only copies still
@@ -103,15 +119,19 @@ export default function OrdersPage() {
             return false;
           }
           return (
-            updateOrderStatus(o.id, {
-              status: server.status,
-              paymentStatus: server.paymentStatus,
-            }) !== null
+            updateOrderStatus(
+              o.id,
+              {
+                status: server.status,
+                paymentStatus: server.paymentStatus,
+              },
+              userId,
+            ) !== null
           );
         }),
       );
       if (!cancelled && results.some(Boolean)) {
-        setOrders(mergeOrders(listOrders(), liveOrders));
+        setOrders(mergeOrders(listOrders(userId), liveOrders, userId !== null));
       }
     })();
     return () => {

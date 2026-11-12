@@ -143,6 +143,18 @@ export interface PlaceOrderInput {
   delivery: DeliveryOption;
   paymentMethod: PaymentMethod;
   address: AddressInput;
+  /**
+   * Idempotency key: one UUID generated per checkout attempt by the
+   * client (components/checkout/checkout-form.tsx). The server
+   * stores it on the orders row and returns the ORIGINAL order when
+   * the same key is submitted again, so a double-click, network
+   * retry or replayed server action cannot create a second order or
+   * decrement stock twice (lib/orders/server/create.ts, migration
+   * 0014). Optional only so older callers keep compiling: when it
+   * is absent the server mints a fresh key per call, which dedups
+   * nothing — the form always sends one.
+   */
+  idempotencyKey?: string;
 }
 
 export type PlaceOrderResult =

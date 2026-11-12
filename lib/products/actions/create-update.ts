@@ -83,9 +83,20 @@ export async function createProduct(rawInput: unknown): Promise<ProductActionRes
     .single();
   if (error || !data) return { ok: false, error: GENERIC_ERROR };
 
-  await writeImages(admin, data.id, mergeImagePaths(input), input.title);
-  await writeVariants(admin, data.id, input.variants);
-  await writeCategories(admin, data.id, extraCategoryIds(extraCategories, input.categorySlug));
+  // A failed photo / variant / category write fails the create:
+  // the product row already exists, but the save must never report
+  // { ok: true } with its photos, variants or extra categories
+  // silently dropped (audit run-1, finding #12). The staff member
+  // sees the generic error and can retry or delete the bare row.
+  if (!(await writeImages(admin, data.id, mergeImagePaths(input), input.title))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  if (!(await writeVariants(admin, data.id, input.variants))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  if (!(await writeCategories(admin, data.id, extraCategoryIds(extraCategories, input.categorySlug)))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
   await writeAudit(admin, user.id, "product.create", data.id);
 
   revalidateProductPages(data.slug);
@@ -147,11 +158,33 @@ export async function updateProduct(id: string, rawInput: unknown): Promise<Prod
     .eq("id", existing.id);
   if (error) return { ok: false, error: GENERIC_ERROR };
 
-  await admin.from("product_images").delete().eq("product_id", existing.id);
-  await writeImages(admin, existing.id, mergeImagePaths(input), input.title);
-  await admin.from("product_variants").delete().eq("product_id", existing.id);
-  await writeVariants(admin, existing.id, input.variants);
-  await writeCategories(admin, existing.id, extraCategoryIds(extraCategories, input.categorySlug));
+  // Replace the photos, variants and extra categories. The stale
+  // rows are deleted first — the schema forbids insert-first (see
+  // writeImages / writeVariants / writeCategories in ./shared.ts:
+  // product_images has a unique (product_id, storage_path)
+  // constraint, product_categories a (product_id, category_id)
+  // primary key, and variants have no identity to delete stale
+  // rows by) — so a failed re-insert cannot restore what the
+  // delete removed. What the save CAN do is fail visibly: every
+  // delete and every re-insert is checked, and any failure returns
+  // { ok: false } with the generic error instead of claiming
+  // success with the photos, variants or categories silently lost
+  // (audit run-1, finding #12). The staff member sees the error
+  // and can retry the save from the form, which still holds the
+  // photos and variants they entered.
+  const { error: deleteImagesError } = await admin.from("product_images").delete().eq("product_id", existing.id);
+  if (deleteImagesError) return { ok: false, error: GENERIC_ERROR };
+  if (!(await writeImages(admin, existing.id, mergeImagePaths(input), input.title))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  const { error: deleteVariantsError } = await admin.from("product_variants").delete().eq("product_id", existing.id);
+  if (deleteVariantsError) return { ok: false, error: GENERIC_ERROR };
+  if (!(await writeVariants(admin, existing.id, input.variants))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  if (!(await writeCategories(admin, existing.id, extraCategoryIds(extraCategories, input.categorySlug)))) {
+    return { ok: false, error: GENERIC_ERROR };
+  }
   await writeAudit(admin, user.id, "product.update", existing.id);
 
   revalidateProductPages(slug, existing.slug);

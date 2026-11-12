@@ -108,7 +108,10 @@ export default function InboxPage() {
       setLoaded(true);
       return;
     }
-    const browserOrders = listOrders();
+    // Scoped to the signed-in viewer (the effect returns early
+    // above when there is no user): another account's local orders
+    // never reach the inbox entries (audit #9).
+    const browserOrders = listOrders(user.id);
     let cancelled = false;
     void (async () => {
       // Live orders for the signed-in user, merged over the browser
