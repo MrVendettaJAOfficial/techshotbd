@@ -68,6 +68,17 @@ export async function POST(request: Request) {
 
   const outcome = adapterStatusToOutcome(adapterStatus);
   const patch = applyPaymentOutcome(outcome);
+  // A verified-but-late cancellation of a paid order is refused
+  // BEFORE the memory record is touched: a paid order is refunded,
+  // never cancelled (the database callback enforces the same rule
+  // below), and the memory copy must not flip to cancelled while
+  // the database still says confirmed + paid.
+  if (patch.status === "cancelled" && order.paymentStatus === "paid") {
+    return NextResponse.json(
+      { ok: false, error: "A paid order cannot be cancelled. Refund it instead." },
+      { status: 400 },
+    );
+  }
   updateOrderRecordStatus(orderId, patch);
   // Keep the live Supabase order in sync too. This runs only after the
   // callback signature was verified above, which is the trust boundary —

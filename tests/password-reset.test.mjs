@@ -240,7 +240,7 @@ test("callback routes recovery links to reset-password and keeps the old account
   assert.match(callbackPage, /getAuthCallbackDestination\(type\)/);
   assert.match(callbackPage, /searchParams\.get\("type"\)/);
   assert.match(callbackPage, /parseRecoveryHash\(window\.location\.hash\)/);
-  assert.match(callbackPage, /exchangeAuthCode\(code\)/);
+  assert.match(callbackPage, /exchangeAuthCode\(code, type\)/);
 });
 
 test("sign-in page links to forgot-password and shows the reset success note", () => {

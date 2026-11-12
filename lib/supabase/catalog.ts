@@ -14,14 +14,22 @@
 // issues zero catalogue queries. The cache is purged on demand
 // (revalidateTag) by every write that changes catalogue-visible data
 // — product create / update / pause / delete, order placement (stock),
-// order cancel / refund / returned (stock restore) and review
-// submission (rating aggregate) — so an admin edit still shows on
-// the storefront immediately. The local fallback is NEVER cached
-// (it lives in getCatalog(), outside the cached function) and a
-// failed fetch throws instead of caching, so a transient outage can
-// never pin seed data or an empty list — the next visit retries
-// live. Per-user data is never cached here: cart, checkout, account,
-// orders and review-write eligibility all read live.
+// order cancel / refund / returned (stock restore) and banner create
+// / update / hide / show / delete — so an admin edit still shows on
+// the storefront immediately. Review submission deliberately does
+// NOT purge (lib/reviews.ts submitReview): the revalidation would
+// remount the review form and wipe the thank-you notice. The rating
+// aggregate still refreshes: the cached entry revalidates at most
+// 60 seconds after it was filled (see fetchCatalogCached below),
+// so a submitted review — or a degraded fill after a transient
+// read failure — is picked up within a minute, and the next
+// product / order / banner write purges the tag sooner. The local
+// fallback is NEVER cached (it lives in getCatalog(), outside the
+// cached function) and a failed fetch throws instead of caching,
+// so a transient outage can never pin seed data or an empty list —
+// the next visit retries live. Per-user data is never cached here:
+// cart, checkout, account, orders and review-write eligibility all
+// read live.
 //
 // When Supabase is not configured, or a live query fails, getCatalog()
 // falls back to the local seed catalogue (lib/data/catalog.ts) with a
@@ -261,9 +269,19 @@ export async function getLiveCatalog(
 /**
  * The live catalogue, cached across requests under the "catalog" tag
  * (see lib/storefront-cache.ts). The first visit after a product,
- * order or review write fetches it once; every later visit — home,
+ * order or banner write fetches it once; every later visit — home,
  * shop, product page, any searchParams — reads this copy and issues
  * zero catalogue queries, until a write purges the tag.
+ *
+ * revalidate: 60 bounds how long a fill can be served (audit run-1,
+ * finding #14): the auxiliary reviews / product_categories reads
+ * are tolerant and return empty maps on failure, so a transient
+ * read failure at fill time would otherwise be cached with zero
+ * ratings and lost flash-deal memberships until an unrelated write
+ * purged the tag. With the 60-second interval a degraded fill
+ * self-heals within a minute, and a submitted review's aggregate
+ * refreshes within a minute too — review submission deliberately
+ * never purges the tag (see lib/reviews.ts submitReview).
  *
  * The fetch runs through the cookie-less public client, never the
  * request-scoped one (see getLiveCatalog above), and the local
@@ -274,7 +292,7 @@ export async function getLiveCatalog(
 const fetchCatalogCached = unstable_cache(
   async (): Promise<LiveCatalog> => getLiveCatalog(createPublicClient()),
   ["techshot-catalog"],
-  { tags: [CATALOG_CACHE_TAG] },
+  { tags: [CATALOG_CACHE_TAG], revalidate: 60 },
 );
 
 /**
@@ -284,7 +302,8 @@ const fetchCatalogCached = unstable_cache(
  * returned per visit and never cached (see fetchCatalogCached
  * above), so a transient outage can never pin seed data: the next
  * visit retries the live fetch, and the next product / order /
- * review write purges the tag anyway.
+ * banner write purges the tag anyway — or the 60-second
+ * revalidate expires.
  */
 export async function getCatalog(): Promise<LiveCatalog> {
   if (!isSupabaseConfigured()) return localCatalog();

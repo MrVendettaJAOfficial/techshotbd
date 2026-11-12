@@ -12,6 +12,23 @@
 // cart is uploaded. Quantity changes are then persisted line by line.
 // When signed out or unconfigured, behaviour is exactly the
 // localStorage cart above: nothing is lost and nothing is blocked.
+//
+// OWNER SCOPING (audit #9, 2026-11-12): the browser cart used to be
+// one unowned list, so the next account on a shared browser saw the
+// previous account's cart. The stored cart is now tagged with its
+// owner's user id ({ userId, items } under the same key,
+// "techshot-cart-v1"; a bare array left over from before reads back
+// as the guest cart) and the provider only RENDERS the lines whose
+// owner matches the current viewer — another account's lines render
+// as an empty cart. The cart is deliberately NOT deleted on sign-out:
+// a guest cart survives sign-out, and when the same account signs
+// back in the server cart restores the lines (or, unconfigured, the
+// tagged local copy is still there). The server cart is the source
+// of truth for signed-in users, so a stored copy overwritten by
+// another account's shopping is restored from the server on the
+// next sign-in. Mutations always start from the VISIBLE cart, never
+// from another account's lines, and only the guest cart is ever
+// uploaded into a newly signed-in account's server cart.
 
 import {
   createContext,
@@ -61,31 +78,72 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 const STORAGE_KEY = "techshot-cart-v1";
 
+/** A stored cart: its lines plus the id of the account (or guest)
+ *  they belong to. `userId` null means the guest cart. */
+export interface StoredCart {
+  userId: string | null;
+  items: CartItem[];
+}
+
 function itemKey(item: CartItem): string {
   return `${item.slug}::${item.variant ?? ""}`;
 }
 
-function loadFromStorage(): CartItem[] {
+/** Keep only well-formed cart lines from an unknown stored value. */
+function validCartItems(value: unknown): CartItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (it): it is CartItem =>
+      typeof it === "object" &&
+      it !== null &&
+      typeof (it as CartItem).slug === "string" &&
+      typeof (it as CartItem).quantity === "number" &&
+      (it as CartItem).quantity > 0,
+  );
+}
+
+/**
+ * Parse the stored cart: the current { userId, items } shape, or a
+ * legacy bare array of lines (the guest cart, from before owner
+ * tagging). Anything else is an empty guest cart.
+ */
+function loadFromStorage(): StoredCart {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) return { userId: null, items: [] };
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (it): it is CartItem =>
-        typeof it === "object" &&
-        it !== null &&
-        typeof (it as CartItem).slug === "string" &&
-        typeof (it as CartItem).quantity === "number" &&
-        (it as CartItem).quantity > 0,
-    );
+    if (Array.isArray(parsed)) return { userId: null, items: validCartItems(parsed) };
+    if (typeof parsed === "object" && parsed !== null) {
+      const shape = parsed as { userId?: unknown; items?: unknown };
+      if (Array.isArray(shape.items)) {
+        return {
+          userId: typeof shape.userId === "string" ? shape.userId : null,
+          items: validCartItems(shape.items),
+        };
+      }
+    }
+    return { userId: null, items: [] };
   } catch {
-    return [];
+    return { userId: null, items: [] };
   }
 }
 
+/**
+ * The lines the current viewer may see: only the stored cart whose
+ * owner matches the viewer (null = guest) renders; another
+ * account's cart renders as empty. The stored cart itself is left
+ * untouched here — filtering happens on render, never by deleting.
+ */
+export function resolveVisibleCart(stored: StoredCart, currentUserId: string | null): CartItem[] {
+  if ((stored.userId ?? null) !== currentUserId) return [];
+  return stored.items;
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
+  // The stored cart: its lines plus the id of the account (or
+  // guest) they belong to. `items` below is the VISIBLE slice of
+  // it — only the lines owned by the current viewer ever render.
+  const [cart, setCart] = useState<StoredCart>({ userId: null, items: [] });
   const [hydrated, setHydrated] = useState(false);
   // Signed-in Supabase user id (null = guest / unconfigured). Tracked
   // directly from the browser client's auth state, because this
@@ -94,11 +152,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [serverCartReady, setServerCartReady] = useState(false);
   const serverCartUserRef = useRef<string | null>(null);
   const lastSyncedRef = useRef<CartItem[]>([]);
-  const itemsRef = useRef<CartItem[]>([]);
-  itemsRef.current = items;
+  const cartRef = useRef<StoredCart>(cart);
+  cartRef.current = cart;
+  const items = resolveVisibleCart(cart, serverUserId);
 
   useEffect(() => {
-    setItems(loadFromStorage());
+    setCart(loadFromStorage());
     setHydrated(true);
   }, []);
 
@@ -131,7 +190,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // On sign-in, load the server cart. A non-empty server cart wins;
   // an empty one means the guest cart is uploaded instead. On
-  // sign-out the local cart is kept as-is.
+  // sign-out the local cart is kept as-is — filtering on render
+  // hides it from the guest view, and it is still there (or restored
+  // from the server cart) when the same account signs back in.
   useEffect(() => {
     if (!serverUserId) {
       serverCartUserRef.current = null;
@@ -145,15 +206,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
       .then((serverItems) => {
         if (cancelled) return;
         if (serverItems && serverItems.length > 0) {
-          setItems(serverItems);
+          setCart({ userId: serverUserId, items: serverItems });
           lastSyncedRef.current = serverItems;
         } else {
-          // Upload the guest cart so it survives on other devices.
-          const local = itemsRef.current;
+          // Upload the guest cart so it survives on other devices —
+          // only the guest cart (owner null): another account's
+          // lines must never be uploaded into this account's
+          // server cart. The uploaded lines are now this account's
+          // cart, so they are re-tagged with its id.
+          const local = cartRef.current.userId === null ? cartRef.current.items : [];
           lastSyncedRef.current = local;
           void Promise.allSettled(
             local.map((it) => syncCartItem(it.slug, it.variant, it.quantity)),
           );
+          if (local.length > 0) setCart({ userId: serverUserId, items: local });
         }
         setServerCartReady(true);
       })
@@ -168,8 +234,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Persist local changes to the server cart (signed-in users only).
   // Only the diff against the last synced state is sent; failures are
   // silent — the local cart is the source of truth for the shopper.
+  // The guard is the cart's owner: while the in-memory cart still
+  // belongs to another account (or a guest) — for example the stale
+  // local copy while this account's server cart is still loading —
+  // syncing would push their lines into this account's server cart,
+  // so nothing syncs until the sign-in effect has replaced the cart.
   useEffect(() => {
     if (!hydrated || !serverUserId || !serverCartReady) return;
+    if (cart.userId !== serverUserId) return;
+    const items = cart.items;
     const prev = lastSyncedRef.current;
     if (JSON.stringify(prev) === JSON.stringify(items)) return;
     lastSyncedRef.current = items;
@@ -180,55 +253,76 @@ export function CartProvider({ children }: { children: ReactNode }) {
         .filter((it) => !nextKeys.has(itemKey(it)))
         .map((it) => syncCartItem(it.slug, it.variant, 0)),
     ]);
-  }, [items, hydrated, serverUserId, serverCartReady]);
+  }, [cart, hydrated, serverUserId, serverCartReady]);
 
+  // Persist the tagged cart locally. The owner tag travels with it,
+  // so the next render — same account or guest — can filter it.
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ userId: cart.userId, items: cart.items }),
+      );
     } catch {
       // Storage full or unavailable — cart still works in memory.
     }
-  }, [items, hydrated]);
+  }, [cart, hydrated]);
 
+  // Every mutation starts from the VISIBLE cart (the lines owned by
+  // the current viewer) and re-tags the result with the viewer's id:
+  // adding to a cart while another account's lines are stored never
+  // appends to theirs — it starts this viewer's own cart.
   const add = useCallback((slug: string, variant?: string, quantity = 1) => {
-    setItems((prev) => {
+    setCart((prev) => {
+      const base = prev.userId === serverUserId ? prev.items : [];
       const key = `${slug}::${variant ?? ""}`;
-      const existing = prev.find((it) => itemKey(it) === key);
-      if (existing) {
-        return prev.map((it) =>
-          itemKey(it) === key
-            ? { ...it, quantity: it.quantity + quantity }
-            : it,
-        );
-      }
-      return [...prev, { slug, variant, quantity }];
+      const existing = base.find((it) => itemKey(it) === key);
+      const items = existing
+        ? base.map((it) =>
+            itemKey(it) === key
+              ? { ...it, quantity: it.quantity + quantity }
+              : it,
+          )
+        : [...base, { slug, variant, quantity }];
+      return { userId: serverUserId, items };
     });
-  }, []);
+  }, [serverUserId]);
 
   const remove = useCallback((slug: string, variant?: string) => {
     const key = `${slug}::${variant ?? ""}`;
-    setItems((prev) => prev.filter((it) => itemKey(it) !== key));
-  }, []);
+    setCart((prev) => ({
+      userId: serverUserId,
+      items: (prev.userId === serverUserId ? prev.items : []).filter(
+        (it) => itemKey(it) !== key,
+      ),
+    }));
+  }, [serverUserId]);
 
   const setQuantity = useCallback(
     (slug: string, variant: string | undefined, quantity: number) => {
       const key = `${slug}::${variant ?? ""}`;
-      if (quantity <= 0) {
-        setItems((prev) => prev.filter((it) => itemKey(it) !== key));
-        return;
-      }
-      setItems((prev) =>
-        prev.map((it) =>
-          itemKey(it) === key ? { ...it, quantity } : it,
-        ),
-      );
+      setCart((prev) => {
+        const base = prev.userId === serverUserId ? prev.items : [];
+        if (quantity <= 0) {
+          return {
+            userId: serverUserId,
+            items: base.filter((it) => itemKey(it) !== key),
+          };
+        }
+        return {
+          userId: serverUserId,
+          items: base.map((it) =>
+            itemKey(it) === key ? { ...it, quantity } : it,
+          ),
+        };
+      });
     },
-    [],
+    [serverUserId],
   );
 
   const clear = useCallback(() => {
-    setItems([]);
+    setCart({ userId: serverUserId, items: [] });
     if (serverUserId) void clearServerCart().catch(() => {});
   }, [serverUserId]);
 

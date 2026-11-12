@@ -19,6 +19,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { applyPaymentOutcome, paymentQueryToOutcome } from "@/lib/orders";
 import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
 import { cancelMyOrder } from "@/lib/orders/actions";
+import { getSession } from "@/lib/auth";
 import {
   getOrder,
   saveOrder,
@@ -56,8 +57,30 @@ function OrderDetailInner() {
 
   const id = params.id;
 
+  // Who is looking? Resolved once here so the browser-local copy
+  // below is scoped to that viewer (a signed-in user id, or null
+  // for a guest): another account's local order never renders here
+  // (audit #9). `undefined` means "not resolved yet" — the load
+  // below waits for it.
+  const [viewerId, setViewerId] = useState<string | null | undefined>(undefined);
+
   useEffect(() => {
-    const browserOrder = getOrder(id);
+    let cancelled = false;
+    void getSession()
+      .catch(() => null)
+      .then((session) => {
+        if (!cancelled) setViewerId(session?.user?.id ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Wait for the viewer: reading the browser copy before the
+    // session resolves would read it unscoped.
+    if (viewerId === undefined) return;
+    const browserOrder = getOrder(id, viewerId);
     if (!browserOrder) {
       // No browser copy (new device/browser, or cleared data): load the
       // live order the same way /orders does. Without this, clicking an
@@ -134,7 +157,7 @@ function OrderDetailInner() {
         cancelled = true;
       };
     }
-  }, [id]);
+  }, [id, viewerId]);
 
   // Apply the ?payment= outcome from the test-pay redirect to the
   // browser-stored order (the server-side in-memory record was already

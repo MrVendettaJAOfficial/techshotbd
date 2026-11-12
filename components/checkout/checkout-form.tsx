@@ -68,6 +68,20 @@ export default function CheckoutForm({
   const [cardCvc, setCardCvc] = useState("123");
   const [mobileWalletNumber, setMobileWalletNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Idempotency key: one UUID per checkout attempt, generated once
+  // for this form instance and sent with the order. A double-click,
+  // network retry or replayed server action with the same key
+  // returns the ORIGINAL order instead of creating a second one
+  // (lib/orders/server/create.ts, migration 0014). It stays the
+  // same across a failed submit (no order was created) and across
+  // the success navigation — a fresh mount means a fresh attempt,
+  // and a fresh key.
+  const [idempotencyKey] = useState(() => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `checkout-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  });
 
   useEffect(() => {
     setCouponCode(getCouponCode());
@@ -139,6 +153,7 @@ export default function CheckoutForm({
         delivery,
         paymentMethod,
         address,
+        idempotencyKey,
       });
       if (!result.ok) {
         setErrors(result.errors);

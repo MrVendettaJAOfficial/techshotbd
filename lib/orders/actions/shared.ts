@@ -25,14 +25,15 @@
 //     order still holds the status we read (.eq("status", oldStatus)),
 //     and 0 rows affected means another writer moved first — the
 //     caller is told to reload, and no audit row and no stock restore
-//     happen. The conditional update stops LOST races, but it
-//     cannot stop a double-clicked Advance on its own: the second
-//     call runs after the first has landed, so "advance from the
-//     new status" is a legal next step and it would move a second
-//     step. The double-click guard lives in the client instead —
-//     app/admin/AdminDashboard.tsx keeps a synchronous in-flight
-//     ref, so the second invocation in the same task never reaches
-//     the server. A lost race restores no stock.
+//     happen. A conditional update alone cannot stop a double-clicked
+//     Advance: the second call runs after the first has landed, so
+//     "advance from the new status" is a legal next step and it would
+//     move a second step. That is why advanceOrderStatus also takes
+//     the status the caller RENDERED (expectedStatus): a replayed or
+//     second-tab advance fails that check instead of moving a second
+//     step. The per-component in-flight ref in the admin orders list
+//     is only the first, same-tab line of defence.
+//     A lost race restores no stock.
 //   * Cancel / refund / returned restore stock (lib/orders/stock.ts)
 //     AFTER the conditional update succeeds, so a failed or
 //     lost-race change restores nothing. A refund calls
