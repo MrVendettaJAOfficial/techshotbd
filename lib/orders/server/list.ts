@@ -13,7 +13,7 @@ import type { OrderItem, StoredOrder } from "../../checkout-store";
 import { getSignedInUserId, isConfigured, untyped } from "./shared";
 
 const ORDER_COLUMNS =
-  "id, order_number, status, subtotal_poisha, delivery_poisha, discount_poisha, total_poisha, address_snapshot, payment_method, created_at, updated_at, order_items(id, title, price_poisha, quantity, products(slug))";
+  "id, order_number, user_id, status, subtotal_poisha, delivery_poisha, discount_poisha, total_poisha, address_snapshot, payment_method, created_at, updated_at, order_items(id, title, price_poisha, quantity, products(slug))";
 
 /** Map one Supabase orders row to the StoredOrder shape the order pages use. */
 function toStoredOrder(
@@ -78,6 +78,12 @@ function toStoredOrder(
     total_poisha: typeof row.total_poisha === "number" ? row.total_poisha : 0,
     status: row.status as StoredOrder["status"],
     paymentStatus,
+    // The database keeps no guest key (there is no buyer_token
+    // column): a live order always belongs to a signed-in user, so
+    // the session proves ownership and the key stays null. userId
+    // comes from the row so callers can tell whose order this is.
+    userId: typeof row.user_id === "string" ? row.user_id : null,
+    buyerToken: null,
     testMode: false,
     createdAt: typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
     updatedAt: typeof row.updated_at === "string" ? row.updated_at : new Date().toISOString(),

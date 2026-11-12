@@ -14,6 +14,11 @@ export interface CreatePaymentInput {
   id: string;
   orderNumber: string;
   total_poisha: number;
+  /** Guest-order ownership key (see StoredOrder.buyerToken). When
+   *  present the adapter carries it on the test-pay redirect URL as
+   *  ?key=, so the guest can prove ownership at the payment page.
+   *  Absent for signed-in orders, where the session proves it. */
+  buyerToken?: string;
 }
 
 export interface CreatePaymentResult {

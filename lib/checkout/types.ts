@@ -55,6 +55,16 @@ export interface StoredOrder {
   total_poisha: number;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
+  /** Supabase user id of the signed-in buyer, or null for a guest
+   *  order. The test-pay page checks this against the caller's
+   *  session — a signed-in order can only be paid by its owner. */
+  userId: string | null;
+  /** Random per-order key for a guest (local) order, minted at
+   *  checkout with crypto.randomUUID(). The guest proves ownership
+   *  of the order by presenting this key (carried in the test-pay
+   *  redirect URL and in the browser copy saved at checkout). Null
+   *  for signed-in orders, where the session proves ownership. */
+  buyerToken: string | null;
   /** How this order was cancelled, when it was cancelled from the order page: "live" means the server confirmed the live cancel (stock released), "local" means the browser copy only was cancelled. Persisted with the order — not kept in component state — because the cancel server action revalidates the order pages and that refresh remounts the order page, wiping transient notice state (proven by the Playwright mock run, 2026-11-08: the live cancel succeeded but no notice showed). Absent on orders never cancelled from the page. */
   cancelNotice?: "live" | "local";
   /** True when the payment went through a test adapter (card / bKash / Nagad / EMI). */

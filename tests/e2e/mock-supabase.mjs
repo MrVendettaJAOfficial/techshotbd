@@ -8,7 +8,10 @@
 // product_categories, banners, profiles, addresses, wishlists,
 // carts, cart_items, orders, order_items, coupons, payments,
 // announcements, audit_log. Auth:
-// any password grant succeeds as user-1 (customer); GET /auth/v1/user
+// any password grant succeeds; test@example.com signs in as user-1
+// (customer) and any other email gets a stable per-email user id
+// (test-pay security, 2026-11-12 — a second user must be a different
+// user, or a non-owner attack cannot be tested). GET /auth/v1/user
 // accepts any Bearer token. POST /auth/v1/recover accepts any
 // recovery request (no email is sent — delivery is live-only).
 // RLS is intentionally permissive here — the
@@ -22,6 +25,7 @@
 // existing profiles row on sign-in, so the seeded admin role survives
 // sign-in (see lib/auth-server.ts ensureProfile).
 import http from "node:http";
+import { createHash } from "node:crypto";
 
 const PORT = Number(process.env.MOCK_SUPABASE_PORT ?? 3101);
 let seq = 0;
@@ -298,6 +302,38 @@ const USER = {
   created_at: new Date().toISOString(),
 };
 
+// Test-pay security (2026-11-12): the mock used to return every
+// signed-in user as user-1, so a "second user" was indistinguishable
+// from the first and a non-owner attack could not be tested. A user
+// id is now derived from the sign-in email: test@example.com stays
+// user-1 (every existing suite depends on it), any other email gets
+// a stable user-<sha256-12> id. The access token carries the email
+// (base64url, dot-separated so the "-" inside base64url cannot
+// confuse the split) so GET /auth/v1/user returns the matching user.
+function userIdForEmail(email) {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  if (!normalized || normalized === USER.email) return "user-1";
+  return `user-${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`;
+}
+function userForEmail(email) {
+  const address = String(email ?? "").trim() || USER.email;
+  return { ...USER, id: userIdForEmail(address), email: address };
+}
+function accessTokenForEmail(email) {
+  return `mock-access-token.${Buffer.from(String(email)).toString("base64url")}.${nid("tok")}`;
+}
+function userForAccessToken(token) {
+  if (!token) return USER;
+  if (token === "mock-access-token") return USER;
+  const match = /^mock-access-token\.([^.]+)\./.exec(token);
+  if (!match) return USER;
+  try {
+    return userForEmail(Buffer.from(match[1], "base64url").toString("utf8"));
+  } catch {
+    return USER;
+  }
+}
+
 function send(res, status, body) {
   const payload = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, {
@@ -567,9 +603,9 @@ async function handle(req, res) {
     if (path === "/auth/v1/token") {
       const body = await readBody(req);
       const email = body.email || USER.email;
-      const user = { ...USER, email };
+      const user = userForEmail(email);
       return send(res, 200, {
-        access_token: "mock-access-token",
+        access_token: accessTokenForEmail(email),
         refresh_token: "mock-refresh-token",
         token_type: "bearer",
         expires_in: 3600,
@@ -578,9 +614,9 @@ async function handle(req, res) {
     }
     if (path === "/auth/v1/signup") {
       const body = await readBody(req);
-      const user = { ...USER, email: body.email || USER.email, user_metadata: body.data || {} };
+      const user = { ...userForEmail(body.email), user_metadata: body.data || {} };
       return send(res, 200, {
-        access_token: "mock-access-token",
+        access_token: accessTokenForEmail(user.email),
         refresh_token: "mock-refresh-token",
         token_type: "bearer",
         expires_in: 3600,
@@ -600,7 +636,7 @@ async function handle(req, res) {
       if (!auth.startsWith("Bearer ") || auth.slice(7).length < 4) {
         return send(res, 401, { msg: "invalid token" });
       }
-      return send(res, 200, USER);
+      return send(res, 200, userForAccessToken(auth.slice(7)));
     }
     if (path === "/auth/v1/logout") {
       await readBody(req);

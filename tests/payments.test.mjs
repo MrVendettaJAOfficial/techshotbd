@@ -19,12 +19,11 @@
 //     rejected, and the old two-field payload no longer verifies;
 //   - with NO signing secret configured, signTestCallback() throws and
 //     verifyCallback() returns valid: false (fail closed). That is the
-//     public callback route's behaviour: without a secret no callback
-//     can ever be trusted. The test-pay page's local simulation has its
-//     own documented fallback for this case (see the README and
-//     app/checkout/test-pay/page.tsx); it is a page-level behaviour, so
-//     it is covered by the Playwright click-through in tests/e2e/,
-//     not here;
+//     public callback route's behaviour — and, since the 2026-11-12
+//     test-pay security fix, the test-pay page's too: without a secret
+//     it renders no pay buttons and its action applies nothing. The
+//     page-level fail-closed behaviour is covered by the Playwright
+//     suite in tests/e2e/test-pay-security.mjs, not here;
 //   - a paid payment marks the order confirmed + paid, a failed payment
 //     leaves the order pending_payment + failed (unpaid, retryable), a
 //     cancelled payment cancels it;

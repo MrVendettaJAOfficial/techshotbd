@@ -71,6 +71,67 @@ function signingSecret(): string | undefined {
   return process.env.TEST_PAYMENT_SIGNING_SECRET;
 }
 
+/** True when the test-payment signing secret is configured. The
+ *  test-pay page and the callback route fail CLOSED without it — no
+ *  outcome is ever applied when this returns false. */
+export function isTestPaymentSigningConfigured(): boolean {
+  return Boolean(signingSecret());
+}
+
+/**
+ * Compare a guest buyer token the caller presented against the one
+ * stored on the order, in constant time when the lengths match.
+ * False for a missing token on either side — a guest order with no
+ * key, or a request with no key, never proves ownership.
+ */
+export function buyerTokenMatches(
+  stored: string | null | undefined,
+  submitted: string | null | undefined,
+): boolean {
+  if (!stored || !submitted) return false;
+  const a = Buffer.from(submitted, "utf8");
+  const b = Buffer.from(stored, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Pure signature + freshness check for a signed callback payload.
+ * Recomputes the HMAC and compares it in constant time, and rejects
+ * stale timestamps — exactly the verifyCallback checks, but WITHOUT
+ * touching the nonce store: the nonce replay check stays at the
+ * public callback route (verifyCallback consumes the nonce), while
+ * test-pay mints a fresh nonce per click and needs only the
+ * signature + freshness proof. Returns false (never throws) when
+ * the secret is unset, the payload is malformed, the signature is
+ * wrong or the timestamp is stale. Callers of
+ * updateSupabaseOrderFromCallback pass this proof through; the
+ * function verifies it itself before writing anything.
+ */
+export function verifyCallbackSignature(
+  payload: { orderId: string; status: string; timestamp: number; nonce: string },
+  signature: string,
+): boolean {
+  const parsed = callbackPayloadSchema.safeParse(payload);
+  if (!parsed.success) return false;
+  const secret = signingSecret();
+  if (!secret) return false;
+  if (Math.abs(Date.now() - parsed.data.timestamp) > CALLBACK_MAX_AGE_MS) return false;
+  let expected: string;
+  try {
+    expected = signTestCallback(
+      parsed.data.orderId,
+      parsed.data.status,
+      parsed.data.timestamp,
+      parsed.data.nonce,
+    );
+  } catch {
+    return false;
+  }
+  const given = Buffer.from(signature, "utf8");
+  const wanted = Buffer.from(expected, "utf8");
+  return given.length === wanted.length && timingSafeEqual(given, wanted);
+}
+
 /** Build a fresh signed-callback payload for an order + outcome. The
  *  caller signs it with signTestCallback() and posts the whole object;
  *  verifyCallback() checks the signature, the freshness and the nonce. */
@@ -113,11 +174,14 @@ export class TestAdapter implements PaymentAdapter {
     order: CreatePaymentInput,
   ): Promise<CreatePaymentResult> {
     const providerReference = `test-ref-${order.orderNumber}`;
+    const key = order.buyerToken
+      ? `&key=${encodeURIComponent(order.buyerToken)}`
+      : "";
     return {
       paymentId: `test_${order.id}`,
       redirectUrl:
         `/checkout/test-pay?order=${encodeURIComponent(order.id)}` +
-        `&ref=${encodeURIComponent(providerReference)}`,
+        `&ref=${encodeURIComponent(providerReference)}${key}`,
       providerReference,
     };
   }

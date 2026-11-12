@@ -361,6 +361,10 @@ export async function createSupabaseOrder(
     total_poisha,
     status: isOnline ? "pending_payment" : "confirmed",
     paymentStatus: "unpaid",
+    // Signed-in order: the session proves ownership, so there is no
+    // guest key. userId is the same id stored as orders.user_id.
+    userId,
+    buyerToken: null,
     testMode: isOnline,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),

@@ -66,6 +66,12 @@ export const storedOrderSchema = z.object({
     "returned",
   ]),
   paymentStatus: z.enum(["unpaid", "paid", "failed", "cancelled", "refunded"]),
+  // Ownership (test-pay security, 2026-11-12): optional + default
+  // null so browser orders saved before these fields existed still
+  // validate — they read back as guest orders with no key, exactly
+  // as they were placed.
+  userId: z.string().nullable().optional().default(null),
+  buyerToken: z.string().nullable().optional().default(null),
   cancelNotice: z.enum(["live", "local"]).optional(),
   testMode: z.boolean(),
   createdAt: z.string().min(1),
