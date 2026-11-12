@@ -196,6 +196,38 @@ export function applyPaymentOutcome(
   return { status: "cancelled", paymentStatus: "cancelled" };
 }
 
+/**
+ * Whether a test-payment outcome may be applied to an order in its
+ * CURRENT state. The only legal moves from a payment page are out of
+ * pending_payment: success confirms + pays (never a COD order — COD
+ * is confirmed + unpaid by design and never gains a paid row, and
+ * never an already-paid order), failed leaves it pending (retryable),
+ * cancelled cancels it (never a paid order — a paid order is
+ * refunded through the admin / cancel path, never cancelled here).
+ * A COD order takes no payment step at all: every outcome is
+ * refused for it, so a COD order can never be flipped to
+ * pending_payment or gain any payments row. Every other combination
+ * is refused and nothing is applied, so a cancelled order can never
+ * be resurrected, a paid order can never be cancelled or double-paid,
+ * and the memory record can never diverge from the database. Pure
+ * and unit-tested (see tests/test-pay-security.test.mjs).
+ */
+export function isLegalTestPaymentOutcome(
+  status: OrderStatus,
+  paymentStatus: PaymentStatus,
+  paymentMethod: PaymentMethod,
+  outcome: PaymentOutcome,
+): boolean {
+  if (paymentMethod === "cod") return false;
+  if (status !== "pending_payment") return false;
+  if (outcome === "success") {
+    // COD is already refused above, so only the paid check remains.
+    return paymentStatus !== "paid";
+  }
+  if (outcome === "failed") return true;
+  return paymentStatus !== "paid";
+}
+
 /** Query-string value used after test payment: success | failed | cancelled. */
 export function paymentQueryToOutcome(value: string | null): PaymentOutcome | null {
   if (value === "success" || value === "failed" || value === "cancelled") return value;

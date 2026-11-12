@@ -141,6 +141,18 @@ function OrderDetailInner() {
   // updated by the test-pay action), then clean the query string.
   useEffect(() => {
     if (paymentApplied.current) return;
+    // A refused test-pay outcome that carries a direction (a paid
+    // order refused a cancel at the test-pay page): show the refund
+    // direction without applying anything to the order. The value is
+    // a fixed key, never rendered raw.
+    if (searchParams.get("notice") === "refund") {
+      paymentApplied.current = true;
+      setNotice(
+        "This order was already paid, so it can't be cancelled here. Please contact us for a refund.",
+      );
+      router.replace(`/orders/${id}`);
+      return;
+    }
     const outcome = paymentQueryToOutcome(searchParams.get("payment"));
     if (!outcome) return;
     paymentApplied.current = true;
@@ -291,7 +303,7 @@ function OrderDetailInner() {
                   This order is still unpaid. You can try the test payment again — nothing is charged twice.
                 </p>
                 <Link
-                  href={`/checkout/test-pay?order=${order.id}&ref=test-ref-${order.orderNumber}`}
+                  href={`/checkout/test-pay?order=${order.id}&ref=test-ref-${order.orderNumber}${order.buyerToken ? `&key=${encodeURIComponent(order.buyerToken)}` : ""}`}
                   className="mt-3 inline-flex items-center justify-center rounded-lg bg-[#b91c1c] px-5 py-2.5 font-semibold text-white transition hover:bg-[#991b1b]"
                 >
                   Retry payment

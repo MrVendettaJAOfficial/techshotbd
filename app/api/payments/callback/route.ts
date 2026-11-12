@@ -70,7 +70,12 @@ export async function POST(request: Request) {
   const patch = applyPaymentOutcome(outcome);
   updateOrderRecordStatus(orderId, patch);
   // Keep the live Supabase order in sync too. This runs only after the
-  // callback signature was verified above, which is the trust boundary.
-  await updateSupabaseOrderFromCallback(orderId, patch);
+  // callback signature was verified above, which is the trust boundary —
+  // and the proof is passed through so the callback function verifies
+  // the signature + freshness itself before writing anything.
+  await updateSupabaseOrderFromCallback(orderId, patch, {
+    payload: { orderId, status: adapterStatus, timestamp, nonce },
+    signature,
+  });
   return NextResponse.json({ ok: true, status: adapterStatus });
 }

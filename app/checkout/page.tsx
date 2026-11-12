@@ -7,6 +7,7 @@
 // to the order page.
 
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import {
   addressSchema,
   computeCheckoutTotalsFromLines,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/orders";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { createSupabaseOrder } from "@/lib/orders-server";
+import { getSignedInUserId } from "@/lib/orders/server/shared";
 import { getPricedCartLines } from "@/lib/cart-server";
 import CheckoutForm from "./CheckoutForm";
 
@@ -74,6 +76,7 @@ export default function CheckoutPage() {
         id: order.id,
         orderNumber: order.orderNumber,
         total_poisha: order.total_poisha,
+        buyerToken: order.buyerToken ?? undefined,
       });
       return { ok: true, order, redirectTo: payment.redirectUrl };
     }
@@ -126,6 +129,13 @@ export default function CheckoutPage() {
       total_poisha: totals.total_poisha,
       status: isOnline ? "pending_payment" : "confirmed",
       paymentStatus: "unpaid",
+      // Guest (local) order: the session id when there is one,
+      // otherwise null — and a fresh random key the guest proves
+      // ownership with at the test-pay page. In unconfigured mode
+      // getSignedInUserId() returns null, so this path is
+      // effectively guest-only; the key is what the guest has.
+      userId: await getSignedInUserId(),
+      buyerToken: randomUUID(),
       testMode: isOnline,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -141,6 +151,7 @@ export default function CheckoutPage() {
       id: order.id,
       orderNumber: order.orderNumber,
       total_poisha: order.total_poisha,
+      buyerToken: order.buyerToken ?? undefined,
     });
     return { ok: true, order, redirectTo: payment.redirectUrl };
   }

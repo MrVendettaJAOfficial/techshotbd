@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../../supabase/server";
+import { verifyCallbackSignature } from "../../payments/test-adapter";
 import { isLegalOrderTransition } from "../transitions";
 import type { StoredOrder } from "../../checkout-store";
 import {
@@ -15,14 +16,33 @@ import {
   writeOrderAudit,
 } from "./shared";
 
+/** A signed callback proof: the payload the gateway signed, plus
+ *  its HMAC signature. The nonce here is NOT consumed — replay
+ *  protection stays at the public callback route, which verifies
+ *  through testAdapter.verifyCallback (single-use nonce); test-pay
+ *  mints a fresh nonce per click. */
+export interface CallbackProof {
+  payload: {
+    orderId: string;
+    status: string;
+    timestamp: number;
+    nonce: string;
+  };
+  signature: string;
+}
+
 /**
  * Update an order's status + payment row from a VERIFIED payment
  * callback. Unlike updateSupabaseOrderStatus this does NOT require a
  * signed-in user session: a public callback has no user cookies. The
- * caller MUST have verified the callback signature first (see
- * app/api/payments/callback/route.ts) — that verification is the trust
- * boundary here, not a session. Never call this from a browser-facing
- * form or an unverified request.
+ * trust boundary is now enforced HERE, not at the call site: the
+ * caller must supply a signed callback proof, which this function
+ * verifies itself (signature + freshness, via
+ * verifyCallbackSignature) BEFORE any database write — an unverified
+ * or unsigned call changes nothing. The nonce replay check stays at
+ * the public route (testAdapter.verifyCallback consumes the nonce);
+ * test-pay creates a fresh nonce per click. Never call this from a
+ * browser-facing form or an unverified request.
  *
  * Payment attempts are APPEND-ONLY: every callback INSERTS a new
  * payments row for the attempt and never updates an existing row's
@@ -35,7 +55,17 @@ import {
 export async function updateSupabaseOrderFromCallback(
   orderId: string,
   patch: { status: StoredOrder["status"]; paymentStatus?: StoredOrder["paymentStatus"] },
+  proof: CallbackProof,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
+  // Proof first: an unsigned, wrongly signed, stale or
+  // secret-less callback writes nothing — fail closed.
+  if (
+    !proof ||
+    proof.payload.orderId !== orderId ||
+    !verifyCallbackSignature(proof.payload, proof.signature)
+  ) {
+    return { ok: false, message: "Invalid callback." };
+  }
   if (!isConfigured()) return { ok: false, message: "Supabase is not configured." };
   let admin: SupabaseClient;
   try {
