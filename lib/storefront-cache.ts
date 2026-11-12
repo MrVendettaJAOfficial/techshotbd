@@ -16,8 +16,17 @@
 //         (lib/orders/server/create.ts createSupabaseOrder)
 //       - order status changes — cancel / refund / returned restore
 //         stock (lib/orders/actions/shared.ts revalidateOrderPages)
-//       - a review is submitted — the rating aggregate changes
-//         (lib/reviews.ts submitReview)
+//       - banner create / update / hide / show / delete
+//         (lib/banners-server.ts; a banner write purges the
+//         catalog tag too, since the 2026-11-12 cache fix)
+//     The cached entry also revalidates 60 seconds after it was
+//     filled (see lib/supabase/catalog.ts), so a degraded fill or
+//     a submitted review's aggregate is picked up within a minute
+//     even with no write in between. Review submission itself
+//     deliberately does NOT purge the tag (lib/reviews.ts
+//     submitReview): a revalidating server action would refresh
+//     the route and remount the review form, wiping the
+//     thank-you notice.
 //   * "banners" — the active hero banners, read by
 //     lib/banners-server.ts listActiveBanners() and refreshed by
 //     every banner write (create / update / hide / show / delete).

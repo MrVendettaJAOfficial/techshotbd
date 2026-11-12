@@ -7,7 +7,16 @@
 // the user out — the recovery session must not linger — and sends
 // them to sign-in with a success note (?reset=1).
 //
-// Landing here without a live session (direct visit, expired or
+// The form is gated on the server-verified recovery marker
+// (hasRecoverySession in lib/auth-server/recovery.ts), NOT on "is
+// there any live session": an ordinary signed-in user has no
+// recovery marker, so landing here directly shows the expired-link
+// message instead of a form that would change their password
+// without the current one (audit #10). Such a user changes their
+// password from their account's security settings, which verifies
+// the current password first (changePassword).
+//
+// Landing here without a recovery marker (direct visit, expired or
 // already-used link) shows an expired-link message with a link to
 // request a fresh one, instead of a form that can only fail.
 "use client";
@@ -15,7 +24,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getSession, signOut, updatePasswordAfterReset } from "@/lib/auth";
+import { signOut, updatePasswordAfterReset } from "@/lib/auth";
+import { hasRecoverySession } from "@/lib/auth-server/recovery";
 import { resetPasswordSchema, toFieldErrors } from "@/lib/password-rules";
 import { Button, Card, Field, Input, SectionHeading } from "@/components/ui";
 
@@ -31,11 +41,22 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void getSession().then((session) => {
-      if (cancelled) return;
-      setHasSession(session !== null);
-      setChecking(false);
-    });
+    // Server-verified recovery gate: true only for a session
+    // established by a recovery exchange. An ordinary signed-in
+    // session has no recovery marker, so this is false for it — the
+    // client-side "any session" check this replaced was the hole
+    // (audit #10).
+    void hasRecoverySession()
+      .then((ok) => {
+        if (cancelled) return;
+        setHasSession(ok);
+        setChecking(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHasSession(false);
+        setChecking(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -81,6 +102,16 @@ export default function ResetPasswordPage() {
             </p>
             <p className="mt-2 text-sm text-muted">
               Reset links work once and expire after one hour. Request a new one to continue.
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              Already signed in? Change your password from your{" "}
+              <Link
+                href="/account#security"
+                className="font-medium text-brandDark hover:underline"
+              >
+                account security settings
+              </Link>{" "}
+              instead.
             </p>
             <p className="mt-4">
               <Link

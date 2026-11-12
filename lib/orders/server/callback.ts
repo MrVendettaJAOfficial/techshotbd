@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../../supabase/server";
 import { verifyCallbackSignature } from "../../payments/test-adapter";
 import { isLegalOrderTransition } from "../transitions";
+import { restoreOrderStock } from "../stock";
 import type { StoredOrder } from "../../checkout-store";
 import {
   isConfigured,
@@ -51,6 +52,15 @@ export interface CallbackProof {
  * other transition (a same-status outcome, e.g. a failed payment on
  * an order still pending payment, is allowed) and written
  * conditionally on the current status, with a best-effort audit row.
+ *
+ * Paid-order rule (mirrors the admin path in
+ * lib/orders/actions/shared.ts changeOrderStatus): a callback must
+ * NEVER cancel a paid order. A late gateway cancellation of a paid
+ * order is rejected with the same message the admin path uses — the
+ * order stays confirmed + paid, and the refund flow (not a plain
+ * cancel) is the only way the money goes back. A cancelled outcome
+ * only cancels an UNPAID (pending_payment) order, and when it lands
+ * the stock is restored, exactly as the admin cancel does.
  */
 export async function updateSupabaseOrderFromCallback(
   orderId: string,
@@ -86,6 +96,14 @@ export async function updateSupabaseOrderFromCallback(
       return { ok: false, message: "That status change is not allowed." };
     }
   }
+  // A paid order must be refunded, never cancelled (mirror the admin
+  // path): cancelling would leave the customer charged with no money
+  // returned, close the refund path (a 'failed' payments row would
+  // bury the paid row) and never restore stock. Reject the late
+  // cancellation instead of landing 'cancelled'.
+  if (patch.status === "cancelled" && currentPayment === "paid") {
+    return { ok: false, message: "A paid order cannot be cancelled. Refund it instead." };
+  }
   const { data: updated, error } = await admin
     .from("orders")
     .update({ status: patch.status })
@@ -95,6 +113,27 @@ export async function updateSupabaseOrderFromCallback(
   if (error) return { ok: false, message: "Could not update the order." };
   if (!Array.isArray(updated) || updated.length !== 1) {
     return { ok: false, message: "Could not update the order." };
+  }
+  // A cancelled outcome only cancels an unpaid order (see the guard
+  // above), and the stock it claimed goes back — mirroring
+  // restoreStockAfterStatusChange in the admin path. Only when the
+  // order actually moved into 'cancelled': a repeated cancelled
+  // callback for an already-cancelled order must not restore the
+  // same stock a second time.
+  if (patch.status === "cancelled" && currentStatus !== "cancelled") {
+    try {
+      const { restored, skipped } = await restoreOrderStock(admin, orderId);
+      if (skipped > 0) {
+        console.error(
+          `TechShot callback stock restore for order ${orderId}: ${restored} line(s) restored, ${skipped} line(s) could not be attributed to a stock row.`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `TechShot callback stock restore for order ${orderId} failed:`,
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
   }
   if (patch.paymentStatus && patch.paymentStatus !== "unpaid") {
     const paymentStatus =

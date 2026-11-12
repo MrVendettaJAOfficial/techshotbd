@@ -19,16 +19,20 @@
 //
 // Fallback: an older / non-PKCE link arrives as a URL fragment
 // (#access_token=...&type=recovery) instead of a code. The browser
-// Supabase client reads that fragment into a session on creation,
-// so the callback checks for a live session in that case and
-// routes the same way. Without a code, a token, or a session, the
-// user is sent to sign-in with a generic message.
+// client is @supabase/ssr createBrowserClient, which defaults to
+// PKCE flow — it never reads an implicit fragment into a session
+// on its own. So the page establishes the session explicitly with
+// setSession() from the fragment tokens (validated server-side via
+// getUser) instead of waiting for a getSession() that would always
+// come back empty. Without a code, a token, or a session, the user
+// is sent to sign-in with a generic message.
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { exchangeAuthCode } from "@/lib/auth-server";
+import { setRecoveryMarker } from "@/lib/auth-server/recovery";
 import { getAuthCallbackDestination, parseRecoveryHash } from "@/lib/password-rules";
 import { createClient } from "@/lib/supabase/client";
 
@@ -44,7 +48,11 @@ function AuthCallbackInner() {
     const code = searchParams.get("code");
     const type = searchParams.get("type");
     if (code) {
-      void exchangeAuthCode(code)
+      // The link type travels with the exchange: a recovery code
+      // records the one-time recovery marker (see
+      // lib/auth-server/session.ts), which the reset-password page
+      // requires — an ordinary sign-in exchange never sets it.
+      void exchangeAuthCode(code, type)
         .then(() => {
           router.replace(getAuthCallbackDestination(type));
           router.refresh();
@@ -55,28 +63,41 @@ function AuthCallbackInner() {
       return;
     }
     // No code: maybe a legacy implicit-flow link
-    // (#access_token=...&type=recovery). Creating the browser client
-    // lets Supabase read the fragment into a session.
+    // (#access_token=...&type=recovery). The PKCE browser client
+    // ignores that fragment, so establish the session explicitly
+    // from its tokens (setSession validates the access token via
+    // getUser and stores the session in the browser cookies).
     const { isRecovery, hasAccessToken } = parseRecoveryHash(window.location.hash);
     if (!hasAccessToken) {
       router.replace("/auth/sign-in");
       return;
     }
-    void createClient()
-      .auth.getSession()
-      .then(({ data }) => {
-        if (data.session) {
-          router.replace(
-            getAuthCallbackDestination(isRecovery ? "recovery" : null),
-          );
-          router.refresh();
-        } else {
+    void (async () => {
+      try {
+        const params = new URLSearchParams(window.location.hash.slice(1));
+        const { data, error } = await createClient().auth.setSession({
+          access_token: params.get("access_token") ?? "",
+          refresh_token: params.get("refresh_token") ?? "",
+        });
+        if (error || !data.session) {
           setError("Could not sign you in. Please try signing in again.");
+          return;
         }
-      })
-      .catch(() => {
+        if (isRecovery) {
+          // Same marker as the code exchange above, so the
+          // reset-password gate accepts this legacy recovery
+          // session too. A failure to set it only degrades to the
+          // expired-link message — the user requests a fresh link.
+          await setRecoveryMarker().catch(() => {});
+        }
+        router.replace(
+          getAuthCallbackDestination(isRecovery ? "recovery" : null),
+        );
+        router.refresh();
+      } catch {
         setError("Could not sign you in. Please try signing in again.");
-      });
+      }
+    })();
   }, [router, searchParams]);
 
   return (

@@ -118,3 +118,25 @@ export function parseRecoveryHash(hash: string): {
     hasAccessToken: Boolean(params.get("access_token")),
   };
 }
+
+/**
+ * True when a Supabase `amr` value identifies a recovery session.
+ * GoTrue records the authentication method that established the
+ * session, and a recovery exchange records method "recovery" — the
+ * token carries amr [{ method: "recovery" }]. An ordinary
+ * password sign-in records method "password" instead, so this is
+ * how the server tells a recovery session apart from an ordinary
+ * live session (audit #10: hasRecoverySession() in
+ * lib/auth-server/recovery.ts uses it as the veto on a stale
+ * recovery marker). Anything else (missing, not an array, no
+ * recovery entry) is not a recovery session.
+ */
+export function isRecoveryAmr(amr: unknown): boolean {
+  if (!Array.isArray(amr)) return false;
+  return amr.some(
+    (entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      (entry as { method?: unknown }).method === "recovery",
+  );
+}

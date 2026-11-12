@@ -77,10 +77,15 @@ test("live and local-only orders are both listed, newest first", () => {
 test("orders page fetches live orders and merges them over the local list", () => {
   const source = readSource("../app/orders/page.tsx");
   assert.match(source, /listSupabaseOrders\(\)/);
-  assert.match(source, /mergeOrders\(browserOrders, liveOrders\)/);
-  // The local list is still the fallback: it is loaded first and shown
-  // even when the live fetch fails or returns nothing.
-  assert.match(source, /listOrders\(\)/);
+  // The merge is scoped to the signed-in viewer: when signed in
+  // the live list replaces the local list entirely (server mode),
+  // so another account's local orders never surface here (audit
+  // #9). The local list stays the fallback for guests only.
+  assert.match(source, /mergeOrders\(browserOrders, liveOrders, userId !== null\)/);
+  assert.match(source, /mergeOrders\(listOrders\(userId\), liveOrders, userId !== null\)/);
+  // The local list is still loaded first (scoped to the viewer)
+  // and shown immediately, before the live fetch lands.
+  assert.match(source, /listOrders\(userId\)/);
   assert.match(source, /setOrders\(browserOrders\)/);
 });
 

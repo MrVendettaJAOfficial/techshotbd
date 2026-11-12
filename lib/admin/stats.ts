@@ -8,9 +8,19 @@
 // returns empty lists with configured: false instead of leaking
 // configuration details. The caller shows the dashboard with zeros
 // in that case, exactly like the product list does.
+//
+// Defense in depth (security audit run-1, CVE-2025-29927):
+// middleware is the only gate on /admin, so getAdminStats() checks
+// the caller's role itself and returns empty stats for a non-staff
+// caller BEFORE creating the service-role client — no service-role
+// read runs for a caller without a staff role, even if middleware
+// is bypassed. The other admin read helpers re-check the role
+// server-side too; this helper was the one that did not.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getCallerRole } from "@/lib/auth-server/session";
+import { isStaff } from "@/lib/roles";
 import { createAdminClient } from "@/lib/supabase/server";
 
 export interface AdminStats {
@@ -56,8 +66,17 @@ function untyped(client: unknown): SupabaseClient {
  *   - returned     = orders with status "returned"
  * Returns all zeros when Supabase is not configured or a query
  * fails. Never throws.
+ *
+ * Role gate: the caller's profiles.role is read from the database
+ * (never trusted from the browser) and must be a staff role
+ * (admin / co_admin / manager). A signed-out caller, a customer,
+ * or a caller whose role cannot be read gets all zeros and no
+ * service-role query runs for them at all.
  */
 export async function getAdminStats(): Promise<AdminStats> {
+  const role = await getCallerRole().catch(() => null);
+  if (!isStaff(role)) return { ...EMPTY_ADMIN_STATS };
+
   let admin: SupabaseClient;
   try {
     admin = untyped(createAdminClient());

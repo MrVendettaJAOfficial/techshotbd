@@ -24,6 +24,8 @@ import { deriveProfileFromMetadata } from "../profile-rules";
 
 import { ensureProfile } from "./profile";
 
+import { setRecoveryMarker } from "./recovery";
+
 import type { AppUser, UserRole } from "../auth";
 
 /**
@@ -115,14 +117,30 @@ export async function getCallerRole(): Promise<string | null> {
  * code is missing or the exchange fails. Also ensures the profiles
  * row exists from the user's metadata, so a confirmed account can
  * use carts / orders (which reference profiles) right away.
+ *
+ * `type` is the link type the callback page read from the URL
+ * (Supabase appends &type=recovery to recovery links): when it is
+ * "recovery", the exchange records the one-time recovery marker
+ * (lib/auth-server/recovery.ts) that the reset-password page and
+ * updatePasswordAfterReset require — an ordinary sign-in exchange
+ * never sets it, so an ordinary session can never pass the reset
+ * gate. The marker is set best-effort: a failure to set it does
+ * not fail the exchange itself (the user is signed in either way),
+ * and the reset page then falls back to its expired-link message.
  */
-export async function exchangeAuthCode(code: string): Promise<{ ok: true }> {
+export async function exchangeAuthCode(code: string, type?: string | null): Promise<{ ok: true }> {
   const genericError = new Error("Could not sign you in. Please try signing in again.");
   if (typeof code !== "string" || code.trim() === "") throw genericError;
   try {
     const supabase = untyped(createClient());
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error || !data.user) throw genericError;
+    if (type === "recovery") {
+      // The recovery session this exchange just created is the only
+      // session allowed to set a new password without the current
+      // one — record the marker before anything else runs.
+      await setRecoveryMarker();
+    }
     const row = deriveProfileFromMetadata(
       data.user.id,
       (data.user.user_metadata ?? {}) as Record<string, unknown>,

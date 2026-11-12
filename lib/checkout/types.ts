@@ -27,6 +27,12 @@ export interface OrderItem {
 
 export interface Address {
   id: string;
+  /** Supabase user id the address belongs to, or null for a guest
+   *  address (audit #9): browser-local addresses are scoped to the
+   *  account that created them, like orders. Absent on addresses
+   *  saved before this field existed — they read back as guest
+   *  addresses. */
+  userId?: string | null;
   label?: string;
   firstName: string;
   lastName: string;
@@ -74,12 +80,20 @@ export interface StoredOrder {
 }
 
 export interface Profile {
+  /** Supabase user id the profile belongs to, or null for a guest
+   *  profile (audit #9). Absent on profiles saved before this
+   *  field existed — they read back as guest profiles. */
+  userId?: string | null;
   displayName: string;
   phone: string;
   email: string;
 }
 
 export interface WishlistItem {
+  /** Supabase user id the wishlist entry belongs to, or null for a
+   *  guest entry (audit #9). Absent on entries saved before this
+   *  field existed — they read back as guest entries. */
+  userId?: string | null;
   productId: string;
   title: string;
   price_poisha: number;

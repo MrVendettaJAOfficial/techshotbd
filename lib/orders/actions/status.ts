@@ -5,14 +5,32 @@
 
 import { nextOrderStatus } from "../transitions";
 import {
+  ALREADY_CHANGED_ERROR,
   changeOrderStatus,
   orderStatusSchema,
   type OrderStatusActionResult,
 } from "./shared";
 
-/** Advance one order to the next step in the fulfilment flow. Owner / co-admin only. */
-export async function advanceOrderStatus(orderId: string): Promise<OrderStatusActionResult> {
+/**
+ * Advance one order to the next step in the fulfilment flow. Owner / co-admin only.
+ *
+ * `expectedStatus` is the status the caller RENDERED (the admin
+ * orders list passes order.status): the advance is rejected when
+ * the order no longer holds it, so a double-click, a second tab or
+ * a replayed request cannot move the order a second step — the
+ * caller is told to reload instead. A missing / invalid expected
+ * status skips the check (older callers), but the advance still
+ * moves exactly one step from the current status.
+ */
+export async function advanceOrderStatus(
+  orderId: string,
+  expectedStatus?: unknown,
+): Promise<OrderStatusActionResult> {
+  const parsed = orderStatusSchema.safeParse(expectedStatus);
   return changeOrderStatus(orderId, (order) => {
+    if (parsed.success && order.status !== parsed.data) {
+      return { error: ALREADY_CHANGED_ERROR };
+    }
     const next = nextOrderStatus(order.status);
     if (!next) return { error: "This order cannot be advanced." };
     return next;
