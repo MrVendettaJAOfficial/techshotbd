@@ -341,32 +341,24 @@ for (const [label, target] of entryTargets) {
 }
 
 // --- D (cont). Reset password, signed-in -------------------------------
+// Audit #10: the reset page requires the one-time server recovery
+// marker, so an ordinary signed-in session gets the expired-link
+// message (not the form) and is pointed at change-password on
+// /account#security. The form itself — mismatch / short / valid
+// submits and the sign-in?reset=1 landing — is covered by
+// tests/e2e/auth-account-security.mjs, which drives a real
+// recovery session.
 await page.goto(`${BASE}/auth/reset-password`, { waitUntil: "networkidle" });
 await sleep(800);
-check("reset-password: signed-in visit renders the form", await page.locator("#password").count() === 1);
-await fillById(page, "password", "newpassword1");
-await fillById(page, "confirmPassword", "different2");
-await clickButton(page, "Change password");
-await sleep(500);
 t = await pageText(page);
-check("reset-password: mismatched passwords show an error", /match/i.test(t), t.slice(0, 200));
-await fillById(page, "password", "short");
-await fillById(page, "confirmPassword", "short");
-await clickButton(page, "Change password");
-await sleep(500);
-t = await pageText(page);
-check("reset-password: short password shows an error", /8 characters|at least/i.test(t), t.slice(0, 200));
-await fillById(page, "password", "newpassword1");
-await fillById(page, "confirmPassword", "newpassword1");
-await clickButton(page, "Change password");
-await sleep(2000);
-check("reset-password: valid submit lands on sign-in?reset=1", page.url().includes("/auth/sign-in?reset=1"), page.url());
-t = await pageText(page);
-check("reset-password: sign-in shows the password-changed note", /password has been changed|new password/i.test(t), t.slice(0, 200));
+check("reset-password: signed-in visit shows the expired-link message (no marker)", /expired or was already used/i.test(t), t.slice(0, 200));
+check("reset-password: signed-in visit renders no password form", (await page.locator("#password").count()) === 0);
+check("reset-password: expired state points signed-in users to account security", (await page.locator('main a[href="/account#security"]').count()) === 1);
 await page.screenshot({ path: `${SHOTS}/desktop-reset-done.png` });
 
-// --- F (cont). Sign back in for the rest of the flow --------------------
-await signIn(page);
+// The reset page no longer signs the user out in this flow (there
+// was no reset to complete), so the user is still signed in for
+// the change-password section below — no re-sign-in needed.
 
 // --- F. Change password on /account#security ----------------------------
 await page.goto(`${BASE}/account#security`, { waitUntil: "networkidle" });

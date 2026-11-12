@@ -116,7 +116,7 @@ async function mockGet(path) {
 }
 
 async function mockOrder(id) {
-  const rows = await mockGet(`orders?id=eq.${id}&select=id,status`);
+  const rows = await mockGet(`orders?id=eq.${id}&select=id,status,user_id`);
   return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
@@ -463,7 +463,11 @@ async function main() {
     }
   }, guestId);
   check("guest browser copy carries the same buyer token", browserToken === guestKey, `browser=${browserToken} url=${guestKey}`);
-  check("guest order is a local order (no DB row)", (await mockOrder(guestId)) === null);
+  // Finding #2 changed this: a guest order is now a real DB row
+  // with user_id NULL (see lib/orders/server/create.ts), not a
+  // browser-only order.
+  const guestDb = await mockOrder(guestId);
+  check("guest order is a DB row with no owner", guestDb !== null && guestDb.user_id === null, JSON.stringify(guestDb));
 
   // Failed payment first: the order stays pending and retryable.
   await clickTestPayOutcome(pageG, "Simulate failed payment");

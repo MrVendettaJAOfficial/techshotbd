@@ -4,7 +4,11 @@
 // server action: validates the address, recomputes totals from the
 // catalogue, validates stock and creates the order, then sends
 // online payments to the test payment page and COD orders straight
-// to the order page.
+// to the order page. Orders are created in Supabase whenever it is
+// configured — signed-in and guest alike (a guest order is a real
+// row with user_id NULL and a buyerToken, and it decrements stock
+// like any other order) — and only fall back to the in-memory
+// record when Supabase is not configured.
 
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
@@ -13,6 +17,7 @@ import {
   computeCheckoutTotalsFromLines,
   createOrderNumber,
   createOrderRecord,
+  getOrderRecord,
   toAddressSnapshot,
   validateStock,
   type PlaceOrderInput,
@@ -20,9 +25,41 @@ import {
 } from "@/lib/orders";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { createSupabaseOrder } from "@/lib/orders-server";
-import { getSignedInUserId } from "@/lib/orders/server/shared";
+import { createAdminClient } from "@/lib/supabase/server";
+import { getSignedInUserId, isConfigured, untyped } from "@/lib/orders/server/shared";
+import { validateCouponFromDb } from "@/lib/orders/checkout/coupons";
 import { getPricedCartLines } from "@/lib/cart-server";
+import type { StoredOrder } from "@/lib/checkout-store";
 import CheckoutForm from "./CheckoutForm";
+
+// Idempotency for the LOCAL (unconfigured-Supabase) order path, which
+// has no database row to dedup on: key -> the order already created
+// for it, per buyer, in this server process. The Supabase path dedups
+// in lib/orders/server/create.ts instead (orders row + migration
+// 0014), so this map is only consulted below, in the local fallback.
+const localCheckoutByKey = new Map<string, StoredOrder>();
+
+/**
+ * Where checkout sends the buyer after the order exists. COD goes
+ * straight to the order page; online payments go to the TEST payment
+ * page. A guest order carries its buyerToken as ?key= on the COD
+ * redirect (the confirmation page enforces it) — the test adapter
+ * already appends the same key to the online-payment redirect.
+ */
+async function redirectForOrder(order: StoredOrder): Promise<PlaceOrderResult> {
+  const isOnline = order.paymentMethod !== "cod";
+  if (!isOnline) {
+    const key = order.buyerToken ? `?key=${encodeURIComponent(order.buyerToken)}` : "";
+    return { ok: true, order, redirectTo: `/orders/${order.id}${key}` };
+  }
+  const payment = await testAdapter.createPayment({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    total_poisha: order.total_poisha,
+    buyerToken: order.buyerToken ?? undefined,
+  });
+  return { ok: true, order, redirectTo: payment.redirectUrl };
+}
 
 export default function CheckoutPage() {
   // Server action (defined inside this server component, so the page
@@ -54,31 +91,28 @@ export default function CheckoutPage() {
       return { ok: false, errors: {}, message: "Choose a delivery option." };
     }
 
-    // Try the live Supabase order path first for signed-in users: it
-    // re-prices from live DB prices, checks stock, writes the order +
-    // items and decrements stock (lib/orders-server.ts). It returns
-    // useLocalFallback when Supabase is not configured or the shopper
-    // is a guest — then the local path below runs unchanged. A
-    // validation failure from Supabase (bad coupon, out of stock) is
-    // shown instead of falling back, so the shopper sees the real
-    // reason instead of being charged a stale local price.
+    // Try the live Supabase order path first: it re-prices from live
+    // DB prices, checks stock, writes the order + items and
+    // decrements stock (lib/orders-server.ts) — for signed-in users
+    // AND guests (a guest order is a real row with user_id NULL and
+    // a fresh buyerToken). It returns useLocalFallback only when
+    // Supabase is not configured — then the local path below runs
+    // unchanged. A validation failure from Supabase (bad coupon, out
+    // of stock) is shown instead of falling back, so the shopper
+    // sees the real reason instead of being charged a stale local
+    // price.
     const supabaseResult = await createSupabaseOrder(input);
     if (supabaseResult.ok) {
       // Register the same order in the in-memory store so the
       // test-payment page, confirmation page and payment callback
-      // (which read it via getOrderRecord) keep working.
-      const order = createOrderRecord(supabaseResult.order);
-      const isOnline = input.paymentMethod !== "cod";
-      if (!isOnline) {
-        return { ok: true, order, redirectTo: `/orders/${order.id}` };
-      }
-      const payment = await testAdapter.createPayment({
-        id: order.id,
-        orderNumber: order.orderNumber,
-        total_poisha: order.total_poisha,
-        buyerToken: order.buyerToken ?? undefined,
-      });
-      return { ok: true, order, redirectTo: payment.redirectUrl };
+      // (which read it via getOrderRecord) keep working — unless it
+      // is already there. A repeat submission returns the ORIGINAL
+      // order from the database (no buyerToken is stored on the
+      // row), and re-registering it here would overwrite the
+      // in-memory copy that still carries the guest key.
+      const existing = getOrderRecord(supabaseResult.order.id);
+      const order = existing ?? createOrderRecord(supabaseResult.order);
+      return redirectForOrder(order);
     }
     if (!supabaseResult.useLocalFallback) {
       return { ok: false, errors: {}, message: supabaseResult.message };
@@ -90,15 +124,43 @@ export default function CheckoutPage() {
     // while Supabase is configured is priced from live prices — pricing
     // from the seed catalogue alone would drop live slugs as "no longer
     // available" and block checkout entirely.
+    //
+    // This path only runs when Supabase is NOT configured (the
+    // Supabase path above handles every configured checkout, guest
+    // included). The coupon is still validated against the database
+    // whenever one is reachable, with the same helper the Supabase
+    // path uses — a deactivated or expired coupon must be rejected
+    // here exactly as there, never priced from the local rule alone.
+    // When no database is reachable the local rule prices the order
+    // (display-only behaviour, unchanged from before).
     const priced = await getPricedCartLines(input.items);
     if (priced.stockErrors.length > 0) {
       return { ok: false, errors: {}, message: priced.stockErrors.join(" ") };
+    }
+    const localSubtotal = priced.lines.reduce(
+      (sum, l) => sum + l.price_poisha * l.quantity,
+      0,
+    );
+    const normalizedCode = (input.couponCode ?? "").trim().toUpperCase() || null;
+    let dbCoupon: { discount_poisha: number } | { error: string } | undefined;
+    if (isConfigured() && normalizedCode) {
+      try {
+        const admin = untyped(createAdminClient());
+        const checked = await validateCouponFromDb(admin, normalizedCode, localSubtotal);
+        dbCoupon = checked.ok
+          ? { discount_poisha: checked.coupon.value_poisha }
+          : { error: checked.error };
+      } catch {
+        // No database to ask: fall through to the local rule.
+        dbCoupon = undefined;
+      }
     }
     const totals = computeCheckoutTotalsFromLines(
       priced.lines,
       priced.unknownSlugs,
       input.couponCode,
       input.delivery,
+      dbCoupon,
     );
     if (totals.errors && totals.errors.length > 0) {
       return { ok: false, errors: {}, message: totals.errors.join(" ") };
@@ -109,6 +171,17 @@ export default function CheckoutPage() {
     const stock = validateStock(totals.items);
     if (!stock.ok) {
       return { ok: false, errors: {}, message: stock.errors.join(" ") };
+    }
+
+    // Local-path idempotency: a repeat submission with the same key
+    // returns the order already created for it (same buyer, same
+    // key), instead of a second in-memory order.
+    const localUserId = await getSignedInUserId();
+    const dedupKey = (input.idempotencyKey ?? "").trim();
+    const localKey = dedupKey ? `${localUserId ?? "guest"}:${dedupKey}` : "";
+    if (localKey) {
+      const prior = localCheckoutByKey.get(localKey);
+      if (prior) return redirectForOrder(prior);
     }
 
     const now = new Date();
@@ -134,26 +207,15 @@ export default function CheckoutPage() {
       // ownership with at the test-pay page. In unconfigured mode
       // getSignedInUserId() returns null, so this path is
       // effectively guest-only; the key is what the guest has.
-      userId: await getSignedInUserId(),
+      userId: localUserId,
       buyerToken: randomUUID(),
       testMode: isOnline,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
+    if (localKey) localCheckoutByKey.set(localKey, order);
 
-    if (!isOnline) {
-      return { ok: true, order, redirectTo: `/orders/${order.id}` };
-    }
-
-    // Online payments go through the test adapter, which returns the
-    // redirect to the TEST payment page (with a provider reference).
-    const payment = await testAdapter.createPayment({
-      id: order.id,
-      orderNumber: order.orderNumber,
-      total_poisha: order.total_poisha,
-      buyerToken: order.buyerToken ?? undefined,
-    });
-    return { ok: true, order, redirectTo: payment.redirectUrl };
+    return redirectForOrder(order);
   }
 
   return (

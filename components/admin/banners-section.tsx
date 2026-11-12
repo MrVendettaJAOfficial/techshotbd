@@ -49,6 +49,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Upload } from "lucide-react";
 import {
+  cleanupOrphanBannerPhotos,
   createBanner,
   deleteBanner,
   setBannerActive,
@@ -108,6 +109,7 @@ export default function BannersSection({
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formDisabled = !configured || !canManage;
@@ -253,6 +255,34 @@ export default function BannersSection({
     router.refresh();
   }
 
+  // Remove banner photos in Storage that no banner row references
+  // and that are older than a day (audit run-1, finding #13). The
+  // sweep itself lives in lib/banners-server.ts; this only wires
+  // the button to it and reports what it did. Photos uploaded
+  // moments ago are never swept — a banner still being composed
+  // keeps its photo.
+  async function handleCleanupOrphans(): Promise<void> {
+    setError(null);
+    setNotice(null);
+    setCleaning(true);
+    const result = await cleanupOrphanBannerPhotos().catch(() => ({
+      ok: false as const,
+      error: "Something went wrong. Please try again.",
+    }));
+    setCleaning(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    const message =
+      result.removed > 0
+        ? `Cleaned up ${result.removed} unused banner photo${result.removed === 1 ? "" : "s"} (${result.kept} kept).`
+        : "No unused banner photos to clean up.";
+    pendingBannerNotice = message;
+    setNotice(message);
+    router.refresh();
+  }
+
   return (
     <div>
       <SectionHeading
@@ -262,6 +292,22 @@ export default function BannersSection({
       {!configured ? (
         <div className="mb-6 rounded-xl border border-brand/40 bg-brand/10 px-4 py-3 text-sm text-text" role="alert">
           Live banner data is not configured yet, so banners cannot be added or changed here. Ask an admin to connect Supabase.
+        </div>
+      ) : null}
+      {configured && canManage ? (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          <p className="min-w-0 flex-1 text-sm text-muted">
+            Banner photos uploaded but never attached to a banner stay in Storage. Clean up removes ones no banner uses that are older than a day.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => void handleCleanupOrphans()}
+            disabled={cleaning}
+            data-testid="banner-cleanup-orphans"
+          >
+            {cleaning ? "Cleaning up…" : "Clean up unused banner photos"}
+          </Button>
         </div>
       ) : null}
       <Card className="mb-10">
