@@ -121,23 +121,39 @@ function AccountPageInner() {
     });
     setAddresses(data.addresses);
     setWishlist(data.wishlist);
-    setOrders((local) => mergeOrders(local, data.orders));
+    // Signed in, so Supabase is configured: the live orders are the
+    // whole list — the local copy is a guest / unconfigured fallback
+    // only and must never surface another account's local orders
+    // here (audit #9, mergeOrders serverMode).
+    setOrders((local) => mergeOrders(local, data.orders, true));
     return true;
   }, []);
 
   // Browser-local data first, so the page renders immediately even
   // before auth resolves; Supabase data replaces it when available.
+  // The seed is the GUEST view (explicit null): until the viewer is
+  // known, only guest-owned records may show — another account's
+  // local records must never flash on this page while auth loads
+  // (audit #9). The auth effect below re-seeds with the signed-in
+  // user's id as soon as it is known.
   useEffect(() => {
-    setProfile(getProfile());
-    setAddresses(getAddresses());
-    setWishlist(getWishlist());
-    setOrders(listOrders());
+    setProfile(getProfile(null));
+    setAddresses(getAddresses(null));
+    setWishlist(getWishlist(null));
+    setOrders(listOrders(null));
     setLoaded(true);
   }, []);
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) return;
+    // The viewer is known now: re-seed the local sections with this
+    // account's records only (another account's local records stay
+    // hidden), then let the server data replace them when it loads.
+    setProfile(getProfile(user.id));
+    setAddresses(getAddresses(user.id));
+    setWishlist(getWishlist(user.id));
+    setOrders(listOrders(user.id));
     // Fill the profile form from the signed-in user even before the
     // server data arrives (name/email/role come from the profile row,
     // with user_metadata as fallback — see lib/auth.ts toAppUser).
@@ -166,7 +182,7 @@ function AccountPageInner() {
   }
 
   function refreshAddresses() {
-    setAddresses(getAddresses());
+    setAddresses(getAddresses(user?.id ?? null));
   }
 
   async function handleSaveProfile(event: React.FormEvent) {
@@ -191,10 +207,12 @@ function AccountPageInner() {
         setProfileSaved(false);
         return;
       }
-      // Keep the browser-local copy in sync for the preview fallback.
-      saveProfile(profile);
+      // Keep the browser-local copy in sync for the preview fallback,
+      // stamped with this account's id so it is never shown to
+      // another account on a shared browser (audit #9).
+      saveProfile(profile, user?.id ?? null);
     } else {
-      saveProfile(profile);
+      saveProfile(profile, user?.id ?? null);
     }
     setProfileError(null);
     setProfileSaved(true);
@@ -279,7 +297,7 @@ function AccountPageInner() {
       updateAddress(editingId, payload);
       setAddressNotice("Address updated.");
     } else {
-      addAddress(payload);
+      addAddress(payload, user?.id ?? null);
       setAddressNotice("Address added.");
     }
     setShowAddressForm(false);
@@ -321,8 +339,8 @@ function AccountPageInner() {
       await refreshAccountData();
       return;
     }
-    removeFromWishlist(productId);
-    setWishlist(getWishlist());
+    removeFromWishlist(productId, user?.id ?? null);
+    setWishlist(getWishlist(user?.id ?? null));
   }
 
   async function moveWishlistToCart(item: WishlistItem) {

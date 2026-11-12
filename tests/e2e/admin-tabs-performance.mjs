@@ -159,7 +159,7 @@ function tapTimingScript(href) {
     return new Promise((resolve) => {
       const tab = [...document.querySelectorAll('[role="tab"][href="${href}"]')][0];
       const t0 = performance.now();
-      const events = { pendingAt: null, flipAt: null, urlAtFlip: null };
+      const events = { pendingAt: null, flipAt: null, urlAtFlip: null, overviewAtFlip: null, pendingAtFlip: null };
       const finish = () => {
         if (events.pendingAt !== null && events.flipAt !== null) resolve(events);
       };
@@ -170,6 +170,13 @@ function tapTimingScript(href) {
         if (events.flipAt === null && tab.getAttribute("aria-selected") === "true") {
           events.flipAt = Math.round(performance.now() - t0);
           events.urlAtFlip = window.location.search;
+          // The in-flight moment itself: is the old tab's content
+          // still on screen, and is the spinner showing, right when
+          // the highlight flips? The URL not having changed yet
+          // already says the old page is still mounted; this pins
+          // it to the visible content as well.
+          events.overviewAtFlip = document.body.innerText.includes("Store totals");
+          events.pendingAtFlip = tab.getAttribute("data-pending") === "true";
         }
         finish();
       });
@@ -203,6 +210,17 @@ try {
   const cookies = await context.cookies();
   const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
   const expected = { overview: 7, products: 9, banners: 5, orders: 5, messages: 5, users: 7 };
+  // The Orders tab reads the payments table — but only when there
+  // is at least one order to attach a payment status to
+  // (listAdminOrders skips the read for an empty list). The mock
+  // is shared across suites, so orders may already exist when this
+  // runs: expect 6 then, 5 on an empty mock.
+  const mockOrders = await fetch(`${MOCK}/rest/v1/orders?select=id`, {
+    headers: { apikey: "mock-anon-key", Authorization: "Bearer mock-service-key" },
+  })
+    .then((r) => r.json())
+    .catch(() => []);
+  if (Array.isArray(mockOrders) && mockOrders.length > 0) expected.orders = 6;
   for (const tab of ["overview", "products", "banners", "orders", "messages", "users"]) {
     const mark = mockMark();
     const res = await fetch(`${BASE}/admin?tab=${tab}`, { headers: { Cookie: cookieHeader } });
@@ -258,17 +276,17 @@ try {
   check("mobile: pending spinner shows within 100ms of the tap", typeof timing.pendingAt === "number" && timing.pendingAt <= 100, `${timing.pendingAt}ms`);
   check("mobile: highlight flips within 100ms of the tap", typeof timing.flipAt === "number" && timing.flipAt <= 100, `${timing.flipAt}ms`);
   check("mobile: highlight flips before the URL changes", timing.urlAtFlip === "?tab=overview", `url at flip: "${timing.urlAtFlip}"`);
-  // Dead-tap re-check: the old content is still on screen while the
-  // new tab loads (the shell stays mounted), but the tab row already
-  // shows the tap — the tap visibly did something.
-  await sleep(500);
-  const midFlight = await page.evaluate(() => ({
-    overviewStillThere: document.body.innerText.includes("Store totals"),
-    productsTabPending: document.querySelector('[role="tab"][href="/admin?tab=products"]')?.getAttribute("data-pending"),
-    url: window.location.search,
-  }));
-  check("mobile: old tab content stays visible mid-flight", midFlight.overviewStillThere, JSON.stringify(midFlight));
-  check("mobile: pending spinner still showing mid-flight", midFlight.productsTabPending === "true", JSON.stringify(midFlight));
+  // Dead-tap re-check: at the moment the highlight flips, the old
+  // tab's content is still on screen and the spinner is showing —
+  // the tap visibly did something while the new tab loads. Sampled
+  // at flip time, not 500ms later: the tab links prefetch and the
+  // router cache reuses the prefetched payload for 30s (Next.js
+  // staleTimes.dynamic default), so a warm tap lands in
+  // milliseconds and there is no 500ms-later mid-flight state to
+  // sample — the in-flight moment is the flip itself, which
+  // tapTimingScript already observes.
+  check("mobile: old tab content still visible when the highlight flips", timing.overviewAtFlip === true, JSON.stringify(timing));
+  check("mobile: pending spinner showing when the highlight flips", timing.pendingAtFlip === true, JSON.stringify(timing));
   // The new tab lands after the delay; pending clears, content swaps.
   const landed = await waitFor(async () => (await activeTab(page)) === "products" && (await page.evaluate(() => !document.querySelector('[role="tab"][href="/admin?tab=products"]')?.getAttribute("data-pending"))), 25000);
   check("mobile: products tab lands after the delay, pending clears", landed);

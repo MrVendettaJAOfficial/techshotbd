@@ -26,6 +26,8 @@ import { z } from "zod";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/client";
 import { ensureCurrentUserProfile, ensureProfile } from "./auth-server";
+import { consumeRecoveryMarker } from "./auth-server/recovery";
+import { STORAGE_KEYS } from "./checkout/types";
 import {
   buildRecoveryRedirectTo,
   changePasswordSchema,
@@ -258,12 +260,44 @@ export async function signIn(input: { email: string; password: string }): Promis
 }
 
 export async function signOut(): Promise<void> {
+  // The next account on this browser must never see the previous
+  // account's browser-local data (audit #9): clear the orders,
+  // profile, addresses and wishlist keys on sign-out. The cart is
+  // NOT cleared — it is owner-tagged and filtered on render instead
+  // (lib/cart-store), so a guest cart survives sign-out and returns
+  // when the same account signs back in. The coupon code and the
+  // saved-for-later list are browser-level, not account data, and
+  // are left alone.
+  clearLocalAccountData();
   if (!isSupabaseConfigured()) return;
   try {
     const supabase = untyped(createClient());
     await supabase.auth.signOut();
   } catch {
     // Already signed out / unconfigured — nothing to do.
+  }
+}
+
+/**
+ * Remove the browser-local account records (orders, profile,
+ * addresses, wishlist) from this browser. Called by signOut so a
+ * shared browser never hands the next account the previous
+ * account's data. Window-guarded: a server render has no
+ * localStorage, and failing storage must never break sign-out.
+ */
+function clearLocalAccountData(): void {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") return;
+  try {
+    for (const key of [
+      STORAGE_KEYS.orders,
+      STORAGE_KEYS.profile,
+      STORAGE_KEYS.addresses,
+      STORAGE_KEYS.wishlist,
+    ]) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable — nothing stored here to clear.
   }
 }
 
@@ -301,10 +335,13 @@ export async function requestPasswordReset(input: { email: string }): Promise<vo
 /**
  * Set a new password from a recovery link: the caller must already
  * hold the recovery session (established by the auth callback's
- * code exchange). Throws a link-expired error when there is no
- * usable session, so the page can point the user at a fresh link.
- * The caller signs the user out after success — the recovery
- * session must not linger — and sends them to sign-in.
+ * code exchange). The one-time recovery marker recorded by that
+ * exchange is required and consumed here, before updateUser, so an
+ * ordinary signed-in session — which has no marker — can never use
+ * this function (audit #10). Throws a link-expired error when
+ * there is no usable marker, so the page can point the user at a
+ * fresh link. The caller signs the user out after success — the
+ * recovery session must not linger — and sends them to sign-in.
  */
 export async function updatePasswordAfterReset(input: {
   password: string;
@@ -315,6 +352,21 @@ export async function updatePasswordAfterReset(input: {
     throw new Error(parsed.error.issues[0]?.message ?? "Please check the form and try again.");
   }
   if (!isSupabaseConfigured()) throw notConfiguredError();
+  // Single-use proof this session came from a recovery exchange.
+  // An ordinary signed-in user has no marker and lands here with
+  // the expired-link error; they change their password through
+  // changePassword instead, which verifies the current password.
+  let marker: { ok: boolean };
+  try {
+    marker = await consumeRecoveryMarker();
+  } catch {
+    marker = { ok: false };
+  }
+  if (!marker.ok) {
+    throw new Error(
+      "This reset link has expired or was already used. Please request a new reset link.",
+    );
+  }
   let supabase: SupabaseClient;
   try {
     supabase = untyped(createClient());

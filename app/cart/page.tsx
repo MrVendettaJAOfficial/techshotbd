@@ -11,6 +11,7 @@ import { formatBDT, FREE_DELIVERY_THRESHOLD_POISHA } from "@/lib/theme";
 import { PRODUCTS, getProductForCartSlug } from "@/lib/data/catalog";
 import { computeTotals, validateCoupon } from "@/lib/orders";
 import { useCart, usePricedCartLines } from "@/lib/cart-store";
+import { getSession } from "@/lib/auth";
 import ProductImage from "@/components/ProductImage";
 import CartSummary from "@/components/cart/cart-summary";
 import {
@@ -41,8 +42,16 @@ export default function CartPage() {
   useEffect(() => {
     setSaved(getSavedForLater());
     setAppliedCoupon(getCouponCode());
-    const def = getDefaultAddress();
-    if (def?.city) setDeliverCity(def.city);
+    // The default address is scoped to the viewer (a signed-in
+    // user id, or null for a guest): another account's saved
+    // address must never prefill this account's delivery city
+    // (audit #9).
+    void getSession()
+      .catch(() => null)
+      .then((session) => {
+        const def = getDefaultAddress(session?.user?.id ?? null);
+        if (def?.city) setDeliverCity(def.city);
+      });
   }, []);
 
   // Priced lines: resolved from the seed catalogue immediately, then

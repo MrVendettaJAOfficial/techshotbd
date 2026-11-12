@@ -1,9 +1,20 @@
 "use server";
 
-// Create a Supabase order for the signed-in user (lib/orders-server.ts).
-// One job: re-price lines from live DB prices, validate the coupon,
-// insert the order + items, decrement stock with rollback on failure.
+// Create a Supabase order (lib/orders-server.ts).
+// One job: re-price lines from live DB prices, validate the coupon
+// against the database, insert the order + items, decrement stock
+// with rollback on failure.
+//
+// Signed-in AND guest checkouts both land here when Supabase is
+// configured: a guest order is a real orders row with user_id NULL
+// and a fresh random buyerToken (the guest proves ownership with
+// it, exactly as the local fallback did), and it decrements stock
+// under the same guarded conditional update as a signed-in order —
+// a confirmed guest order can never oversell. Only when Supabase
+// is not configured does the caller fall back to the in-memory
+// order path.
 
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../../supabase/server";
 import { revalidateCatalogCache } from "../../storefront-cache";
@@ -14,10 +25,19 @@ import {
   addressSchema,
   createOrderNumber,
   toAddressSnapshot,
-  validateCoupon,
   type AddressInput,
   type PlaceOrderInput,
 } from "../../orders";
+import {
+  claimCouponAtomically,
+  releaseCouponClaim,
+  validateCouponFromDb,
+} from "../checkout/coupons";
+import {
+  findOrderByIdempotencyKey,
+  isUniqueViolationError,
+  loadStoredOrder,
+} from "../checkout/idempotency";
 import { adjustStockRow, decrementStockGuarded } from "../stock";
 import { EXPRESS_DELIVERY_POISHA } from "../../theme";
 import type { OrderItem, StoredOrder } from "../../checkout-store";
@@ -35,15 +55,25 @@ export type CreateSupabaseOrderResult =
   | { ok: false; message: string; useLocalFallback: boolean };
 
 /**
- * Create an order in Supabase for the signed-in user. Returns
- * `useLocalFallback: true` when the caller should use the local
- * in-memory order path instead (Supabase not configured, or guest
- * checkout); `useLocalFallback: false` means a real validation error
- * (bad address, out of stock, invalid coupon) that the caller should
- * show. On success the returned StoredOrder has the same shape as the
- * local path, so the test-payment + COD flow runs on top of it
- * unchanged — the caller must also register it with
- * createOrderRecord() so the test-pay / confirmation pages find it.
+ * Create an order in Supabase for the signed-in user, or for a
+ * guest (user_id NULL + a fresh buyerToken) when nobody is signed
+ * in. Returns `useLocalFallback: true` only when Supabase is not
+ * configured (or the admin client cannot be created) — then the
+ * caller uses the local in-memory order path instead. A `false`
+ * means a real validation error (bad address, out of stock,
+ * invalid coupon) that the caller should show. On success the
+ * returned StoredOrder has the same shape as the local path, so the
+ * test-payment + COD flow runs on top of it unchanged — the caller
+ * must also register it with createOrderRecord() so the test-pay /
+ * confirmation pages find it.
+ *
+ * Idempotency: the client sends one UUID per checkout attempt
+ * (input.idempotencyKey). A repeat submission with the same key
+ * returns the ORIGINAL order — no second insert, no second stock
+ * decrement, no second coupon claim. The lookup below catches
+ * sequential replays; the UNIQUE backstop in migration 0014
+ * catches concurrent ones (a unique-violation re-reads and returns
+ * the first order).
  */
 export async function createSupabaseOrder(
   input: PlaceOrderInput,
@@ -56,14 +86,11 @@ export async function createSupabaseOrder(
   if (!isConfigured()) {
     return { ok: false, message: "Supabase is not configured.", useLocalFallback: true };
   }
+  // Null for a guest: the guest order below is a real DB row with
+  // user_id NULL (migration 0014 relaxes the NOT NULL) and a fresh
+  // random buyerToken, and it decrements stock like any other order.
   const userId = await getSignedInUserId();
-  if (!userId) {
-    return {
-      ok: false,
-      message: "Sign in to place an order with your account.",
-      useLocalFallback: true,
-    };
-  }
+  const buyerToken = userId ? null : randomUUID();
   const parsedAddress = addressSchema.safeParse(input.address);
   if (!parsedAddress.success) {
     return {
@@ -87,6 +114,19 @@ export async function createSupabaseOrder(
     admin = untyped(createAdminClient());
   } catch {
     return { ok: false, message: "Supabase is not configured.", useLocalFallback: true };
+  }
+
+  // 0. Idempotency: a repeat submission of this checkout attempt
+  // returns the original order. A missing key (older clients) mints
+  // a fresh one per call, so it never dedups — the checkout form
+  // always sends one.
+  const idempotencyKey = (input.idempotencyKey ?? "").trim() || randomUUID();
+  const existingOrderId = await findOrderByIdempotencyKey(admin, userId, idempotencyKey);
+  if (existingOrderId) {
+    const existing = await loadStoredOrder(admin, existingOrderId);
+    if (existing) return { ok: true, order: existing };
+    // The row vanished between lookup and load: fall through and
+    // place the order; the UNIQUE backstop below re-reads on conflict.
   }
 
   // 1. Re-price every line from LIVE database prices.
@@ -164,40 +204,58 @@ export async function createSupabaseOrder(
     return { ok: false, message: "Your cart is empty.", useLocalFallback: false };
   }
 
-  // 2. Coupon: re-read from the DB; fall back to the local FIRST2000
-  // rule only when the code has no DB row at all.
+  // 2. Coupon: re-read from the DB — the coupons table is the
+  // single source of truth, on every checkout path. A code with no
+  // DB row is invalid (no hardcoded fallback: deleting the row
+  // retires the coupon), and a deactivated, expired, over-limit or
+  // below-minimum-spend row is invalid too. The claim below is
+  // atomic (see lib/orders/checkout/coupons.ts), so a usage-limited
+  // coupon cannot be redeemed past its limit by concurrent
+  // checkouts; if the order then fails, the claim is given back in
+  // the rollback path.
   const subtotal_poisha = lines.reduce((sum, l) => sum + l.price_poisha * l.quantity, 0);
   const normalizedCode = (input.couponCode ?? "").trim().toUpperCase() || null;
   let couponInput: { value_poisha: number; min_spend_poisha: number } | null = null;
-  if (normalizedCode) {
-    const { data: coupon } = await admin
-      .from("coupons")
-      .select("value_poisha, min_spend_poisha, is_active, expires_at, usage_limit, used_count")
-      .eq("code", normalizedCode)
-      .maybeSingle();
-    if (coupon) {
-      const usable =
-        coupon.is_active &&
-        (!coupon.expires_at || new Date(coupon.expires_at) > new Date()) &&
-        (coupon.usage_limit == null || coupon.used_count < coupon.usage_limit) &&
-        subtotal_poisha >= coupon.min_spend_poisha;
-      if (!usable) {
-        return { ok: false, message: "This coupon code is not valid.", useLocalFallback: false };
-      }
-      couponInput = {
-        value_poisha: coupon.value_poisha,
-        min_spend_poisha: coupon.min_spend_poisha,
-      };
-    } else {
-      const result = validateCoupon(normalizedCode, subtotal_poisha);
-      if ("error" in result) {
-        return { ok: false, message: result.error, useLocalFallback: false };
-      }
-      couponInput = {
-        value_poisha: result.discount_poisha,
-        min_spend_poisha: 0,
-      };
+  let claimedCouponId: string | null = null;
+  let claimReleased = false;
+  const releaseClaim = async (): Promise<void> => {
+    if (!claimedCouponId || claimReleased) return;
+    claimReleased = true;
+    try {
+      await releaseCouponClaim(admin, claimedCouponId);
+    } catch {
+      // Best effort — the order already failed; a count left one
+      // high affects the coupon, never the order.
     }
+  };
+  if (normalizedCode) {
+    const checked = await validateCouponFromDb(admin, normalizedCode, subtotal_poisha);
+    if (!checked.ok) {
+      return { ok: false, message: checked.error, useLocalFallback: false };
+    }
+    couponInput = {
+      value_poisha: checked.coupon.value_poisha,
+      min_spend_poisha: checked.coupon.min_spend_poisha,
+    };
+    // Claim BEFORE inserting the order: a single conditional update
+    // (used_count = expected). When it affects zero rows, either the
+    // limit was just taken by a concurrent checkout — or the twin of
+    // this same attempt already placed the order, in which case the
+    // twin's order is the answer, not a coupon error.
+    const claimed = await claimCouponAtomically(
+      admin,
+      checked.coupon.id,
+      checked.coupon.used_count,
+    );
+    if (!claimed) {
+      const twinId = await findOrderByIdempotencyKey(admin, userId, idempotencyKey);
+      if (twinId) {
+        const twin = await loadStoredOrder(admin, twinId);
+        if (twin) return { ok: true, order: twin };
+      }
+      return { ok: false, message: "This coupon code is not valid.", useLocalFallback: false };
+    }
+    claimedCouponId = checked.coupon.id;
   }
 
   // 3. Totals from live prices via lib/pricing (never browser totals).
@@ -229,6 +287,7 @@ export async function createSupabaseOrder(
     .insert({
       order_number: orderNumber,
       user_id: userId,
+      idempotency_key: idempotencyKey,
       status: isOnline ? "pending_payment" : "confirmed",
       subtotal_poisha,
       delivery_poisha: deliveryFee_poisha,
@@ -239,13 +298,30 @@ export async function createSupabaseOrder(
     })
     .select("id")
     .single();
-  if (orderError || !orderRow) return genericFailure;
+  if (orderError || !orderRow) {
+    // A concurrent twin with the same key won the insert: the
+    // UNIQUE backstop (migration 0014) rejects this one — give the
+    // claim back and return the first order instead of failing.
+    if (orderError && isUniqueViolationError(orderError)) {
+      const twinId = await findOrderByIdempotencyKey(admin, userId, idempotencyKey);
+      if (twinId) {
+        const twin = await loadStoredOrder(admin, twinId);
+        if (twin) {
+          await releaseClaim();
+          return { ok: true, order: twin };
+        }
+      }
+    }
+    await releaseClaim();
+    return genericFailure;
+  }
   const orderId = orderRow.id as string;
 
   // Rollback restores stock by ADDING each decremented quantity back
   // through the guarded helper (never by writing an absolute stock
   // value, which could clobber a concurrent checkout's decrement),
-  // then deletes the order row (items cascade).
+  // deletes the order row (items cascade) and gives the coupon
+  // claim back, so a failed order never consumes a redemption.
   const rollback = async (restored: ResolvedDbLine[]): Promise<void> => {
     for (const line of restored) {
       try {
@@ -264,6 +340,7 @@ export async function createSupabaseOrder(
     } catch {
       // Nothing more can be done from here; the failure is reported.
     }
+    await releaseClaim();
   };
 
   const { error: itemsError } = await admin.from("order_items").insert(
@@ -326,26 +403,10 @@ export async function createSupabaseOrder(
     // Variant attribution is best effort; the order is already placed.
   }
 
-  // Coupon usage count (best effort — a failure here does not fail
-  // the order, which is already placed).
-  if (normalizedCode && couponInput) {
-    try {
-      const { data: coupon } = await admin
-        .from("coupons")
-        .select("id, used_count")
-        .eq("code", normalizedCode)
-        .maybeSingle();
-      if (coupon) {
-        await admin
-          .from("coupons")
-          .update({ used_count: (coupon.used_count ?? 0) + 1 })
-          .eq("id", coupon.id);
-      }
-    } catch {
-      // Ignore.
-    }
-  }
-
+  // The coupon was already claimed atomically above, before the
+  // order was inserted — there is no second increment here. (The
+  // old read-then-write increment lost updates under concurrent
+  // checkouts and never re-checked the limit.)
   const order: StoredOrder = {
     id: orderId,
     orderNumber,
@@ -362,9 +423,11 @@ export async function createSupabaseOrder(
     status: isOnline ? "pending_payment" : "confirmed",
     paymentStatus: "unpaid",
     // Signed-in order: the session proves ownership, so there is no
-    // guest key. userId is the same id stored as orders.user_id.
+    // guest key. Guest order: userId is null and the fresh random
+    // buyerToken above is the key the guest proves ownership with
+    // (carried in the confirmation / test-pay redirect as ?key=).
     userId,
-    buyerToken: null,
+    buyerToken,
     testMode: isOnline,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
