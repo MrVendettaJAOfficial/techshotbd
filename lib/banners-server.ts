@@ -49,7 +49,8 @@
 //     new table. Deleting a banner reclaims its Storage file when
 //     no other banner references it, and the staff-only
 //     cleanupOrphanBannerPhotos action sweeps banner files no
-//     banner references that are older than 24h.
+//     banner row — and no product photo or variant photo —
+//     references that are older than 24h.
 //
 // The home-page read (listActiveBanners) uses the request-scoped
 // client, so the authenticated/anon SELECT policy applies — the
@@ -130,13 +131,20 @@ async function countBannerUploadsLast24h(
 
 /**
  * How many banner photo files are stored in the shared bucket
- * right now (names starting with "banner-" at the bucket root).
+ * right now (names starting with "banner-" at the bucket root,
+ * excluding any file a product still references — a product
+ * titled "Banner lamp" uploads banner-lamp-*.jpg, which is a
+ * product photo, not a banner photo, and must not count towards
+ * the 100-file banner cap; see fetchProductReferencedImagePaths).
  * Returns null when Storage will not list: the caller treats that
  * as "cannot verify" and lets the upload go ahead, because the
  * daily cap above is the hard bound (at most 20 new files per
  * staff member per day) and refusing every upload over a
  * read-only introspection failure would break banner management
- * outright. The failure is logged so it is not silent.
+ * outright. The failure is logged so it is not silent. When the
+ * product-reference read fails, the count falls back to counting
+ * every banner-* file (over-counting only ever rejects an upload,
+ * never deletes a product photo).
  */
 async function countStoredBannerFiles(admin: SupabaseClient): Promise<number | null> {
   try {
@@ -147,9 +155,17 @@ async function countStoredBannerFiles(admin: SupabaseClient): Promise<number | n
       console.warn("TechShot: could not list banner files to check the storage cap.");
       return null;
     }
-    return data.filter(
+    const bannerFiles = data.filter(
       (file) => typeof file.name === "string" && file.name.startsWith("banner-"),
-    ).length;
+    );
+    const productReferenced = await fetchProductReferencedImagePaths(admin);
+    if (productReferenced === null) {
+      console.warn(
+        "TechShot: could not read product photo references to check the storage cap; counting every banner file.",
+      );
+      return bannerFiles.length;
+    }
+    return bannerFiles.filter((file) => !productReferenced.has(file.name)).length;
   } catch {
     console.warn("TechShot: could not list banner files to check the storage cap.");
     return null;
@@ -215,6 +231,68 @@ async function isBannerImageReferenced(
   } catch {
     return true;
   }
+}
+
+/**
+ * Every Storage filename a product still references, from
+ * product_images.storage_path and product_variants.image_path.
+ * Product photos are named from slugify(title)
+ * (lib/products/validation/upload.ts uploadStoragePath), so a
+ * product titled "Banner lamp" uploads
+ * banner-lamp-<timestamp>-<random>.jpg — a name the banner sweep
+ * and the 100-file banner cap would otherwise treat as a banner
+ * file and delete / count. Both the stored value and its basename
+ * are collected: a row may hold the bare Storage filename, a
+ * legacy "/images/products/<file>.jpg" path, or a full URL (see
+ * lib/storage-images.ts), and the Storage list only ever shows
+ * bare root filenames. Returns null when either read fails (fail
+ * closed: callers keep the file, or count it, rather than act on
+ * an incomplete reference set).
+ */
+async function fetchProductReferencedImagePaths(
+  admin: SupabaseClient,
+): Promise<Set<string> | null> {
+  try {
+    const [{ data: images, error: imagesError }, { data: variants, error: variantsError }] =
+      await Promise.all([
+        admin.from("product_images").select("storage_path"),
+        admin.from("product_variants").select("image_path"),
+      ]);
+    if (imagesError || variantsError || !images || !variants) return null;
+    const referenced = new Set<string>();
+    const add = (value: unknown): void => {
+      if (typeof value !== "string") return;
+      const trimmed = value.trim();
+      if (trimmed === "") return;
+      referenced.add(trimmed);
+      // The Storage object name is the last path segment.
+      const basename = trimmed.split("/").filter((part) => part !== "").pop();
+      if (basename) referenced.add(basename);
+    };
+    for (const row of images as Array<{ storage_path?: unknown }>) add(row.storage_path);
+    for (const row of variants as Array<{ image_path?: unknown }>) add(row.image_path);
+    return referenced;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when a product photo or a variant photo still references
+ * this Storage file (exact value or basename — see
+ * fetchProductReferencedImagePaths). On a read failure returns
+ * true (fail closed): a file that might still be a product photo
+ * is kept.
+ */
+async function isProductImageReferenced(
+  admin: SupabaseClient,
+  imagePath: string,
+): Promise<boolean> {
+  const referenced = await fetchProductReferencedImagePaths(admin);
+  if (referenced === null) return true;
+  if (referenced.has(imagePath)) return true;
+  const basename = imagePath.split("/").filter((part) => part !== "").pop();
+  return basename !== undefined && referenced.has(basename);
 }
 
 /**
@@ -547,8 +625,15 @@ export async function deleteBanner(id: string): Promise<BannerActionResult> {
     const { error } = await admin.from("banners").delete().eq("id", id);
     if (error) return { ok: false, error: BANNER_GENERIC_ERROR };
     if (isBareStorageFilename(imagePath)) {
+      // A banner row may name a file a product also uses (a
+      // product titled "Banner lamp" uploads banner-lamp-*.jpg) —
+      // the file is reclaimed only when neither a banner nor a
+      // product references it.
       const stillReferenced = await isBannerImageReferenced(admin, imagePath, id);
-      if (!stillReferenced) {
+      const productReferenced = stillReferenced
+        ? true
+        : await isProductImageReferenced(admin, imagePath);
+      if (!stillReferenced && !productReferenced) {
         await removeStorageFileBestEffort(admin, imagePath);
       }
     }
@@ -686,14 +771,19 @@ export type BannerCleanupResult =
  *
  * Only files at the bucket root whose name starts with "banner-"
  * are considered, and a file is removed only when no banners row
- * references its name AND its Storage created_at is older than
- * 24h — a photo uploaded moments ago for a banner still being
- * composed is never swept. A missing or unparseable created_at
- * is never swept either: keeping a file is safer than deleting
- * a fresh one. `removed` counts the files deleted, `kept` the
- * banner files left in place (referenced, too new, or both).
- * A failed list, read or removal returns an error and removes
- * nothing silently.
+ * references its name AND no product photo or variant photo
+ * references it (a product titled "Banner lamp" uploads
+ * banner-lamp-*.jpg — see fetchProductReferencedImagePaths) AND
+ * its Storage created_at is older than 24h — a photo uploaded
+ * moments ago for a banner still being composed is never swept.
+ * A missing or unparseable created_at is never swept either:
+ * keeping a file is safer than deleting a fresh one. `removed`
+ * counts the files deleted, `kept` the banner files left in place
+ * (referenced, too new, or both). A failed list, read or removal
+ * returns an error and removes nothing silently. A failed
+ * product-reference read also returns an error and removes
+ * nothing: the sweep cannot prove a banner-* file is not a
+ * product photo, so it must not delete any.
  */
 export async function cleanupOrphanBannerPhotos(): Promise<BannerCleanupResult> {
   const role = await getCallerRole().catch(() => null);
@@ -719,9 +809,16 @@ export async function cleanupOrphanBannerPhotos(): Promise<BannerCleanupResult> 
         .map((row) => row.image_path)
         .filter((value): value is string => typeof value === "string"),
     );
+    // A banner-* filename may be a product photo instead (see
+    // fetchProductReferencedImagePaths). When the product tables
+    // cannot be read, the sweep cannot prove any file is safe to
+    // delete, so it fails and removes nothing.
+    const productReferenced = await fetchProductReferencedImagePaths(admin);
+    if (productReferenced === null) return { ok: false, error: BANNER_GENERIC_ERROR };
     const cutoff = new Date(Date.now() - BANNER_ORPHAN_AGE_MS).toISOString();
     const orphans = bannerFiles.filter((file) => {
       if (referenced.has(file.name)) return false;
+      if (productReferenced.has(file.name)) return false;
       // Only files old enough to be abandoned. A missing or
       // unparseable timestamp is never swept.
       if (typeof file.created_at !== "string" || file.created_at === "") return false;

@@ -414,7 +414,7 @@ test("customer cancel is a server action with owner + state checks (fix #3)", ()
   assert.ok(src.includes('order.status !== "pending_payment" && order.status !== "confirmed"'), "state check");
   assert.ok(src.includes("localOnly: true"), "browser-only orders fall back without a stock claim");
   const page = readSource("../app/orders/[id]/page.tsx");
-  assert.ok(page.includes("await cancelMyOrder(order.id)"), "order page routes cancel through the server action");
+  assert.ok(page.includes("await cancelMyOrder(order.id, order.buyerToken ?? null)"), "order page routes cancel through the server action, passing the guest buyerToken");
   assert.ok(
     page.includes("Order cancelled. Stock for these items has been released back to inventory."),
     "stock message only on the server-confirmed path",

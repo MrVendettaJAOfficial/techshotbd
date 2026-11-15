@@ -32,7 +32,7 @@ import type { CategoryOption, ProductListItem, ProductStatus } from "@/lib/produ
 import { canManageProducts } from "@/lib/roles";
 import { Button, Card, Field, Input, SectionHeading, Select } from "@/components/ui";
 import { cleanSpecifications, type SpecificationRow } from "@/components/admin-helpers";
-import { inputBase, variantsToText, type ProductManagerProps } from "./helpers";
+import { inputBase, validateRequiredPriceAndStock, variantsToText, type ProductManagerProps } from "./helpers";
 import { ProductList } from "./product-list";
 
 // The save confirmation must survive router.refresh(): refreshing the
@@ -243,6 +243,14 @@ export default function ProductForm({ products, categories, canPublish, configur
     event.preventDefault();
     setFormError(null);
     setFormNotice(null);
+    // An empty price or stock box must never save as ৳0 / 0
+    // (Number("") is 0): reject it here, in the form's error
+    // style, before the server action is called.
+    const requiredError = validateRequiredPriceAndStock(priceTaka, stock);
+    if (requiredError) {
+      setFormError(requiredError);
+      return;
+    }
     let variants: Array<{ name: string; priceTaka?: number; stock: number; imagePath?: string }> = [];
     try {
       variants = parseVariantsText(variantsText);
