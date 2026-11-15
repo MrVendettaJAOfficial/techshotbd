@@ -18,5 +18,5 @@
 export { createSupabaseOrder, type CreateSupabaseOrderResult } from "./orders/server/create";
 export { listAdminOrders, listSupabaseOrders } from "./orders/server/list";
 export { getOrderStatusFromServer, updateSupabaseOrderStatus } from "./orders/server/status";
-export { updateSupabaseOrderFromCallback } from "./orders/server/callback";
+export { loadSupabaseOrderForCallback, updateSupabaseOrderFromCallback } from "./orders/server/callback";
 export { submitSupabaseReview } from "./orders/server/reviews";

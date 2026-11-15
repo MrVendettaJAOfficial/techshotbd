@@ -152,7 +152,18 @@ async function loadExtras(
 
   // Images and variants are independent queries — run them in
   // parallel instead of one after another.
-  const [{ data: images }, { data: variants }] = await Promise.all([
+  //
+  // FAIL FAST: an error from either query fails the whole fetch
+  // (the caller returns no products at all) instead of returning
+  // products with empty photo / variant lists. A product whose
+  // photos failed to load must never reach the admin form looking
+  // photo-less: saving it would run updateProduct, which deletes
+  // all product_images / product_variants rows first and
+  // re-inserts only what the form holds — nothing — so the real
+  // photos and variants would be gone. A failed read is therefore
+  // an empty admin list (configured: false, form disabled), never
+  // a silently emptied product.
+  const [{ data: images, error: imagesError }, { data: variants, error: variantsError }] = await Promise.all([
     admin
       .from("product_images")
       .select("product_id, storage_path, sort_order")
@@ -163,6 +174,9 @@ async function loadExtras(
       .select("product_id, name, price_override_poisha, stock, image_path")
       .in("product_id", productIds),
   ]);
+  if (imagesError || variantsError || !images || !variants) {
+    throw new Error("Failed to load product photos or variants.");
+  }
   // Every photo per product, in sort_order — the first is the main
   // photo; the admin form edits the whole list.
   for (const image of (images ?? []) as Array<{ product_id: string; storage_path: string }>) {

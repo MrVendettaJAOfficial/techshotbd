@@ -39,7 +39,7 @@ export default function MiniCartDrawer({
   triggerRef: RefObject<HTMLButtonElement>;
 }) {
   const cart = useCart();
-  const { lines } = usePricedCartLines();
+  const { lines, stockErrors } = usePricedCartLines();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   function closeAndRefocus() {
@@ -133,6 +133,11 @@ export default function MiniCartDrawer({
           </div>
         ) : (
           <>
+            {stockErrors.length > 0 && (
+              <div className="mx-5 mt-4 rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700" role="alert">
+                Some items exceed available stock and were left out of the subtotal: {stockErrors.join(" ")} Lower the quantity to continue.
+              </div>
+            )}
             <ul className="flex-1 overflow-y-auto px-5 py-4" aria-label="Cart items">
               {cart.items.map((item) => {
                 const product = getProductForCartSlug(item.slug);

@@ -98,16 +98,20 @@ export function splitFullAddress(fullAddress: string): { address: string; area: 
 }
 
 /** Supabase addresses row -> the browser Address shape. Email is not
- *  stored on the addresses table, so it comes back empty and the
- *  account page fills it from the signed-in user's email instead. */
-export function mapDbAddressToLocal(row: DbAddressRow): LocalAddress {
+ *  stored on the addresses table, so the caller passes the signed-in
+ *  user's email (getAccountData / saveAccountAddress in
+ *  lib/account-server.ts fill it from the session); without it the
+ *  address comes back with an empty email, and the address check
+ *  rejects an empty email — which used to break "Set as default"
+ *  for every server-loaded address. */
+export function mapDbAddressToLocal(row: DbAddressRow, email = ""): LocalAddress {
   const { firstName, lastName } = splitDbName(row.name ?? "");
   const { address, area } = splitFullAddress(row.full_address ?? "");
   return {
     id: row.id,
     firstName,
     lastName,
-    email: "",
+    email,
     mobile: row.phone ?? "",
     address,
     area,

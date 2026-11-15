@@ -2,7 +2,10 @@
 
 // Verified payment-callback order updates (lib/orders-server.ts).
 // One job: updateSupabaseOrderFromCallback — append-only payment
-// rows, never called from a browser-facing form or unverified request.
+// rows, never called from a browser-facing form or unverified request
+// — plus loadSupabaseOrderForCallback, the read-only database load
+// the public callback route falls back to when the order is not in
+// this server process's memory.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../../supabase/server";
@@ -30,6 +33,54 @@ export interface CallbackProof {
     nonce: string;
   };
   signature: string;
+}
+
+/**
+ * Load the order a payment callback is about, straight from
+ * Supabase: its id, current status and latest payment status, or
+ * null when there is no such row (or Supabase is not configured).
+ *
+ * This is the memory-miss fallback for the public callback route:
+ * the in-memory record lives only in the server process that took
+ * the checkout, so a callback that lands on a different Vercel
+ * instance — or after a restart — finds nothing in memory, and
+ * without this load the paid order would stay "pending payment"
+ * in the database. The load itself is read-only and proves
+ * nothing: the signed callback proof (verified by the route, and
+ * again by updateSupabaseOrderFromCallback before any write) is
+ * still the trust check.
+ */
+export interface CallbackDbOrder {
+  id: string;
+  status: StoredOrder["status"];
+  paymentStatus: StoredOrder["paymentStatus"];
+}
+
+export async function loadSupabaseOrderForCallback(
+  orderId: string,
+): Promise<CallbackDbOrder | null> {
+  if (!isConfigured()) return null;
+  let admin: SupabaseClient;
+  try {
+    admin = untyped(createAdminClient());
+  } catch {
+    return null;
+  }
+  try {
+    const { data: order } = await admin
+      .from("orders")
+      .select("id, status")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order) return null;
+    return {
+      id: order.id as string,
+      status: order.status as StoredOrder["status"],
+      paymentStatus: await latestPaymentStatus(admin, orderId),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

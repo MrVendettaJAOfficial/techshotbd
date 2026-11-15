@@ -181,3 +181,39 @@ test("free-delivery hint math: ৳999 threshold, remaining amount formatted", ()
   assert.equal(big[0].price_poisha, 11990000);
   assert.ok(big[0].price_poisha >= FREE_DELIVERY_THRESHOLD_POISHA);
 });
+
+// Finding 4 (Ponytail review, 2026-11-16): an over-stock cart line
+// (quantity 5, stock 3) was dropped from the priced lines, so the
+// cart page showed the item with no price and no line total, the
+// subtotal excluded it, and the shopper only learned at checkout.
+// getPricedCartLines already reported the drop in stockErrors — the
+// priced-cart hook dropped that field, so nothing ever rendered it.
+// The hook now returns stockErrors, and /cart and the drawer show
+// them next to the existing unknownSlugs alert. Checkout blocking
+// is unchanged: checkout still refuses on stockErrors.
+test("over-stock lines surface their stockErrors in the hook, on /cart and in the drawer", () => {
+  const store = read("lib/cart-store.ts");
+  assert.match(store, /stockErrors: string\[\]/);
+  assert.match(store, /stockErrors: result\.stockErrors/);
+  assert.match(store, /stockErrors: \[\]/);
+  // The live resolver is the source of the errors: an over-quantity
+  // line is dropped from lines and reported, not silently priced.
+  const lines = read("lib/cart/server/lines.ts");
+  assert.match(lines, /if \(quantity > stock\)/);
+  assert.match(lines, /stockErrors\.push\(/);
+  assert.match(lines, /only \$\{stock\} in stock, you asked for \$\{quantity\}\./);
+  // /cart renders the errors in the same alert style as unknownSlugs.
+  const cartPage = read("app/cart/page.tsx");
+  assert.match(cartPage, /const \{ lines, unknownSlugs, stockErrors \} = usePricedCartLines\(\)/);
+  assert.match(cartPage, /Some items exceed available stock and were left out of the total/);
+  assert.match(cartPage, /stockErrors\.join\(" "\)/);
+  // The drawer renders them too, above its item list.
+  const drawer = read("components/MiniCartDrawer.tsx");
+  assert.match(drawer, /const \{ lines, stockErrors \} = usePricedCartLines\(\)/);
+  assert.match(drawer, /Some items exceed available stock and were left out of the subtotal/);
+  assert.match(drawer, /stockErrors\.join\(" "\)/);
+  // Checkout still blocks on stockErrors — this fix only surfaces
+  // the problem earlier, it does not change checkout behaviour.
+  const checkout = read("app/checkout/page.tsx");
+  assert.match(checkout, /priced\.stockErrors\.length > 0/);
+});

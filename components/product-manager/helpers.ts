@@ -22,6 +22,25 @@ export function variantsToText(product: ProductListItem): string {
     .join(", ");
 }
 
+/**
+ * Price and stock are required fields, but the form holds them as
+ * strings — and Number("") is 0, so a price or stock box cleared
+ * by mistake would otherwise save as ৳0 / 0 and go live at that
+ * price. An empty (or whitespace-only) price or stock string is
+ * therefore rejected here, before the form calls the server
+ * action: the server schema cannot tell an empty field from a
+ * deliberate ৳0, so the check belongs in the form. Returns the
+ * form error to show, or null when both fields hold a value. A
+ * deliberately typed "0" is a value, not an empty field — it
+ * still saves as ৳0 / 0, so a genuinely free or out-of-stock
+ * product remains possible through an explicit value.
+ */
+export function validateRequiredPriceAndStock(priceTaka: string, stock: string): string | null {
+  if (priceTaka.trim() === "") return "Enter a price (৳) before saving.";
+  if (stock.trim() === "") return "Enter the stock quantity before saving.";
+  return null;
+}
+
 export function statusTone(status: ProductStatus): "success" | "warning" | "muted" {
   if (status === "active") return "success";
   if (status === "paused") return "warning";
