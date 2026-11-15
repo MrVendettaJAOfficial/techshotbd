@@ -58,7 +58,7 @@ export default function CartPage() {
   // from the live database when Supabase is configured (see
   // usePricedCartLines in lib/cart-store.ts). Prices are never stored
   // in the cart — only slugs, variants and quantities are.
-  const { lines, unknownSlugs } = usePricedCartLines();
+  const { lines, unknownSlugs, stockErrors } = usePricedCartLines();
 
   const mrpTotal_poisha = useMemo(
     () => lines.reduce((sum, l) => sum + l.mrp_poisha * l.quantity, 0),
@@ -197,6 +197,12 @@ export default function CartPage() {
       {unknownSlugs.length > 0 && (
         <div className="mt-4 rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700" role="alert">
           Some items are no longer available and were left out of the total: {unknownSlugs.join(", ")}. Remove them below.
+        </div>
+      )}
+
+      {stockErrors.length > 0 && (
+        <div className="mt-4 rounded-lg border border-red-700 bg-panel px-4 py-3 text-sm text-red-700" role="alert">
+          Some items exceed available stock and were left out of the total: {stockErrors.join(" ")} Lower the quantity below to continue.
         </div>
       )}
 

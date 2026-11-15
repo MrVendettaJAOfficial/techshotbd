@@ -363,16 +363,24 @@ export function useCart(): CartContextValue {
  * When Supabase is not configured there is no second step at all: the
  * local lines are the whole answer.
  *
+ * Stock problems are surfaced too: getPricedCartLines drops a line
+ * whose quantity exceeds live stock and reports it in stockErrors,
+ * and this hook returns those errors (empty when the local lines are
+ * the answer) so the cart page and the mini-cart can show the problem
+ * before checkout — checkout itself still blocks on stockErrors.
+ *
  * Must be called inside CartProvider.
  */
 export function usePricedCartLines(): {
   lines: OrderItem[];
   unknownSlugs: string[];
+  stockErrors: string[];
 } {
   const { items } = useCart();
   const [live, setLive] = useState<{
     lines: OrderItem[];
     unknownSlugs: string[];
+    stockErrors: string[];
   } | null>(null);
   const local = useMemo(() => resolveCartLines(items), [items]);
 
@@ -385,7 +393,11 @@ export function usePricedCartLines(): {
     void getPricedCartLines(items)
       .then((result) => {
         if (!cancelled) {
-          setLive({ lines: result.lines, unknownSlugs: result.unknownSlugs });
+          setLive({
+            lines: result.lines,
+            unknownSlugs: result.unknownSlugs,
+            stockErrors: result.stockErrors ?? [],
+          });
         }
       })
       .catch(() => {
@@ -396,5 +408,7 @@ export function usePricedCartLines(): {
     };
   }, [items]);
 
-  return live ?? local;
+  return (
+    live ?? { lines: local.lines, unknownSlugs: local.unknownSlugs, stockErrors: [] }
+  );
 }

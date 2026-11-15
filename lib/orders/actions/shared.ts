@@ -78,6 +78,21 @@ import type { OrderStatus, PaymentStatus } from "@/lib/checkout-store";
 export const GENERIC_ERROR = "Something went wrong. Please try again.";
 export const ALREADY_CHANGED_ERROR = "This order was already changed. Please reload and try again.";
 
+/**
+ * A guest order that lives in the database cannot be cancelled
+ * from the browser: the guest proves ownership with a buyerToken
+ * that is never stored in the database, so there is no server-side
+ * proof strong enough to cancel (and restore stock) on. The buyer
+ * is told to contact us instead — the order stays live and the
+ * stock stays held until support cancels it.
+ */
+export const GUEST_DB_CANCEL_ERROR =
+  "This order is saved on our system, so it can't be cancelled from this browser. Please contact us and we'll cancel it for you.";
+
+/** The same contact-us direction for a guest order already paid. */
+export const GUEST_DB_REFUND_ERROR =
+  "This order was already paid. Please contact us for a refund.";
+
 export type OrderStatusActionResult =
   | {
       ok: true;

@@ -202,6 +202,13 @@ function OrderDetailInner() {
   // (guest / browser-only order), the browser copy is cancelled
   // instead and the notice says so honestly — no stock claim.
   //
+  // The browser copy's buyerToken is passed through so a guest
+  // whose order IS a live database row can be told, honestly, to
+  // contact us instead of seeing a fake browser-only cancel: the
+  // server proves guest ownership against the token and refuses
+  // the cancel with a contact-us error, leaving the live order
+  // (and its stock) untouched.
+  //
   // The outcome is persisted ON THE STORED ORDER (cancelNotice),
   // not only in component state: the cancel server action
   // revalidates the order pages, and that refresh remounts this
@@ -214,7 +221,7 @@ function OrderDetailInner() {
     if (!order || cancelling) return;
     setCancelling(true);
     try {
-      const result = await cancelMyOrder(order.id);
+      const result = await cancelMyOrder(order.id, order.buyerToken ?? null);
       if (result.ok) {
         const updated = updateOrderStatus(order.id, {
           status: "cancelled",

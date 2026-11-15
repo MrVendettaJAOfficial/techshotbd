@@ -85,6 +85,43 @@ test("mapDbAddressToLocal maps a Supabase addresses row", () => {
   });
 });
 
+// Finding 6 (Ponytail review, 2026-11-16): "Set as default" was
+// broken for every server-loaded address. The addresses table stores
+// no email, so the mapped address had email "" and the address check
+// rejected it ({"email":"Enter a valid email address."}) — the click
+// always showed "Please fix the highlighted address fields" and
+// nothing changed. The mapper now takes the signed-in user's email
+// (filled by getAccountData), and a mapped address with it passes
+// validation; without the fill it still fails, which is the bug.
+test("mapDbAddressToLocal fills the signed-in user's email, and the filled address passes validation", () => {
+  const filled = mapDbAddressToLocal(DB_ADDRESS, "test@example.com");
+  assert.equal(filled.email, "test@example.com");
+  assert.deepEqual(validateAddressInput(filled), {});
+  const unfilled = mapDbAddressToLocal(DB_ADDRESS);
+  assert.deepEqual(validateAddressInput(unfilled), {
+    email: "Enter a valid email address.",
+  });
+});
+
+test("getAccountData fills server addresses with the signed-in user's email, and Set as default does too", () => {
+  // getAccountData maps each addresses row with the session email.
+  assert.match(
+    accountServer,
+    /mapDbAddressToLocal\(row, authUser\.email \?\? ""\)/,
+  );
+  // saveAccountAddress returns the saved row with the same fill,
+  // so a freshly saved address is not an empty-email address either.
+  assert.match(accountServer, /mapDbAddressToLocal\(updated, data\.user\.email \?\? ""\)/);
+  assert.match(accountServer, /mapDbAddressToLocal\(inserted, data\.user\.email \?\? ""\)/);
+  // The account page's Set as default handler fills the email from
+  // the signed-in user at the call site too, so a stale address in
+  // state can never break the click.
+  assert.match(
+    accountPage,
+    /email: address\.email \|\| user\?\.email \|\| ""/,
+  );
+});
+
 test("mapLocalAddressToDb joins name and street + area", () => {
   assert.deepEqual(
     mapLocalAddressToDb({

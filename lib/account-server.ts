@@ -133,7 +133,12 @@ export async function getAccountData(): Promise<AccountData | null> {
       listSupabaseOrders(),
     ]);
     const addressRows = (addressResult as { data: DbAddressRow[] | null }).data;
-    const addresses = (addressRows ?? []).map(mapDbAddressToLocal);
+    // The addresses table stores no email: fill it from the signed-in
+    // user, or every server-loaded address fails the address check
+    // (empty email) and "Set as default" can never succeed.
+    const addresses = (addressRows ?? []).map((row) =>
+      mapDbAddressToLocal(row, authUser.email ?? ""),
+    );
 
     const wishlistRows = (wishlistResult as { data: DbWishlistRow[] | null }).data;
     const wishlist = (wishlistRows ?? [])
@@ -238,7 +243,7 @@ export async function saveAccountAddress(
       if (updateError || !updated) {
         return { ok: false, message: "Could not save this address. Please try again." };
       }
-      return { ok: true, address: { ...mapDbAddressToLocal(updated), label: input.label } };
+      return { ok: true, address: { ...mapDbAddressToLocal(updated, data.user.email ?? ""), label: input.label } };
     }
     const { data: inserted, error: insertError } = (await supabase
       .from("addresses")
@@ -248,7 +253,7 @@ export async function saveAccountAddress(
     if (insertError || !inserted) {
       return { ok: false, message: "Could not save this address. Please try again." };
     }
-    return { ok: true, address: { ...mapDbAddressToLocal(inserted), label: input.label } };
+    return { ok: true, address: { ...mapDbAddressToLocal(inserted, data.user.email ?? ""), label: input.label } };
   } catch {
     return { ok: false, message: "Could not save this address. Please try again." };
   }
