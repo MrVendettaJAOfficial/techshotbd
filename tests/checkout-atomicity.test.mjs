@@ -562,9 +562,9 @@ test("source: advanceOrderStatus requires the rendered status and rejects a stal
   assert.match(list, /advanceOrderStatus\(order\.id, order\.status\)/);
 });
 
-test("source: migration 0014 is written with the idempotency + coupon backstops (NOT applied)", () => {
+test("source: migration 0014 is written with the idempotency + coupon backstops (APPLIED LIVE 2026-11-12)", () => {
   const migration = root("supabase/migrations/0014_checkout_idempotency_coupon.sql");
-  assert.match(migration, /NOT APPLIED/);
+  assert.match(migration, /APPLIED LIVE 2026-11-12/);
   assert.match(migration, /idempotency_key text/);
   assert.match(migration, /unique \(user_id, idempotency_key\)/);
   assert.match(migration, /orders_idempotency_guest_idx/);

@@ -321,7 +321,17 @@ function AccountPageInner() {
 
   async function handleSetDefaultAddress(address: Address) {
     if (serverMode) {
-      const result = await saveAccountAddress({ ...address, isDefault: true });
+      // Server-loaded addresses carry no email of their own (the
+      // addresses table has no email column): fill it from the
+      // signed-in user, or the address check rejects the empty
+      // email and "Set as default" never succeeds. getAccountData
+      // already fills it; this is the same fill at the call site,
+      // so a stale address in state can never break the click.
+      const result = await saveAccountAddress({
+        ...address,
+        email: address.email || user?.email || "",
+        isDefault: true,
+      });
       if (!result.ok) {
         setAddressNotice(result.message);
         return;

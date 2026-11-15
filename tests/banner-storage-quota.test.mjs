@@ -100,11 +100,17 @@ function storageFile(name, createdAt) {
  * A fake admin client with an in-memory audit_log + banners table
  * and a fake Storage bucket. `auditRows` / `bannerRows` seed the
  * tables; `storageFiles` seed the bucket listing. `failAuditSelect`
- * / `failAuditInsert` make the audit queries fail. The select
+ * / `failAuditInsert` make the audit queries fail.
+ * `productImagePaths` / `variantImagePaths` seed the
+ * product_images.storage_path / product_variants.image_path values
+ * the banner code reads to tell a product photo from a banner
+ * photo (finding 7: a product titled "Banner lamp" uploads a
+ * banner-lamp-*.jpg file); `failProductRefs` makes those reads
+ * fail, so the fail-closed paths can be exercised. The select
  * handler applies the caller's eq / neq filters, created_at
  * ordering and limit, like PostgREST would.
  */
-function bannerClient({ auditRows = [], bannerRows = [], storageFiles = [], failAuditSelect = false, failAuditInsert = false } = {}) {
+function bannerClient({ auditRows = [], bannerRows = [], storageFiles = [], failAuditSelect = false, failAuditInsert = false, productImagePaths = [], variantImagePaths = [], failProductRefs = false } = {}) {
   const audit = [...auditRows];
   const bannerTable = [...bannerRows];
   const storage = makeFakeStorage({
@@ -122,6 +128,13 @@ function bannerClient({ auditRows = [], bannerRows = [], storageFiles = [], fail
   };
   const admin = makeFakeAdmin((table, steps) => {
     const op = stepOp(steps);
+    if (table === "product_images" || table === "product_variants") {
+      if (failProductRefs) return { data: null, error: { message: "dummy DB error" } };
+      if (table === "product_images") {
+        return { data: productImagePaths.map((storage_path) => ({ storage_path })), error: null };
+      }
+      return { data: variantImagePaths.map((image_path) => ({ image_path })), error: null };
+    }
     if (table === "audit_log") {
       if (op === "select") {
         if (failAuditSelect) return { data: null, error: { message: "dummy DB error" } };
@@ -418,6 +431,88 @@ test("sweep refuses a non-staff caller", async () => {
   assert.equal(result.ok, false);
   assert.match(result.error, /Only store staff/);
   assert.equal(storageCalls(storage, "list").length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Finding 7: a banner-* filename may be a product photo, not a
+// banner photo — product_images / product_variants references
+// exclude it from the sweep and from the 100-file cap.
+// ---------------------------------------------------------------------------
+
+test("sweep keeps an old banner-* file a product still references, and still removes a true orphan", async () => {
+  const { admin, storage } = bannerClient({
+    bannerRows: [bannerRow("banner-1", "banner-promotion-kept.png")],
+    storageFiles: [
+      // A product titled "Banner lamp" uploads banner-lamp-*.jpg
+      // (slugify(title) + timestamp + random) — referenced by
+      // product_images, so the sweep must keep it even at 30h old.
+      storageFile("banner-lamp-1a2b3c.jpg", isoHoursAgo(30)),
+      storageFile("banner-promotion-old-orphan.png", isoHoursAgo(30)),
+      storageFile("banner-promotion-kept.png", isoHoursAgo(30)),
+    ],
+    productImagePaths: ["banner-lamp-1a2b3c.jpg"],
+  });
+  __setAdminClient(admin);
+  const result = await banners.cleanupOrphanBannerPhotos();
+  assert.deepEqual(result, { ok: true, removed: 1, kept: 2 });
+  const removes = storageCalls(storage, "remove");
+  assert.equal(removes.length, 1);
+  assert.deepEqual(removes[0].args[0], ["banner-promotion-old-orphan.png"]);
+});
+
+test("sweep keeps a banner-* file referenced by a variant photo stored as a legacy path", async () => {
+  const { admin, storage } = bannerClient({
+    bannerRows: [],
+    storageFiles: [storageFile("banner-lamp-variant.jpg", isoHoursAgo(30))],
+    // Variant photos may be stored as "/images/products/<file>"
+    // — the basename is the Storage object, so it still counts.
+    variantImagePaths: ["/images/products/banner-lamp-variant.jpg"],
+  });
+  __setAdminClient(admin);
+  assert.deepEqual(await banners.cleanupOrphanBannerPhotos(), { ok: true, removed: 0, kept: 1 });
+  assert.equal(storageCalls(storage, "remove").length, 0);
+});
+
+test("sweep fails and removes nothing when the product-reference read fails", async () => {
+  const { admin, storage } = bannerClient({
+    bannerRows: [],
+    storageFiles: [storageFile("banner-promotion-old-orphan.png", isoHoursAgo(30))],
+    failProductRefs: true,
+  });
+  __setAdminClient(admin);
+  const result = await banners.cleanupOrphanBannerPhotos();
+  assert.deepEqual(result, { ok: false, error: "Something went wrong. Please try again." });
+  assert.equal(storageCalls(storage, "remove").length, 0);
+});
+
+test("upload is allowed at 100 stored files when one is a product photo (it does not count)", async () => {
+  const files = Array.from({ length: 100 }, (_, i) => storageFile(`banner-promotion-old-${i}.png`, isoHoursAgo(30)));
+  const { admin } = bannerClient({
+    storageFiles: files,
+    productImagePaths: ["banner-promotion-old-0.png"],
+  });
+  __setAdminClient(admin);
+  assert.equal((await banners.uploadBannerImage(bannerForm())).ok, true);
+});
+
+test("upload is still rejected at 100 stored files when the product-reference read fails (fail-open count)", async () => {
+  const files = Array.from({ length: 100 }, (_, i) => storageFile(`banner-promotion-old-${i}.png`, isoHoursAgo(30)));
+  const { admin, storage } = bannerClient({ storageFiles: files, failProductRefs: true });
+  __setAdminClient(admin);
+  const result = await banners.uploadBannerImage(bannerForm());
+  assert.equal(result.ok, false);
+  assert.match(result.error, /photo store is full \(100 photos\)/);
+  assert.equal(storageCalls(storage, "upload").length, 0);
+});
+
+test("deleteBanner keeps the file when a product still references it", async () => {
+  const { admin, storage } = bannerClient({
+    bannerRows: [bannerRow("banner-1", "banner-lamp-abc.png")],
+    productImagePaths: ["banner-lamp-abc.png"],
+  });
+  __setAdminClient(admin);
+  assert.deepEqual(await banners.deleteBanner("banner-1"), { ok: true });
+  assert.equal(storageCalls(storage, "remove").length, 0);
 });
 
 // ---------------------------------------------------------------------------
