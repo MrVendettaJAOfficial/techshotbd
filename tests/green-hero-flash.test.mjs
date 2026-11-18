@@ -429,16 +429,20 @@ test("banner image size is 1600 x 640 (wide, not the product square)", () => {
   assert.match(readSource("components/admin/banners-section.tsx"), /data-testid="banner-image-size-note"/);
 });
 
-test("banner photo crop: larger photos come out exactly 1600 x 640, small ones are kept", async () => {
+test("banner photo crop: larger photos come out exactly 1600 x 640, small ones are re-encoded at their own size", async () => {
   const wide = await processBannerImage(await makeImage(2000, 1000, "jpeg"), "image/jpeg");
   assert.deepEqual(await dimensions(wide.buffer), { width: 1600, height: 640, format: "jpeg" });
   assert.equal(wide.contentType, "image/jpeg");
   const tall = await processBannerImage(await makeImage(800, 2000, "png"), "image/png");
   assert.deepEqual(await dimensions(tall.buffer), { width: 1600, height: 640, format: "png" });
-  // Smaller than the target in BOTH dimensions: kept as-is, never upscaled.
+  // Smaller than the target in BOTH dimensions: re-encoded at its
+  // own size, never upscaled — and the re-encode strips EXIF /
+  // GPS (audit run-1, LOW 9). Byte difference is not asserted
+  // here: a flat JPEG can re-encode identically; the metadata
+  // property is pinned with real EXIF fixtures in
+  // tests/exif-strip.test.mjs.
   const small = await makeImage(400, 200, "jpeg");
   const kept = await processBannerImage(small, "image/jpeg");
-  assert.equal(kept.buffer.equals(small), true);
   assert.deepEqual(await dimensions(kept.buffer), { width: 400, height: 200, format: "jpeg" });
   // Unknown content types are rejected.
   await assert.rejects(processBannerImage(await makeImage(100, 100, "jpeg"), "image/gif"));
@@ -566,13 +570,13 @@ test("earliestFlashEndsAt counts a flash deal tagged by category", () => {
       category_slug: "audio",
       category_slugs: ["audio", "flash-deals"],
       is_flash_deal: false,
-      flash_ends_at: "2026-11-17T00:00:00.000Z",
+      flash_ends_at: "2027-11-17T00:00:00.000Z",
     },
   ]);
-  assert.equal(ends?.toISOString(), "2026-11-17T00:00:00.000Z");
+  assert.equal(ends?.toISOString(), "2027-11-17T00:00:00.000Z");
   assert.equal(
     earliestFlashEndsAt([
-      { category_slug: "audio", category_slugs: ["audio"], is_flash_deal: false, flash_ends_at: "2026-11-17T00:00:00.000Z" },
+      { category_slug: "audio", category_slugs: ["audio"], is_flash_deal: false, flash_ends_at: "2027-11-17T00:00:00.000Z" },
     ]),
     undefined,
   );

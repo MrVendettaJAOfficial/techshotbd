@@ -116,18 +116,21 @@ test("crop: already-square 1500x1500 WebP comes out 1200x1200", async () => {
   assert.deepEqual(await dimensions(buffer), { width: 1200, height: 1200, format: "webp" });
 });
 
-test("no upscale: small 400x200 JPEG is kept exactly as-is", async () => {
+test("no upscale: small 400x200 JPEG is re-encoded at its own size, metadata dropped", async () => {
   const input = await makeImage(400, 200, "jpeg");
   const { buffer, contentType } = await processProductImage(input, "image/jpeg");
   assert.equal(contentType, "image/jpeg");
-  assert.ok(buffer.equals(input), "small photo bytes are unchanged, not re-encoded");
+  // Same dimensions — never upscaled. The bytes are re-encoded
+  // (audit run-1, LOW 9: the re-encode is what strips EXIF / GPS
+  // from a small photo) — the metadata property itself is pinned
+  // with real EXIF fixtures in tests/exif-strip.test.mjs, not by
+  // byte difference here: a flat PNG can re-encode identically.
   assert.deepEqual(await dimensions(buffer), { width: 400, height: 200, format: "jpeg" });
 });
 
-test("no upscale: tiny 100x100 PNG is kept exactly as-is", async () => {
+test("no upscale: tiny 100x100 PNG is re-encoded at its own size", async () => {
   const input = await makeImage(100, 100, "png");
   const { buffer } = await processProductImage(input, "image/png");
-  assert.ok(buffer.equals(input));
   assert.deepEqual(await dimensions(buffer), { width: 100, height: 100, format: "png" });
 });
 
