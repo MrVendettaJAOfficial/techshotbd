@@ -147,6 +147,22 @@ export async function updateSupabaseOrderFromCallback(
       return { ok: false, message: "That status change is not allowed." };
     }
   }
+  // A paid outcome on an already-confirmed order must already be
+  // paid — or be superseding a FAILED attempt. A confirmed-but-
+  // unpaid order is a COD order, and it never gains a paid row
+  // from a callback: the same-status path above skips the
+  // transition check, so without this guard a signed paid callback
+  // would pay a COD order. (The public route refuses this move
+  // first via checkCallbackOutcome(); this is the second check,
+  // for direct callers such as the test-pay action.)
+  if (
+    patch.paymentStatus === "paid" &&
+    currentStatus === "confirmed" &&
+    currentPayment !== "paid" &&
+    currentPayment !== "failed"
+  ) {
+    return { ok: false, message: "That status change is not allowed." };
+  }
   // A paid order must be refunded, never cancelled (mirror the admin
   // path): cancelling would leave the customer charged with no money
   // returned, close the refund path (a 'failed' payments row would

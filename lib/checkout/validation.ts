@@ -3,6 +3,7 @@
 // — crafted localStorage entries that fail validation are dropped.
 
 import { z } from "zod";
+import { deliveryFee } from "../pricing";
 import type { StoredOrder } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,64 @@ export const storedOrderSchema = z.object({
   testMode: z.boolean(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+}).superRefine((order, ctx) => {
+  // Cross-field consistency (audit low 5, 2026-11-18): per-field
+  // shape alone let a crafted localStorage entry claim any totals
+  // — items worth ৳119,900 with a subtotal of 100 poisha and a
+  // ৳50,000 coupon discount, marked delivered + paid. The totals
+  // must reconcile exactly the way checkout computes them
+  // (lib/orders/checkout/totals.ts via lib/pricing):
+  //   * the lines sum to the subtotal;
+  //   * the savings are the compare-at savings on those lines;
+  //   * the delivery fee is the pricing rule for the subtotal and
+  //     the delivery method (standard ৳60, free at/above ৳999,
+  //     express a flat ৳499, nothing for an empty order);
+  //   * the total is subtotal minus the discount actually applied
+  //     plus the delivery fee, never negative. The stored discount
+  //     is the coupon's face value, which may exceed the subtotal
+  //     (a database coupon with a low minimum spend) — checkout
+  //     clamps what is actually taken off to the subtotal, so the
+  //     check clamps the same way instead of rejecting the order.
+  // Live Supabase orders mapped by lib/orders/server/list.ts also
+  // satisfy these rules: their items carry mrp = price (so their
+  // savings are 0, matching the stored 0) and their discount is the
+  // clamped amount stored at creation. An entry that fails any
+  // check is dropped, exactly like a shape-invalid entry.
+  const itemsSum = order.items.reduce((sum, i) => sum + i.price_poisha * i.quantity, 0);
+  if (itemsSum !== order.subtotal_poisha) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "items do not sum to the subtotal",
+      path: ["subtotal_poisha"],
+    });
+  }
+  const savings = order.items.reduce(
+    (sum, i) => sum + (i.mrp_poisha - i.price_poisha) * i.quantity,
+    0,
+  );
+  if (savings !== order.savings_poisha) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "savings do not match the items",
+      path: ["savings_poisha"],
+    });
+  }
+  if (deliveryFee(order.subtotal_poisha, order.delivery) !== order.deliveryFee_poisha) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "delivery fee does not match the subtotal and delivery method",
+      path: ["deliveryFee_poisha"],
+    });
+  }
+  const appliedDiscount = Math.min(order.couponDiscount_poisha, order.subtotal_poisha);
+  const expectedTotal = Math.max(0, order.subtotal_poisha - appliedDiscount + order.deliveryFee_poisha);
+  if (expectedTotal !== order.total_poisha) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "total does not match subtotal minus discount plus delivery fee",
+      path: ["total_poisha"],
+    });
+  }
 });
 
 /**

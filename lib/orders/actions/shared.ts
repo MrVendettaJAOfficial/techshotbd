@@ -36,16 +36,30 @@
 //     A lost race restores no stock.
 //   * Cancel / refund / returned restore stock (lib/orders/stock.ts)
 //     AFTER the conditional update succeeds, so a failed or
-//     lost-race change restores nothing. A refund calls
-//     PaymentAdapter.refund() FIRST and only marks the order refunded
-//     when the adapter succeeds; a paid order is never "cancelled"
-//     (which would keep the money) — it must be refunded instead.
-//     A paid order marked "returned" refunds the same way first:
-//     the adapter is called before the status change and the money
-//     goes back through the same append-only payments row, while
-//     the order itself lands on "returned" (not "refunded"). An
-//     unpaid returned order skips the adapter — there is nothing
-//     to refund — and just restores stock.
+//     lost-race change restores nothing. A refund CLAIMS the order
+//     first and only then calls the payment adapter: the conditional
+//     update to the final status IS the claim, so at most one caller
+//     ever reaches the adapter for a given transition — the loser
+//     gets ALREADY_CHANGED_ERROR and refunds nothing (audit low 11,
+//     2026-11-18). The claim uses the final status itself, not an
+//     intermediate "refunding" status, because that status is not in
+//     the orders.status CHECK constraint and adding it would need a
+//     database migration; a concurrent reader can therefore briefly
+//     see the order at its final status before the adapter call
+//     lands — the accepted trade-off for a claim without a migration.
+//     If the adapter refund then fails, the claim is rolled back to
+//     the original status with a second conditional update, so the
+//     order never sits at "refunded" with no money returned. A paid
+//     order is never "cancelled" (which would keep the money) — it
+//     must be refunded instead. A paid order marked "returned"
+//     refunds the same way first: the adapter is called after the
+//     claim and the money goes back through the same append-only
+//     payments row, while the order itself lands on "returned" (not
+//     "refunded"). An unpaid returned order skips the adapter —
+//     there is nothing to refund — and just restores stock. The
+//     adapter's own refund idempotency (lib/payments/test-adapter.ts
+//     refuses a second refund of the same payment id) is the second
+//     line of defence behind the claim.
 //   * Every change writes an audit_log row (actor, order id, old and
 //     new status in the action string — audit_log has no details
 //     column) and revalidates /admin, /orders and /orders/[id], so
@@ -322,17 +336,25 @@ export async function changeOrderStatus(
     return { ok: false, error: "A paid order cannot be cancelled. Refund it instead." };
   }
 
-  // Refund: call the payment adapter FIRST. Only when it succeeds is
-  // the order marked refunded. A failed gateway refund changes no rows.
-  // (The test adapter moves no real money; a real gateway adapter must
-  // call the provider's refund API here.)
+  // Refund: CLAIM the transition first, then call the payment
+  // adapter — never the other way round (audit low 11). The
+  // conditional update below only lands when the order still holds
+  // the status we validated against, so of two concurrent refund
+  // attempts exactly one wins the claim and reaches the adapter;
+  // the loser is told ALREADY_CHANGED_ERROR and refunds nothing
+  // (before this fix both refunds executed and only one was ever
+  // recorded). A paid order marked "returned" refunds through this
+  // exact same path — the claim, the adapter call, the paid-payment
+  // lookup and the append-only payments row below are shared, not
+  // duplicated — the only difference is the status the order lands
+  // on ("returned" instead of "refunded"). An unpaid returned
+  // order needs no refund and skips this block entirely.
+  // (The test adapter moves no real money; a real gateway adapter
+  // must call the provider's refund API here.)
   //
-  // A paid order marked "returned" refunds through this exact same
-  // path — the adapter call, the paid-payment lookup and the
-  // append-only payments row below are shared, not duplicated — the
-  // only difference is the status the order lands on ("returned"
-  // instead of "refunded"). An unpaid returned order needs no refund
-  // and skips this block entirely.
+  // The paid payment is loaded before the claim only so the claim
+  // is never won for a refund that cannot be paid: an order with
+  // no paid payment is refused before anything is claimed or moved.
   const needsRefund = target === "refunded" || (target === "returned" && order.paymentStatus === "paid");
   let paidPayment: PaidPaymentRow | null = null;
   if (needsRefund) {
@@ -340,6 +362,31 @@ export async function changeOrderStatus(
     if (!paidPayment) {
       return { ok: false, error: "That status change is not allowed." };
     }
+  }
+
+  // The claim: conditional update to the final status. 0 rows
+  // affected means another writer already moved the order — report
+  // that generically and change nothing else: no adapter call, no
+  // audit row, no stock restore.
+  const { data: claimed, error: claimError } = await admin
+    .from("orders")
+    .update({ status: target })
+    .eq("id", order.id)
+    .eq("status", order.status)
+    .select("id");
+  if (claimError) return { ok: false, error: GENERIC_ERROR };
+  if (!Array.isArray(claimed) || claimed.length !== 1) {
+    return { ok: false, error: ALREADY_CHANGED_ERROR };
+  }
+
+  // Only the claim winner reaches the adapter. If the refund
+  // fails, the claim is rolled back to the original status with a
+  // second conditional update, so the order never sits at the final
+  // status with no money returned. A rollback that itself lands on
+  // 0 rows (another writer moved the order in the meantime) is
+  // logged server-side — the refund still failed, so the caller is
+  // told to reload either way.
+  if (needsRefund && paidPayment) {
     let refund: { ok: boolean };
     try {
       refund = await testAdapter.refund(paidPayment.id, paidPayment.amount_poisha);
@@ -347,27 +394,32 @@ export async function changeOrderStatus(
       refund = { ok: false };
     }
     if (!refund.ok) {
+      try {
+        const { data: rolledBack } = await admin
+          .from("orders")
+          .update({ status: order.status })
+          .eq("id", order.id)
+          .eq("status", target)
+          .select("id");
+        if (!Array.isArray(rolledBack) || rolledBack.length !== 1) {
+          console.error(
+            `TechShot refund rollback for order ${order.id}: claim could not be rolled back from ${target} to ${order.status}.`,
+          );
+        }
+      } catch (error) {
+        console.error(
+          `TechShot refund rollback for order ${order.id} failed:`,
+          error instanceof Error ? error.message : "unknown error",
+        );
+      }
       return { ok: false, error: GENERIC_ERROR };
     }
   }
 
-  // Conditional update: only lands when the order still holds the
-  // status we validated against. 0 rows affected means another writer
-  // already moved it — report that generically and change nothing else.
-  const { data: updated, error } = await admin
-    .from("orders")
-    .update({ status: target })
-    .eq("id", order.id)
-    .eq("status", order.status)
-    .select("id");
-  if (error) return { ok: false, error: GENERIC_ERROR };
-  if (!Array.isArray(updated) || updated.length !== 1) {
-    return { ok: false, error: ALREADY_CHANGED_ERROR };
-  }
-
   // Cancel / refund / returned (including a refund from delivered —
-  // the returns flow, and a paid return, which refunded first above)
-  // restores stock, guarded by the successful update above.
+  // the returns flow, and a paid return, which refunded after the
+  // claim above) restores stock, guarded by the successful update
+  // above.
   if (target === "cancelled" || target === "refunded" || target === "returned") {
     await restoreStockAfterStatusChange(admin, order.id);
   }

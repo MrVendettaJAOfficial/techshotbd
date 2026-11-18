@@ -56,6 +56,24 @@ const callbackPayloadSchema = z.object({
 /** Nonces seen by this server process, with the time they were seen. */
 const seenNonces = new Map<string, number>();
 
+/**
+ * Payment ids this process has already refunded, with the amount
+ * refunded for each. The test adapter has no payment store to look
+ * a payment up in, so this in-memory set is the only idempotency
+ * record refund() can keep: a second refund of the same payment id
+ * is refused instead of succeeding again. It is per-process (like
+ * seenNonces above) and clears on restart; a real gateway adapter
+ * must use the provider's refund + idempotency key instead, and
+ * must verify the payment exists, is paid, and matches the amount
+ * against the provider before refunding. See refund() below.
+ */
+const refundedPayments = new Map<string, number>();
+
+/** Test-only helper: clear the in-memory refunded-payment record. */
+export function clearRefundedPaymentsForTests(): void {
+  refundedPayments.clear();
+}
+
 function pruneSeenNonces(now: number): void {
   for (const [nonce, seenAt] of seenNonces) {
     if (now - seenAt > CALLBACK_MAX_AGE_MS) seenNonces.delete(nonce);
@@ -231,14 +249,38 @@ export class TestAdapter implements PaymentAdapter {
     paymentId: string,
     amount_poisha: number,
   ): Promise<RefundResult> {
-    // Test mode: there is no real money to move, so a refund always
-    // succeeds. The caller records it against the payments row; the
-    // reference below is only for the test log, never a real transaction.
-    // A real gateway adapter must call the provider's refund API here
-    // and return ok: false when the provider refuses.
-    if (typeof paymentId !== "string" || paymentId === "" || !(amount_poisha >= 0)) {
+    // Test mode: there is no real money to move and no payment store
+    // to look the payment up in, so this adapter CANNOT verify that
+    // the payment exists, is paid, or that the amount equals the paid
+    // amount — stated plainly, not papered over. What it does verify:
+    // the arguments are a real refund (a non-empty payment id and a
+    // positive whole-poisha amount — a 0 or negative amount is not a
+    // refund), and the payment has not already been refunded in this
+    // process (idempotency: the second refund of the same payment id
+    // returns { ok: false }, with a different amount for the same id
+    // refused the same way). The caller must do the verification this
+    // adapter cannot: changeOrderStatus (lib/orders/actions/shared.ts)
+    // loads the latest PAID payment for the order first and passes
+    // that payment's id and exact amount, and only the caller that
+    // won the status claim reaches this call at all. A real gateway
+    // adapter must call the provider's refund API here, verify the
+    // payment against the provider, and return ok: false when the
+    // provider refuses — the PaymentAdapter interface (lib/payments/
+    // index.ts) is unchanged, so that swap needs no checkout change.
+    // The reference below is only for the test log, never a real
+    // transaction.
+    if (
+      typeof paymentId !== "string" ||
+      paymentId === "" ||
+      !Number.isInteger(amount_poisha) ||
+      amount_poisha <= 0
+    ) {
       return { ok: false };
     }
+    if (refundedPayments.has(paymentId)) {
+      return { ok: false };
+    }
+    refundedPayments.set(paymentId, amount_poisha);
     return { ok: true };
   }
 }

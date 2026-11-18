@@ -68,11 +68,21 @@ export function categorySlugsForRow(row: DbProductRow): string[] {
  * True when a row is a flash deal: EITHER the legacy is_flash_deal
  * flag (kept so products flagged before migration 0012 keep
  * showing until the admin re-tags them) OR membership in the
- * "Flash deals" category (the way the product form tags one now).
+ * "Flash deals" category (the way the product form tags one now)
+ * — AND the deal has not expired. flash_ends_at is the expiry:
+ * when it is set and in the past the deal is over, however it was
+ * flagged (audit run-1, LOW 12 — the seeded iPhone's 7-day window
+ * used to run forever). A NULL / missing flash_ends_at means no
+ * expiry, and an unparseable value is treated as no expiry too
+ * (never hide a live deal over a bad date).
  * This IS the admin control for the flash-deal section — there is
  * no separate flash-deal form.
  */
 export function isFlashDealRow(row: DbProductRow): boolean {
+  if (row.flash_ends_at) {
+    const endsAt = new Date(row.flash_ends_at);
+    if (!Number.isNaN(endsAt.getTime()) && endsAt.getTime() <= Date.now()) return false;
+  }
   return row.is_flash_deal === true || categorySlugsForRow(row).includes(FLASH_DEALS_SLUG);
 }
 

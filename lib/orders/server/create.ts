@@ -343,10 +343,21 @@ export async function createSupabaseOrder(
     await releaseClaim();
   };
 
+  // One row per line, in line order, with the variant already
+  // attached: each line's variant_id lands on ITS OWN row, so a
+  // later cancel / refund restores exactly the variant row that
+  // line decremented (audit run-1, LOW 10). The old code inserted
+  // without variant_id and then re-read the rows to attribute
+  // them by product_id alone — with two lines for the same product
+  // in different variants both lookups found the same first row,
+  // so one variant's stock was never restored on cancel. (The
+  // variant_id column comes from migration 0003, applied live;
+  // a null variant_id is a product-level line.)
   const { error: itemsError } = await admin.from("order_items").insert(
     dbLines.map((l) => ({
       order_id: orderId,
       product_id: l.productId,
+      variant_id: l.variantId,
       seller_id: l.sellerId,
       title: l.title,
       price_poisha: l.price_poisha,
@@ -377,30 +388,6 @@ export async function createSupabaseOrder(
       return genericFailure;
     }
     decremented.push(line);
-  }
-
-  // Record which variant row each order line decremented, so a later
-  // cancel / refund restores exactly that row (migration 0003 adds
-  // order_items.variant_id). Best effort: a database that has not
-  // applied the migration yet must not fail the order.
-  try {
-    const { data: itemRows } = await admin
-      .from("order_items")
-      .select("id, product_id")
-      .eq("order_id", orderId);
-    for (const line of dbLines) {
-      if (!line.variantId) continue;
-      const itemRow = ((itemRows ?? []) as Array<{ id: string; product_id: string }>).find(
-        (r) => r.product_id === line.productId,
-      );
-      if (!itemRow) continue;
-      await admin
-        .from("order_items")
-        .update({ variant_id: line.variantId })
-        .eq("id", itemRow.id);
-    }
-  } catch {
-    // Variant attribution is best effort; the order is already placed.
   }
 
   // The coupon was already claimed atomically above, before the

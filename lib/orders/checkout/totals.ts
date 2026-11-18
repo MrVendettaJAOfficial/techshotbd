@@ -6,6 +6,7 @@ import { computeTotals as pricingComputeTotals } from "@/lib/pricing";
 import type { DeliveryOption, OrderItem, OrderStatus, PaymentMethod, PaymentStatus, StoredOrder } from "@/lib/checkout-store";
 import { validateCoupon } from "./coupons";
 import { resolveCartLines, type CheckoutCartItem } from "./validation";
+import { isLegalOrderTransition } from "../transitions";
 
 /** Standard delivery fee when the order is below the free-delivery threshold (৳60). */
 export const STANDARD_DELIVERY_POISHA = 6000;
@@ -248,5 +249,63 @@ export function isLegalTestPaymentOutcome(
 export function paymentQueryToOutcome(value: string | null): PaymentOutcome | null {
   if (value === "success" || value === "failed" || value === "cancelled") return value;
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Verified-callback decisions. The public callback route
+// (app/api/payments/callback/route.ts) judges a signed outcome
+// against the order's CURRENT state with this pure helper BEFORE
+// either store is touched (audit low 3, 2026-11-18): a signed-but-
+// late outcome must never flip a record the database would refuse.
+// The verdicts:
+//   * "duplicate" — the outcome already landed (same status and
+//     same payment status). The route acknowledges it without
+//     writing anything, so a replayed callback appends no second
+//     paid row and restores no stock a second time.
+//   * "legal" — the move may be applied (and the Supabase leg then
+//     re-checks it itself before writing).
+//   * "illegal" — the move is refused and nothing is written: a
+//     failed callback for a confirmed/paid order (it would re-open
+//     payment on a paid order), a paid callback for a cancelled
+//     order (it would resurrect it), a paid outcome for a
+//     confirmed-but-unpaid order (a COD order never gains a paid
+//     row), or any other move isLegalOrderTransition() refuses.
+// A payment-only move (same status, payment status changed) is
+// legal only in two cases — isLegalOrderTransition() returns false
+// for every same-status move, so these are decided here:
+//   * a failed outcome on an order still pending payment (it stays
+//     pending and retryable);
+//   * a paid outcome on a confirmed order whose latest payment
+//     FAILED (a late gateway success superseding the failed
+//     attempt — the order is already confirmed, only the payment
+//     record moves from failed to paid).
+// A paid order is never cancelled by this helper's verdict alone:
+// cancelling a paid order is a legal transition (cancel from
+// confirmed) that the route refuses separately with the refund
+// direction, exactly as the admin path does.
+// ---------------------------------------------------------------------------
+
+export type CallbackOutcomeVerdict = "duplicate" | "legal" | "illegal";
+
+export function checkCallbackOutcome(
+  current: { status: OrderStatus; paymentStatus: PaymentStatus },
+  outcome: PaymentOutcome,
+): CallbackOutcomeVerdict {
+  const patch = applyPaymentOutcome(outcome);
+  if (patch.status === current.status && patch.paymentStatus === current.paymentStatus) {
+    return "duplicate";
+  }
+  if (patch.status === current.status) {
+    const failedWhilePending =
+      current.status === "pending_payment" && patch.paymentStatus === "failed";
+    const paidAfterFailed =
+      current.status === "confirmed" &&
+      patch.paymentStatus === "paid" &&
+      current.paymentStatus === "failed";
+    return failedWhilePending || paidAfterFailed ? "legal" : "illegal";
+  }
+  return isLegalOrderTransition(current.status, patch.status, current.paymentStatus)
+    ? "legal"
+    : "illegal";
 }
 

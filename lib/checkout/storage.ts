@@ -194,10 +194,34 @@ function sortOrdersNewestFirst(orders: StoredOrder[]): StoredOrder[] {
   });
 }
 
+/**
+ * What a caller may claim about an order it has NOT corroborated
+ * with the server (audit low 5, 2026-11-18): the browser copy is
+ * the shopper's own record, not proof of payment. A patch that
+ * marks an order paid is therefore refused unless the caller
+ * passes { corroborated: true } — the only caller that does is
+ * the order detail page's server reconciliation, which adopts a
+ * paymentStatus the server itself returned (see
+ * app/orders/[id]/page.tsx). Every other browser caller — the
+ * cancel flow, the admin list's local advance — never sets a
+ * payment status of paid, so the gate changes nothing for them.
+ * A "delivered" status is NOT gated here: in unconfigured/demo
+ * mode the admin list advances local orders through the fulfilment
+ * flow, and blocking that would break the demo admin flow. A
+ * forged delivered copy is handled on the display side instead —
+ * the order detail page labels a paid/delivered browser copy with
+ * no server record behind it as unverified.
+ */
+export interface UpdateOrderStatusOptions {
+  /** True only when the patch adopts a status the server returned. */
+  corroborated?: boolean;
+}
+
 export function updateOrderStatus(
   id: string,
   patch: Partial<Pick<StoredOrder, "status" | "paymentStatus" | "cancelNotice">>,
   currentUserId?: string | null,
+  options?: UpdateOrderStatusOptions,
 ): StoredOrder | null {
   // The write path reads the full list (see saveOrder). When the
   // caller knows the viewer it may also pass that viewer's id: the
@@ -206,6 +230,9 @@ export function updateOrderStatus(
   const order = readStoredOrders().find((o) => o.id === id) ?? null;
   if (!order) return null;
   if (currentUserId !== undefined && (order.userId ?? null) !== currentUserId) return null;
+  // A payment claim with no server behind it is refused: nothing
+  // in the browser may mark its own order paid.
+  if (patch.paymentStatus === "paid" && !options?.corroborated) return null;
   const updated: StoredOrder = { ...order, ...patch, updatedAt: new Date().toISOString() };
   saveOrder(updated);
   return updated;

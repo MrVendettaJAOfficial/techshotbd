@@ -52,6 +52,13 @@ export async function submitSupabaseReview(input: {
       message: "You can only review products from a delivered order.",
     };
   }
+  // This path reviews ONE caller-chosen order, so there is no
+  // order to pick — unlike submitReview in lib/reviews.ts, which
+  // finds the order itself and must skip already-reviewed ones
+  // (audit run-1, LOW 13). The same unique constraint still
+  // applies here: a second submit for the same order collides
+  // (23505), and the caller deserves the accurate message, not a
+  // generic failure.
   const { error } = await supabase.from("reviews").insert({
     user_id: userId,
     product_id: product.id,
@@ -60,6 +67,9 @@ export async function submitSupabaseReview(input: {
     text: text || null,
   });
   if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return { ok: false, message: "You have already reviewed this product for this order." };
+    }
     return { ok: false, message: "Could not save your review. Please try again." };
   }
   return { ok: true };
