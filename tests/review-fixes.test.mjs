@@ -386,13 +386,26 @@ test("admin status change is a conditional update (0 rows = already changed, aud
   assert.ok(updateAt > 0 && auditAt > updateAt);
 });
 
-test("admin refund calls the payment adapter FIRST and only then marks the order refunded", () => {
+test("admin refund claims the order FIRST and only then calls the payment adapter", () => {
+  // Audit low 11 (2026-11-18): refunding first let two concurrent
+  // refund attempts both execute the adapter before either
+  // conditional update landed — one won the update and recorded a
+  // refund row while the loser's refund had already executed with
+  // no record. The claim (conditional update to the final status)
+  // now precedes the adapter call, so only the claim winner ever
+  // reaches the adapter; the loser is told already-changed and
+  // refunds nothing. A failed refund rolls the claim back to the
+  // original status.
   const src = readActions();
   assert.ok(src.includes("testAdapter.refund(paidPayment.id, paidPayment.amount_poisha)"));
   assert.ok(src.includes("loadLatestPaidPayment"), "refund uses the latest PAID payment attempt");
+  const claimAt = src.indexOf('.update({ status: target })');
   const refundAt = src.indexOf("testAdapter.refund(");
-  const updateAt = src.indexOf('.update({ status: target })');
-  assert.ok(refundAt > 0 && updateAt > refundAt, "adapter refund precedes the status update");
+  assert.ok(claimAt > 0 && refundAt > claimAt, "the claim update precedes the adapter refund");
+  assert.ok(src.includes("const { data: claimed"), "the claim reads its affected-row count back");
+  assert.ok(src.includes("ALREADY_CHANGED_ERROR"), "a lost claim is reported as already changed");
+  const rollbackAt = src.indexOf('.update({ status: order.status })');
+  assert.ok(rollbackAt > refundAt, "a failed refund rolls the claim back to the original status");
   // Refund appends a new payments row; it never overwrites the paid row.
   assert.ok(src.includes('status: "refunded"'), "refund payment row is inserted");
   assert.ok(!src.includes('.update({ status: "refunded" })'), "no payments row is overwritten to refunded");

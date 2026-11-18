@@ -82,7 +82,7 @@ function row(overrides = {}) {
     rating: 4.9,
     review_count: 1248,
     is_flash_deal: true,
-    flash_ends_at: "2026-11-15T00:00:00.000Z",
+    flash_ends_at: "2027-11-15T00:00:00.000Z",
     product_images: [
       { storage_path: "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg", alt_text: "iPhone 16 Pro", sort_order: 0 },
     ],
