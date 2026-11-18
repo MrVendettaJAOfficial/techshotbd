@@ -77,11 +77,15 @@ async function memoryOrderBelongsToCaller(
 }
 
 // Server action: runs the test-payment outcome for the order's owner
-// only (see the header) and redirects to the order page with the
-// outcome in the query string. No real card details are ever
-// collected on this page. Every failure path redirects without
-// applying anything — a verification error is never treated as a
-// successful verification.
+// only (see the header) and redirects to the plain order page —
+// with NO query parameter (audit low 4, 2026-11-18): the order page
+// used to take the outcome from ?payment= and apply it to the
+// browser copy with no check, so a crafted link could forge a paid
+// order. The order page now learns the outcome from the server
+// record instead (see app/orders/[id]/page.tsx). No real card
+// details are ever collected on this page. Every failure path
+// redirects without applying anything — a verification error is
+// never treated as a successful verification.
 async function testPayAction(formData: FormData) {
   "use server";
   const orderId = String(formData.get("orderId") ?? "");
@@ -92,7 +96,7 @@ async function testPayAction(formData: FormData) {
   // Fail closed without the signing secret: no outcome is ever
   // applied, and the page renders no pay buttons either.
   if (!isTestPaymentSigningConfigured()) {
-    redirect(`/orders/${orderId}?payment=failed`);
+    redirect(`/orders/${orderId}`);
   }
   const order = getOrderRecord(orderId);
   if (!order) redirect("/orders");
@@ -122,7 +126,7 @@ async function testPayAction(formData: FormData) {
 
   // State guard — against the database status when a database row
   // exists (the source of truth), else the memory record. On a
-  // refusal the redirect carries no ?payment=, so no misleading
+  // refusal the redirect is the plain order page, so no misleading
   // banner is shown and nothing is applied. One exception, for the
   // owner only (ownership already passed): a paid order refused a
   // cancel is directed to a refund, like the customer-cancel rule —
@@ -159,10 +163,10 @@ async function testPayAction(formData: FormData) {
       payload.nonce,
     );
   } catch {
-    redirect(`/orders/${orderId}?payment=failed`);
+    redirect(`/orders/${orderId}`);
   }
   if (!verifyCallbackSignature(payload, signature)) {
-    redirect(`/orders/${orderId}?payment=failed`);
+    redirect(`/orders/${orderId}`);
   }
 
   // Supabase leg FIRST, memory only on success — when a database
@@ -180,11 +184,11 @@ async function testPayAction(formData: FormData) {
       signature,
     });
     if (!synced.ok) {
-      redirect(`/orders/${orderId}?payment=failed`);
+      redirect(`/orders/${orderId}`);
     }
   }
   updateOrderRecordStatus(orderId, patch);
-  redirect(`/orders/${orderId}?payment=${outcome}`);
+  redirect(`/orders/${orderId}`);
 }
 
 export default function TestPayPage({

@@ -12,6 +12,7 @@ import {
   getOrderRecord,
   updateOrderRecordStatus,
 } from "@/lib/orders";
+import { checkCallbackOutcome } from "@/lib/orders/checkout/totals";
 import { testAdapter } from "@/lib/payments/test-adapter";
 import { loadSupabaseOrderForCallback, updateSupabaseOrderFromCallback } from "@/lib/orders-server";
 
@@ -85,6 +86,26 @@ export async function POST(request: Request) {
 
   const outcome = adapterStatusToOutcome(adapterStatus);
   const patch = applyPaymentOutcome(outcome);
+  // Validate the move ONCE, against the order's CURRENT status and
+  // latest payment status, BEFORE either store is touched (audit
+  // low 3, 2026-11-18): a signed-but-late outcome must never flip
+  // a record the database would refuse. The check runs on `order`
+  // — the memory record when one exists, else the database row
+  // loaded above — so both stores are judged by the same state.
+  // A duplicate outcome (it already landed) is acknowledged
+  // without writing anything; an illegal one is refused with
+  // nothing written. See checkCallbackOutcome() in
+  // lib/orders/checkout/totals.ts for the exact rules.
+  const verdict = checkCallbackOutcome(order, outcome);
+  if (verdict === "duplicate") {
+    return NextResponse.json({ ok: true, status: adapterStatus });
+  }
+  if (verdict === "illegal") {
+    return NextResponse.json(
+      { ok: false, error: "That status change is not allowed." },
+      { status: 400 },
+    );
+  }
   // A verified-but-late cancellation of a paid order is refused
   // BEFORE any record is touched: a paid order is refunded,
   // never cancelled (the database callback enforces the same rule
@@ -98,18 +119,42 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Database leg FIRST, memory only on its success. The Supabase
+  // leg re-verifies the signed proof itself before writing
+  // anything (see lib/orders/server/callback.ts), and its result
+  // is no longer discarded: a real rejection — an illegal
+  // transition, a paid-order cancel, a lost race — returns the
+  // failure instead of { ok: true } and the memory record is left
+  // untouched, so the two stores can never diverge. Two results
+  // are NOT rejections, they only mean there is no database row to
+  // sync: Supabase unconfigured, or a memory-only (guest/local)
+  // order with no database row — for those the memory record IS
+  // the order, so the validated patch above is the whole update.
   // Only a memory record that exists can be updated in memory: a
   // database-only order (memory miss above) has no memory copy to
   // touch, and inventing one would put a partial record in the
   // path of the confirmation page.
-  if (memoryOrder) updateOrderRecordStatus(orderId, patch);
-  // Keep the live Supabase order in sync too. This runs only after the
-  // callback signature was verified above, which is the trust boundary —
-  // and the proof is passed through so the callback function verifies
-  // the signature + freshness itself before writing anything.
-  await updateSupabaseOrderFromCallback(orderId, patch, {
+  const synced = await updateSupabaseOrderFromCallback(orderId, patch, {
     payload: { orderId, status: adapterStatus, timestamp, nonce },
     signature,
   });
+  if (!synced.ok) {
+    if (
+      synced.message === "Supabase is not configured." ||
+      synced.message === "Order not found."
+    ) {
+      // No database row to sync: the memory record IS the order,
+      // so the validated patch above is the whole update. When
+      // there is no memory record either (the database row the
+      // load above found vanished before the write), there is
+      // nothing to update — that is a failure, not a success.
+      if (memoryOrder) {
+        updateOrderRecordStatus(orderId, patch);
+        return NextResponse.json({ ok: true, status: adapterStatus });
+      }
+    }
+    return NextResponse.json({ ok: false, error: synced.message }, { status: 400 });
+  }
+  if (memoryOrder) updateOrderRecordStatus(orderId, patch);
   return NextResponse.json({ ok: true, status: adapterStatus });
 }

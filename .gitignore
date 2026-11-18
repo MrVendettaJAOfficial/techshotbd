@@ -1,6 +1,12 @@
 .env
 .env.local
 .env*.local
+.env.production
+.env.development
+.env.test
+*.pem
+*.key
+credentials*.json
 node_modules/
 .next/
 out/

@@ -52,12 +52,17 @@ export function ProductList({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  // A delete that succeeded but could not reclaim every Storage
+  // photo (audit run-1, LOW 8): the product is gone, the warning
+  // says so plainly instead of failing silently.
+  const [rowWarning, setRowWarning] = useState<string | null>(null);
 
   const productCounts = countByStatus(products, (product) => product.status);
   const filteredProducts = filterByStatus(products, productFilter, (product) => product.status);
 
   async function handleToggleStatus(product: ProductListItem): Promise<void> {
     setRowError(null);
+    setRowWarning(null);
     setBusyId(product.id);
     const next = product.status === "active" ? "paused" : "active";
     const result = await setProductStatus(product.id, next);
@@ -71,6 +76,7 @@ export function ProductList({
 
   async function handleDelete(product: ProductListItem): Promise<void> {
     setRowError(null);
+    setRowWarning(null);
     setBusyId(product.id);
     const result = await deleteProduct(product.id);
     setBusyId(null);
@@ -79,6 +85,9 @@ export function ProductList({
       setRowError(result.error);
       return;
     }
+    // The product is deleted; a warning means some of its Storage
+    // photos could not be removed — show it, do not swallow it.
+    if (result.warning) setRowWarning(result.warning);
     // The form owns the edit state: deleting the product being
     // edited clears the form (same as the old inline check).
     onDeleted?.(product);
@@ -102,6 +111,9 @@ export function ProductList({
       />
       {rowError ? (
         <p role="alert" className="mb-4 mt-4 text-sm text-red-700">{rowError}</p>
+      ) : null}
+      {rowWarning ? (
+        <p role="status" className="mb-4 mt-4 text-sm text-amber-700">{rowWarning}</p>
       ) : null}
       {products.length === 0 ? (
         <EmptyState

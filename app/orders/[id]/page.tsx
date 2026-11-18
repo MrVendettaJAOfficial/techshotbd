@@ -4,8 +4,20 @@
 // address, payment, and cancel (pending payment / confirmed only).
 // The browser copy is reconciled with the server record, so a
 // payment completed through the callback route or an admin move
-// shows up here; a payment outcome in the query string (?payment=)
-// from the test-pay redirect is applied to the browser copy.
+// shows up here. A payment outcome is NEVER taken from the query
+// string (audit low 4, 2026-11-18): the payment query parameter
+// used to rewrite the browser copy to confirmed/paid with no check
+// that any payment happened, and the forgery survived reloads. The
+// test-pay redirect now lands here with no query parameter, and
+// the page only ever adopts a payment the server itself reports
+// (see the reconciliation below) — the "payment successful"
+// notice is shown only after the server returns paymentStatus
+// "paid" for this order. Guests have no session, so the signed-in
+// read returns null for them; the reconciliation falls back to the
+// buyerToken proof (getGuestOrderStatusFromServer), the token the
+// guest's own copy carries. A browser copy that claims
+// paid/delivered with no server record behind it is labelled
+// unverified instead (audit low 5).
 //
 // The presentational sections live in components/order-detail/
 // (summary, timeline, items); this page keeps the order loading,
@@ -16,8 +28,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { applyPaymentOutcome, paymentQueryToOutcome } from "@/lib/orders";
 import { getOrderStatusFromServer, listSupabaseOrders } from "@/lib/orders-server";
+import { getGuestOrderStatusFromServer } from "@/lib/orders/server/guest-status";
 import { cancelMyOrder } from "@/lib/orders/actions";
 import { getSession } from "@/lib/auth";
 import {
@@ -53,7 +65,14 @@ function OrderDetailInner() {
   const [loaded, setLoaded] = useState(false);
   const [order, setOrder] = useState<StoredOrder | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const paymentApplied = useRef(false);
+  const noticeHandled = useRef(false);
+  // Whether the server has a record for this order (audit low 5):
+  // null while the server check has not resolved yet, true when
+  // getOrderStatusFromServer() returned a record, false when it
+  // resolved with nothing. A browser copy that claims paid or
+  // delivered while this is false is labelled unverified below —
+  // the claim comes from this browser only, not from the shop.
+  const [serverCorroborated, setServerCorroborated] = useState<boolean | null>(null);
 
   const id = params.id;
 
@@ -103,6 +122,11 @@ function OrderDetailInner() {
         if (live) {
           saveOrder(live);
           setOrder(live);
+          // The live order came from the server, so its paid /
+          // delivered state is corroborated by definition.
+          setServerCorroborated(true);
+        } else {
+          setServerCorroborated(false);
         }
         setLoaded(true);
       })();
@@ -130,8 +154,26 @@ function OrderDetailInner() {
     // payment, so the retry button below appears.
     if (browserOrder) {
       let cancelled = false;
-      void getOrderStatusFromServer(id).then((server) => {
-        if (cancelled || !server) return;
+      void (async () => {
+        let server = await getOrderStatusFromServer(id);
+        // Guests have no session, so the signed-in read above
+        // always returns null for them — a guest's own order could
+        // never adopt a server payment, and after the ?payment=
+        // removal (audit low 4) a guest who paid saw "Pending
+        // payment" forever. Fall back to the buyerToken proof: the
+        // token the guest's own copy carries, checked against the
+        // in-memory record (same proof as the cancel flow). The
+        // fallback returns the server's status, never the copy's
+        // claims, so a forged copy still cannot corroborate itself.
+        if (!server && browserOrder.buyerToken) {
+          server = await getGuestOrderStatusFromServer(id, browserOrder.buyerToken);
+        }
+        if (cancelled) return;
+        // No server record: the browser copy stands uncorroborated
+        // (see the unverified label below). A record means the
+        // server has this order — the claims below adopt it.
+        setServerCorroborated(server !== null);
+        if (!server) return;
         const flow = ["pending_payment", "confirmed", "processing", "shipped", "delivered"];
         const terminal = ["cancelled", "refunded", "returned"];
         const serverAhead = flow.indexOf(server.status) > flow.indexOf(browserOrder.status);
@@ -140,57 +182,63 @@ function OrderDetailInner() {
         const paymentChanged =
           browserOrder.status === "pending_payment" &&
           server.paymentStatus !== browserOrder.paymentStatus;
-        if (!serverAhead && !serverTerminal && !paymentChanged) return;
+        // A payment the server reports as paid is adopted even
+        // when the browser copy already left pending_payment (an
+        // admin advance of an unpaid order, paid afterwards): the
+        // server is the corroboration, and the copy must not keep
+        // saying "unpaid" once the shop's record says paid.
+        const serverPaid =
+          server.paymentStatus === "paid" && browserOrder.paymentStatus !== "paid";
+        if (!serverAhead && !serverTerminal && !paymentChanged && !serverPaid) return;
         if (
           server.status === browserOrder.status &&
           server.paymentStatus === browserOrder.paymentStatus
         ) {
           return;
         }
-        const updated = updateOrderStatus(id, {
-          status: server.status,
-          paymentStatus: server.paymentStatus,
-        });
-        if (updated) setOrder(updated);
-      });
+        const updated = updateOrderStatus(
+          id,
+          {
+            status: server.status,
+            paymentStatus: server.paymentStatus,
+          },
+          undefined,
+          { corroborated: true },
+        );
+        if (updated) {
+          setOrder(updated);
+          // The success notice is shown ONLY here — after the
+          // server itself returned paymentStatus "paid" for this
+          // order, never from a query string (audit low 4).
+          if (serverPaid) {
+            setNotice("Test payment successful. Your order is confirmed.");
+          }
+        }
+      })();
       return () => {
         cancelled = true;
       };
     }
   }, [id, viewerId]);
 
-  // Apply the ?payment= outcome from the test-pay redirect to the
-  // browser-stored order (the server-side in-memory record was already
-  // updated by the test-pay action), then clean the query string.
+  // A refund direction the test-pay page carries for the owner only
+  // (?notice=refund): a paid order refused a cancel there. It shows
+  // the direction and applies nothing to the order — the value is a
+  // fixed key, never rendered raw. There is deliberately NO
+  // ?payment= handling here any more (audit low 4): a query string
+  // is not proof of payment, so the page never applies an outcome
+  // from it. The test-pay redirect lands with no query parameter,
+  // and a paid order shows as paid only once the server says so
+  // (see the reconciliation above).
   useEffect(() => {
-    if (paymentApplied.current) return;
-    // A refused test-pay outcome that carries a direction (a paid
-    // order refused a cancel at the test-pay page): show the refund
-    // direction without applying anything to the order. The value is
-    // a fixed key, never rendered raw.
+    if (noticeHandled.current) return;
     if (searchParams.get("notice") === "refund") {
-      paymentApplied.current = true;
+      noticeHandled.current = true;
       setNotice(
         "This order was already paid, so it can't be cancelled here. Please contact us for a refund.",
       );
       router.replace(`/orders/${id}`);
-      return;
     }
-    const outcome = paymentQueryToOutcome(searchParams.get("payment"));
-    if (!outcome) return;
-    paymentApplied.current = true;
-    const updated = updateOrderStatus(id, applyPaymentOutcome(outcome));
-    if (updated) {
-      setOrder(updated);
-      setNotice(
-        outcome === "success"
-          ? "Test payment successful. Your order is confirmed."
-          : outcome === "failed"
-            ? "Test payment failed. Your order is still pending payment."
-            : "Test payment cancelled. Your order has been cancelled.",
-      );
-    }
-    router.replace(`/orders/${id}`);
   }, [id, searchParams, router]);
 
   const [cancelling, setCancelling] = useState(false);
@@ -279,19 +327,41 @@ function OrderDetailInner() {
   // remount after a server-action refresh wipes the transient state,
   // but the stored order reloads with cancelNotice intact (see
   // cancelOrder above), so a confirmed live cancel still shows its
-  // stock-released message after the refresh.
+  // stock-released message after the refresh. Last, a failed test
+  // payment: the order itself records paymentStatus "failed" while
+  // still pending_payment (written by the test-pay action, or
+  // adopted from the server by the reconciliation above), so the
+  // "still pending" guidance is derived from the order's own state
+  // — never from a query string (audit low 4). Claiming "failed"
+  // grants nothing (no paid state, no goods), so this one needs no
+  // server corroboration; the success notice above it still does.
   const shownNotice =
     notice ??
     (order.cancelNotice === "live"
       ? "Order cancelled. Stock for these items has been released back to inventory."
       : order.cancelNotice === "local"
         ? "Order cancelled in this browser. This order was not saved to your account."
-        : null);
+        : order.status === "pending_payment" && order.paymentStatus === "failed"
+          ? "Test payment failed. Your order is still pending payment."
+          : null);
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-10">
       <Link href="/orders" className="text-sm text-brandDark hover:underline">← Back to my orders</Link>
       <OrderSummary order={order} notice={shownNotice} />
+
+      {/* Unverified browser copy (audit low 5): this order claims
+          paid or delivered, but the server has no record of it —
+          the claim comes from this browser's saved copy only, not
+          from the shop. It is labelled, not hidden: a guest's own
+          legitimately placed order is still listed, but nobody can
+          mistake an uncorroborated copy for a confirmed payment. */}
+      {serverCorroborated === false &&
+        (order.paymentStatus === "paid" || order.status === "delivered") && (
+          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm font-bold text-amber-700" role="status">
+            Unverified copy — this order is saved in this browser only and has not been confirmed by the shop.
+          </div>
+        )}
 
       <OrderTimeline order={order} />
 
@@ -321,6 +391,7 @@ function OrderDetailInner() {
           </p>
           <p className="mt-1 text-sm text-muted">
             Payment status: {PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus}
+            {serverCorroborated === false && order.paymentStatus === "paid" && " (unverified)"}
           </p>
           {order.testMode && (
             <p className="mt-2 text-xs text-muted">Paid through the test gateway — no real money moved.</p>

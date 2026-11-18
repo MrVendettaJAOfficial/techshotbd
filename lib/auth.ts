@@ -190,7 +190,17 @@ export async function signUp(input: {
   });
   if (error) {
     if (/already registered|already exists/i.test(error.message)) {
-      throw new Error("An account with this email already exists. Please sign in instead.");
+      // Do not reveal whether the address is registered (security
+      // audit run-1, low: signup-registered-email-oracle): an
+      // already-registered address gets exactly the same outcome as
+      // a new address awaiting email confirmation - the confirmation
+      // wording below, which the sign-up page shows as a notice, not
+      // an error. A distinct message (or a generic failure) would
+      // still let an unauthenticated caller test any address, so
+      // the oracle is closed only by reusing this wording.
+      throw new Error(
+        "Please check your email to confirm your account, then sign in.",
+      );
     }
     throw new Error("Could not create your account. Please try again.");
   }
@@ -389,7 +399,11 @@ export async function updatePasswordAfterReset(input: {
  * Change password for a signed-in user: the current password is
  * verified first by signing in again with it (re-authentication),
  * and only then is the password updated. A wrong current password
- * is reported as such; nothing is changed in that case.
+ * is reported as such; nothing is changed in that case. After a
+ * successful change, every other session is revoked (signOut with
+ * scope "others") - the user stays signed in on this device, but
+ * any other device is signed out and must sign in again with the
+ * new password.
  */
 export async function changePassword(input: {
   currentPassword: string;
@@ -425,6 +439,21 @@ export async function changePassword(input: {
   const { error } = await supabase.auth.updateUser({ password: parsed.data.newPassword });
   if (error) {
     throw new Error("Could not change your password. Please try again.");
+  }
+  // Revoke every other session (needs-validation item 11): the
+  // password just changed, so a session on another device - or a
+  // stolen session - must not survive it. Scope "others" signs out
+  // all sessions except this one, so the user stays signed in here
+  // (installed @supabase/auth-js supports "others"; its _signOut
+  // only removes the current session for scope "global"). Best
+  // effort: the password already changed, so a failed revocation
+  // must not report the change itself as failed.
+  try {
+    await supabase.auth.signOut({ scope: "others" });
+  } catch {
+    // Other devices may stay signed in - the password change itself
+    // still succeeded, and the user can sign out elsewhere from
+    // their account if needed.
   }
 }
 
