@@ -14,7 +14,7 @@
 // table and a fake Storage bucket, so the quota and reclamation
 // behaviour is exercised end to end at the action level —
 // including the real sharp crop of the uploaded photo (a 1x1 PNG
-// fixture passes through unchanged, per
+// fixture is re-encoded at its own size, never upscaled, per
 // lib/banners/process-banner-image.ts).
 //
 // What is proven here:

@@ -57,7 +57,7 @@ function row(overrides = {}) {
     rating: 4.9,
     review_count: 1248,
     is_flash_deal: true,
-    flash_ends_at: "2026-11-15T00:00:00.000Z",
+    flash_ends_at: "2027-11-15T00:00:00.000Z",
     product_images: [
       { storage_path: "/images/products/apple-iphone-16-pro-256gb-natural-titanium.jpg", alt_text: "iPhone 16 Pro", sort_order: 0 },
     ],
@@ -333,13 +333,13 @@ test("subscription plans map with the right name, period and tagline", () => {
 
 test("flash countdown uses the earliest flash end time", () => {
   const rows = [
-    row({ flash_ends_at: "2026-11-15T00:00:00.000Z" }),
-    row({ slug: "other-flash", is_flash_deal: true, flash_ends_at: "2026-11-10T00:00:00.000Z" }),
+    row({ flash_ends_at: "2027-11-15T00:00:00.000Z" }),
+    row({ slug: "other-flash", is_flash_deal: true, flash_ends_at: "2027-11-10T00:00:00.000Z" }),
     sonyHeadphones, // not a flash deal
   ];
   assert.equal(
     earliestFlashEndsAt(rows)?.toISOString(),
-    "2026-11-10T00:00:00.000Z",
+    "2027-11-10T00:00:00.000Z",
   );
   assert.equal(earliestFlashEndsAt([sonyHeadphones]), undefined);
 });

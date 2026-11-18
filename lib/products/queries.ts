@@ -8,6 +8,17 @@
 // lists with configured: false, and the page shows a plain notice
 // instead of leaking configuration details.
 //
+// Defense in depth (security audit run-1, low: admin-reads-no-
+// in-function-gate): middleware is the only gate on /admin, so both
+// helpers check the caller's role themselves - re-read from the
+// database on every call with getCallerRole() - and return empty
+// lists for a caller without the right role BEFORE creating the
+// service-role client, exactly like lib/admin/stats.ts (getAdminStats),
+// lib/orders/server/list.ts (listAdminOrders), listBanners and
+// listAnnouncements. fetchAllProducts needs any staff role; the
+// users list is owner-only, like listUsers in
+// lib/auth-server/admin-users.ts.
+//
 // NOTE: the Supabase Database generic resolves query results to
 // `never` with the installed supabase-js version (lib/supabase/
 // catalog.ts works around the same issue with `as unknown` casts),
@@ -16,6 +27,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getCallerRole } from "@/lib/auth-server/session";
+import { isOwner, isStaff } from "@/lib/roles";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 import type { CategoryOption, ProductListItem, ProductVariantItem } from "./types";
@@ -244,9 +257,17 @@ export async function fetchCategories(): Promise<{ categories: CategoryOption[];
   }
 }
 
-/** Every product (all statuses), newest first. Admin only. */
+/**
+ * Every product (all statuses), newest first. Admin only: the caller
+ * must be signed in with a staff role (owner, co-admin or manager).
+ * The role is re-read from the database on every call (getCallerRole)
+ * and a non-staff caller gets empty lists with no service-role read
+ * at all - the middleware gate on /admin is not the only barrier.
+ */
 export async function fetchAllProducts(): Promise<ProductQueryResult> {
   const empty: ProductQueryResult = { products: [], categories: [], configured: false };
+  const role = await getCallerRole().catch(() => null);
+  if (!isStaff(role)) return empty;
   try {
     const admin = untyped(createAdminClient());
     const { data: productsData, error: productsError } = await admin
@@ -288,11 +309,16 @@ export async function fetchAllProducts(): Promise<ProductQueryResult> {
 }
 
 /**
- * Every registered user (profiles rows), newest first. Admin only.
+ * Every registered user (profiles rows), newest first. Owner only:
+ * the caller must be signed in with role "admin" in profiles - a
+ * co-admin or manager gets an empty list with no service-role read
+ * at all, exactly like listUsers in lib/auth-server/admin-users.ts.
  * Emails are not stored in profiles, so the display name is shown
  * with the account id; the auth worker owns any richer user admin.
  */
 export async function fetchAdminUsers(): Promise<{ users: AdminUserItem[]; configured: boolean }> {
+  const role = await getCallerRole().catch(() => null);
+  if (!isOwner(role)) return { users: [], configured: false };
   try {
     const admin = untyped(createAdminClient());
     const { data, error } = await admin

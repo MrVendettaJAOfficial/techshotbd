@@ -99,6 +99,22 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Strict-Transport-Security (audit NV 13, 2026-11-18): force
+          // HTTPS for two years on this host and its subdomains. The
+          // value matches what Vercel itself sends for *.vercel.app
+          // (max-age=63072000; includeSubDomains; preload — see
+          // Vercel's "Encryption and TLS" docs), so the app sets it
+          // explicitly instead of relying on the platform: a custom
+          // domain later gets the same value, and the header is
+          // present even where the edge does not add one. The
+          // `preload` token only takes effect if the domain is
+          // submitted to hstspreload.org; vercel.app itself is
+          // already preloaded, so this changes nothing for the
+          // current .vercel.app host.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
           {
             key: "Content-Security-Policy",
             value:

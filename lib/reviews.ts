@@ -223,15 +223,41 @@ export async function submitReview(
     .select("id, order_items(product_id)")
     .eq("user_id", userId)
     .eq("status", "delivered");
-  const deliveredOrder = ((orders ?? []) as Array<{
+  const deliveredOrdersWithProduct = ((orders ?? []) as Array<{
     id: string;
     order_items?: Array<{ product_id: string }>;
-  }>).find((order) => (order.order_items ?? []).some((item) => item.product_id === dbProductId));
-  if (!deliveredOrder) {
+  }>).filter((order) =>
+    (order.order_items ?? []).some((item) => item.product_id === dbProductId),
+  );
+  if (deliveredOrdersWithProduct.length === 0) {
     return {
       ok: false,
       message: "You can only review products from a delivered order.",
     };
+  }
+  // One review per user / product / order (the database unique
+  // constraint) — so an order the caller already reviewed for this
+  // product must not be picked: with two delivered orders for the
+  // same product, picking the already-reviewed first one used to
+  // block the review even though the second order still entitles
+  // them to one (audit run-1, LOW 13). Exclude reviewed orders
+  // before picking; only when every eligible order is already
+  // reviewed does the caller get the already-reviewed message.
+  const { data: existingReviews } = await supabase
+    .from("reviews")
+    .select("order_id")
+    .eq("user_id", userId)
+    .eq("product_id", dbProductId);
+  const reviewedOrderIds = new Set(
+    ((existingReviews ?? []) as Array<{ order_id?: unknown }>)
+      .map((row) => row.order_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  const deliveredOrder = deliveredOrdersWithProduct.find(
+    (order) => !reviewedOrderIds.has(order.id),
+  );
+  if (!deliveredOrder) {
+    return { ok: false, message: "You have already reviewed this product for this order." };
   }
 
   const { error } = await supabase.from("reviews").insert({

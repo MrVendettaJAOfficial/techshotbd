@@ -68,8 +68,14 @@ export interface CategoryOption {
 }
 
 /** What every product server action returns. Errors are generic on
- *  purpose: never a stack trace, SQL, or table name. */
-export type ProductActionResult = { ok: true; slug: string } | { ok: false; error: string };
+ *  purpose: never a stack trace, SQL, or table name. A successful
+ *  delete may also carry `warning` (audit run-1, LOW 8): the
+ *  product row is gone, but some of its Storage photos could not
+ *  be removed — the admin list shows the warning next to the
+ *  error line, so a half-cleaned delete is never silent. */
+export type ProductActionResult =
+  | { ok: true; slug: string; warning?: string }
+  | { ok: false; error: string };
 
 /**
  * What the photo-upload server action returns. On success, `files`
@@ -77,9 +83,11 @@ export type ProductActionResult = { ok: true; slug: string } | { ok: false; erro
  * root) — the admin form fills them into the product's photo list.
  * The files are uploaded immediately; the product_images rows are
  * only written when the product itself is saved, so uploading
- * without saving leaves unreferenced files in the bucket (harmless,
- * and never deleted automatically — a file may be referenced by
- * another product).
+ * without saving leaves unreferenced files in the bucket. Those
+ * are bounded by the daily / total caps in
+ * lib/products/actions/upload.ts and swept after 24h by
+ * cleanupOrphanProductPhotos — a file a product still references
+ * is never deleted.
  */
 export type ProductImageUploadResult =
   | { ok: true; files: string[] }
